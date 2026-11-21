@@ -59,6 +59,47 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Add offline worker, app manifest and icons, report box module and LLM proxy (from a parallel session)
+
+- **Date:** 2026-11-21
+- **Stage:** Screens D/E groundwork (BenStew's files, written by another session)
+- **What changed:** files a parallel session wrote into the folder while Screen C was being built, committed as-is apart from two lines in `sw.js`:
+  - `sw.js`: service worker.
+    - Pre-caches the app shell + `/lib` + icons on install, skipping any missing file.
+    - Deletes old shell caches on activate.
+    - OSM tiles: cache-first, only tiles actually viewed, capped at 2,000 (oldest trimmed), never prefetched.
+    - Other sites (Overpass, Nominatim, Firebase, the proxy): network-only.
+    - Same-site files: cache-first with a background refresh, so the demo file is cached on first use.
+    - Two lines changed in Screen C: `config.js` added to the shell list, `CACHE_VERSION` bumped to `v2`.
+    - **Not registered by the page yet** (Screen E).
+  - `manifest.json`, `icons/`, `tools/make-icons.py`: the PWA manifest (name FindThem, theme `#b00020`, standalone), 192/512/maskable PNGs, an Apple touch icon and an SVG, drawn by a pure-standard-library Python script. **`index.html` doesn't link the manifest yet** (Screen E).
+  - `report.js`: the report box logic (no UI text).
+    - voice through the Web Speech API (`startVoice`, `isVoiceSupported`)
+    - `parseReport` POSTs to the proxy with a 15 s timeout
+    - `validateDraft` cleans the LLM output (kinds, lat/lng pairs, compass directions, minutes 0–1440, reliability snapped to 0.3/0.6/0.9, text lengths)
+    - `draftToEvent` makes an Event only after Confirm: a sighting needs a pin, and `searched` returns null because it needs a sector from the map
+    - `PROXY_URL` is empty until the proxy is deployed
+  - `proxy/` (`worker.js`, `wrangler.toml`, `README.md`): a Cloudflare Worker.
+    - The DeepSeek key is a Worker secret (`wrangler secret put DEEPSEEK_API_KEY`), never in the repo.
+    - The system prompt says the report is data, not instructions; it uses JSON mode at temperature 0, and the output goes back through `validateDraft`.
+    - Best-effort per-IP rate limit (20/min); origin check via `ALLOWED_ORIGIN` (`*` for now; set the real site before the demo).
+  - `tests/report.test.js`: 8 tests for `validateDraft`, `draftToEvent`, `parseReport` without a proxy, and no voice in Node.
+- **Why:** BenStew asked for these files to be committed and pushed with Screen C.
+- **Decisions:**
+  - Kept as written: they were reviewed in Screen C and found sound (no keys in code, untrusted text handled as data, everything validated twice).
+  - Committed separately from Screen C so the history shows they came from a different session.
+- **How it was verified:**
+  - `node --test`: 14/14 pass (sync + report).
+  - A grep for API keys and secrets in these files found nothing.
+  - The icons are 20 KB in total.
+- **Known issues / not done:**
+  - The report-box UI isn't wired into the page.
+  - The proxy isn't deployed and `PROXY_URL` is empty.
+  - `ALLOWED_ORIGIN` is `*`.
+  - The service worker isn't registered and the manifest isn't linked.
+  - Not tested in a browser yet.
+- **Next:** create Firebase; Screen D (report box UI + proxy deploy); Screen E (register `sw.js`, link the manifest, Save my home area, GPS dot).
+
 ### Screen C: live sharing via Firebase REST, share/join links, names, messages, police hand-off sheet
 
 - **Date:** 2026-11-21
