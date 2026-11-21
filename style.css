@@ -602,10 +602,15 @@ button.big[aria-pressed="true"] { animation: pulse 1.4s ease-in-out infinite; }
   max-width: 46%;
   font-size: 12px;
   line-height: 1.25;
-  pointer-events: none;
 }
 @media (min-width: 600px) { #legend { font-size: 14px; max-width: none; } }
 #legend[hidden] { display: none; }
+#legend { pointer-events: auto; cursor: pointer; }       /* tap to fold it away */
+#legend.folded p:not(.legend-title) { display: none; }
+#legend .legend-title::after { content: ' ▾'; }
+#legend.folded .legend-title::after { content: ' ▸'; }
+/* While the map waits for a tap, the panel gets shorter so there's more map to tap on. */
+body.picking #panel { max-height: 38dvh; }
 #legend p { margin: 1px 0; display: flex; align-items: center; gap: 6px; }
 #legend .legend-title { font-weight: 700; }
 .swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }

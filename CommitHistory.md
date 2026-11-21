@@ -59,6 +59,17 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Phone map space: bigger map while placing, foldable legend
+
+- **Date:** 2026-11-21
+- **Stage:** Screen (BenStew)
+- **What changed:**
+  - While the map waits for a tap (last-seen point, familiar place, sighting, home), `body.picking` shortens the bottom panel to 38% of the screen (from 55%), so there's more map to tap; the map resizes back afterwards (`renderModeUI` calls `map.invalidateSize`). At 375×812 the map goes from 313 px to 451 px tall.
+  - The legend ("Chance they are inside") folds to its title with a tap and opens again with another (▾ / ▸). It's a focusable button (Enter/Space) with `aria-expanded`.
+  - `sw.js` v14.
+- **Why:** on a phone the map is short, and the legend, the blue bar and the map buttons covered much of it.
+- **How it was verified:** `node --test` 62/62; built-in browser at 375×812: map height 313 → 451 px when "Add a familiar place" is tapped; the legend folded on tap.
+
 ### Voice bot: Deepgram speech-to-text and ElevenLabs read-back through the proxy, with fallback
 
 - **Date:** 2026-11-21

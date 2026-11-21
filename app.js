@@ -433,7 +433,10 @@ function renderModeUI() {
   els.lastSeenDone.hidden = !state.lastSeen || mode === 'lastSeen';
 
   els.tapBanner.hidden = !mode;
+  const wasPicking = document.body.classList.contains('picking');
   els.mapWrap.classList.toggle('picking', Boolean(mode));
+  document.body.classList.toggle('picking', Boolean(mode)); // shorter panel, bigger map (style.css)
+  if (wasPicking !== Boolean(mode)) setTimeout(() => map.invalidateSize(), 0); // the map changed size
   if (mode) {
     // The bar has its own 🔍 button, so the emoji at the end of the prompt is dropped here.
     const prompt = mode === 'sighting' && state.sightingDraft ? t('sightingPlaced') : t(MODE_PROMPTS[mode]);
@@ -1855,6 +1858,13 @@ function start() {
   els.setLastSeen.addEventListener('click', () => setMode(state.mode === 'lastSeen' ? null : 'lastSeen'));
   els.tapBannerCancel.addEventListener('click', cancelMode);
   els.tapBannerSearch.addEventListener('click', openMapSearch);
+  // Tap the legend to fold it to its title (more map), tap again to open it.
+  const toggleLegend = () => {
+    const folded = els.legend.classList.toggle('folded');
+    els.legend.setAttribute('aria-expanded', String(!folded));
+  };
+  els.legend.addEventListener('click', toggleLegend);
+  els.legend.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLegend(); } });
   els.searchForm.addEventListener('submit', runMapSearch);
   els.searchClose.addEventListener('click', closeMapSearch);
   els.searchBox.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMapSearch(); });
