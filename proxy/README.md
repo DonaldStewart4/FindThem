@@ -14,6 +14,38 @@ Jev doesn't write text. `jev.js` asks it five multiple-choice questions about th
 
 Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in. The person always checks the draft and taps the button before anything reaches the map.
 
+## Optional voice bot: Deepgram + ElevenLabs
+
+`voice.js` adds three routes, used only if their keys are set:
+
+| Route | Service | What it does |
+|---|---|---|
+| `GET /voice` | none | Tells the app which keys are set: `{ "listen": true/false, "speak": true/false }` (never the keys) |
+| `POST /listen?lang=en` | **Deepgram** nova-3 | The person's recording → `{ "text": "..." }`. The app then sends that text to `POST /` as usual |
+| `POST /speak` | **ElevenLabs** Flash v2.5 | `{ "text", "lang" }` → MP3. The app reads back what it filled in and what it wasn't sure about |
+
+**No keys, no change:** if `DEEPGRAM_API_KEY` is missing, the app uses the phone's own speech recognition, as before. If `ELEVENLABS_API_KEY` is missing, it doesn't speak. If Deepgram fails during use, the app switches to the phone's speech recognition.
+
+Keys (environment variables of the Worker):
+
+```bash
+npx wrangler secret put DEEPGRAM_API_KEY
+```
+
+```bash
+npx wrangler secret put ELEVENLABS_API_KEY
+```
+
+Optional: `ELEVENLABS_VOICE_ID` in `wrangler.toml` `[vars]` picks a different voice (the default is a premade voice from ElevenLabs' docs).
+
+For `npx wrangler dev` on your own computer, copy `.dev.vars.example` to `.dev.vars` in this folder and fill in the keys there. `.dev.vars` is gitignored.
+
+Test after deploying (replace the address; should print `{"listen":true,"speak":true}`):
+
+```bash
+curl https://findthem-proxy.<you>.workers.dev/voice -H 'Origin: https://donaldstewart4.github.io'
+```
+
 ## Deploy (about 10 minutes)
 
 1. Make a free Cloudflare account at https://dash.cloudflare.com.
@@ -57,8 +89,10 @@ curl -X POST https://findthem-proxy.<you>.workers.dev -H 'Content-Type: applicat
 
 ## Privacy
 
+With the voice bot set up: the recording goes to **Deepgram** to become text, and the read-back sentence (kind, place name, minutes, direction) goes to **ElevenLabs** to become speech. Nothing is stored by the worker.
+
 The report text, its language and the names of nearby places are sent to **TypeSafe AI** (a US company) to fill in the form. Coordinates are not sent to Jev; they stay in the worker. Don't put names, phone numbers or medical details in a report. The worker itself stores and logs nothing on purpose.
 
 ## Testing without a key
 
-`python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It answers with simple keyword rules instead of Jev. `tests/jev.test.js` checks the question building, answer mapping and worker with a fake Jev.
+`python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It answers with simple keyword rules instead of Jev. Add `--voice` to pretend the voice keys are set: `/listen` returns a fixed sentence and `/speak` a short beep. `tests/voice.test.js` checks the voice routes with fake Deepgram and ElevenLabs. `tests/jev.test.js` checks the question building, answer mapping and worker with a fake Jev.

@@ -29,9 +29,9 @@ Built for EvoHacks II (theme: social good).
 6. **Report a sighting**, either:
    - on the map: tap where they were seen, then say how long ago, which way, how sure, and any details, or
    - in the **report box**: type or speak ("saw a man in a blue coat by the lake 10 minutes ago, heading east") and an AI fills in the form. **Nothing is added until you check it and tap the button.** How it works:
-     1. **Speech → text** uses the phone's own speech recognition (Google on Android Chrome, Apple on iPhone Safari), in the app's language.
+     1. **Speech → text:** if the proxy has a Deepgram key, the app records you and **Deepgram** turns the recording into text, then goes straight on to step 2 (hands-free). Otherwise it uses the phone's own speech recognition (Google on Android Chrome, Apple on iPhone Safari), in the app's language.
      2. **Text → form:** our small proxy asks Jev five multiple-choice questions (kind, direction, minutes ago, how sure, which nearby place). Answers Jev isn't confident about are left blank.
-     3. **You check the form and add it**, and it updates the shared map like any sighting.
+     3. **You check the form and add it**, and it updates the shared map like any sighting. If the proxy has an ElevenLabs key and you spoke the report, the app also **says what it filled in** ("I filled in a sighting. Seen 10 minutes ago. Heading east. I wasn't sure about: where.") with an **ElevenLabs** voice, in the app's language.
      If anything fails, the normal sighting form opens, so reporting never depends on the AI.
 7. **Messages** between everyone on the search.
 8. **Hand-off sheet for police:** last seen, how they walk, a timeline of everything searched and seen, the most likely places still to check (with coordinates), and the live link. You can copy or print it. A non-English sheet includes an English copy.
@@ -97,7 +97,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | **BenStew** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | Built with Claude Code, with BenStew directing. The official EvoHacks 2 rules encourage AI use. |
 | **Nathan** | Tests, debugging, speed (`tests/`, `bench/`); tuning the Jev questions | AI may help write tests; Nathan reviews and explains them. |
 
-**AI inside the app:** only the report box uses an AI: **Jev**, a model from TypeSafe AI, reached through our own small proxy. Jev doesn't write text; it answers five multiple-choice questions about a report (what kind, which way, how long ago, how sure, which nearby place), each with a confidence. Anything it isn't confident about is left empty for the person to fill in, and nothing is added until the person checks the form and taps the button. It never sets the probabilities, and the word "chatbot" never appears in the app.
+**AI inside the app:** only the report box uses an AI: **Jev**, a model from TypeSafe AI, reached through our own small proxy. Jev doesn't write text; it answers five multiple-choice questions about a report (what kind, which way, how long ago, how sure, which nearby place), each with a confidence. Anything it isn't confident about is left empty for the person to fill in, and nothing is added until the person checks the form and taps the button. It never sets the probabilities, and the word "chatbot" never appears in the app. The optional **voice bot** adds two speech services through the same proxy: **Deepgram** (speech → text) and **ElevenLabs** (reading the filled-in form back aloud). They only turn speech into text and text into speech; Jev still fills the form, and the person still confirms it.
 
 `CommitHistory.md` records every commit, including which work came from which session.
 
@@ -116,7 +116,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `sim.js` (walkers), `grid.js` (probability map, Bayes updates, next areas, top spots), `routes.js` (walking routes), `index.js` (what the app imports) |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map), stored here rather than loaded from the internet |
-| `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |
+| `proxy/` | Tiny Cloudflare Worker that holds the API keys as secrets: asks Jev about a report (`jev.js`) and returns form data only; optional voice bot with Deepgram and ElevenLabs (`voice.js`) |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
 | `bench/` | `benchmark.js` (the search simulation above) and `results.md` (its latest output) |
@@ -171,7 +171,7 @@ Open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo i
 
 ## Set up the report box (AI proxy)
 
-Follow `proxy/README.md`: a free Cloudflare account, a TypeSafe API key for Jev stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. **Never put the TypeSafe key in the website or the repo.**
+Follow `proxy/README.md`: a free Cloudflare account, a TypeSafe API key for Jev stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. For the voice bot, also set `DEEPGRAM_API_KEY` and `ELEVENLABS_API_KEY` the same way (optional; without them, voice works as before). **Never put any API key in the website or the repo**; for local testing they go in `proxy/.dev.vars`, which git ignores.
 
 **Testing without a Jev key:** `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple keyword rules instead of Jev.
 
@@ -194,7 +194,7 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - Untrained volunteers should not go into water or dense brush; the app flags those for professionals.
 - Browser GPS only works while the page is open.
 - Anyone with a search link can see and add to that search. There are no accounts yet.
-- Report-box text leaves the phone and goes to TypeSafe (Jev), with nearby place names but no coordinates. Spoken reports also go to Google or Apple to be turned into text. The app asks people to leave out names and medical details.
+- Report-box text leaves the phone and goes to TypeSafe (Jev), with nearby place names but no coordinates. Spoken reports also go to Google or Apple to be turned into text, or, with the voice bot set up, the recording goes to Deepgram and the read-back sentence (which can include a place name) to ElevenLabs. The app asks people to leave out names and medical details.
 - Voice input usually needs signal and isn't available in Firefox (people type instead). It hasn't been tested with a real microphone yet.
 - The map doesn't grow with time after the search starts (the minutes are fixed when the search is created).
 

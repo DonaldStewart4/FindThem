@@ -11,14 +11,43 @@
 #   a nearby place name from context.places     → lat/lng of that place (like Jev's place choice)
 #   the word "here"                             → lat/lng = the last-seen point (tests the "pinned" path)
 #
-# Run:   python3 tools/mock-proxy.py        (listens on http://localhost:9100)
+# Voice bot (Deepgram / ElevenLabs stand-ins), only with --voice:
+#   GET  /voice   → {"listen": true, "speak": true}   (without --voice: both false, like a
+#                   proxy with no voice keys, so the app keeps the phone's own voice input)
+#   POST /listen  → a fixed sentence, whatever was recorded ("I saw him by Lake Elizabeth...")
+#   POST /speak   → a short beep (WAV), so you can hear that the read-back plays
+#
+# Run:   python3 tools/mock-proxy.py           (listens on http://localhost:9100)
+#        python3 tools/mock-proxy.py --voice   (also pretends the voice keys are set)
 # Then open http://localhost:8000/?proxy=http://localhost:9100
 
+import io
 import json
+import math
 import re
+import struct
+import sys
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 9100
+VOICE = '--voice' in sys.argv
+FAKE_TRANSCRIPT = 'I saw him by Lake Elizabeth 10 minutes ago, blue coat, walking east'
+
+
+def beep_wav():
+    # 0.4 s of a soft 660 Hz tone, as a WAV file in memory.
+    rate = 16000
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b''.join(struct.pack('<h', int(6000 * math.sin(2 * math.pi * 660 * i / rate)))
+                               for i in range(int(rate * 0.4))))
+    return buf.getvalue()
+
+
 DIRS = [('northeast', 'NE'), ('northwest', 'NW'), ('southeast', 'SE'), ('southwest', 'SW'),
         ('north', 'N'), ('south', 'S'), ('east', 'E'), ('west', 'W')]
 
@@ -60,7 +89,7 @@ def draft_for(text, context):
 class Handler(BaseHTTPRequestHandler):
     def cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
 
     def do_OPTIONS(self):
@@ -68,9 +97,35 @@ class Handler(BaseHTTPRequestHandler):
         self.cors()
         self.end_headers()
 
+    def send(self, status, data, content_type='application/json'):
+        out = json.dumps(data).encode() if content_type == 'application/json' else data
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(out)))
+        self.cors()
+        self.end_headers()
+        self.wfile.write(out)
+
+    def do_GET(self):
+        if self.path.startswith('/voice'):
+            self.send(200, {'listen': VOICE, 'speak': VOICE})
+        else:
+            self.send(404, {'error': 'not_found'})
+
     def do_POST(self):
         length = int(self.headers.get('Content-Length') or 0)
-        body = json.loads(self.rfile.read(length) or b'{}')
+        raw = self.rfile.read(length)
+        if self.path.startswith('/listen'):
+            if not VOICE:
+                return self.send(503, {'error': 'not_configured'})
+            print('mock-proxy: got %d bytes of audio (%s)' % (len(raw), self.headers.get('Content-Type')))
+            return self.send(200, {'text': FAKE_TRANSCRIPT})
+        if self.path.startswith('/speak'):
+            if not VOICE:
+                return self.send(503, {'error': 'not_configured'})
+            print('mock-proxy: would say:', json.loads(raw or b'{}').get('text'))
+            return self.send(200, beep_wav(), 'audio/wav')
+        body = json.loads(raw or b'{}')
         draft = draft_for(str(body.get('text', '')), body.get('context') or {})
         out = json.dumps(draft).encode()
         self.send_response(200)
@@ -85,5 +140,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    print('Mock LLM proxy on http://localhost:%d (keyword rules, no AI)' % PORT)
+    print('Mock proxy on http://localhost:%d (keyword rules, no AI; voice bot %s)' % (PORT, 'ON' if VOICE else 'off'))
     ThreadingHTTPServer(('localhost', PORT), Handler).serve_forever()

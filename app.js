@@ -84,6 +84,8 @@ const state = {
   myName: '',
   engineEventsKey: '',     // lets us skip re-running the engine when only messages changed
   stopVoice: null,         // stops voice input while listening
+  voiceCaps: { listen: false, speak: false }, // voice bot services the proxy has keys for
+  reportByVoice: false,    // the report text came from voice (then the app reads back the form)
   homeDraft: null,         // { lat, lng } chosen in "Save my home area", not saved yet
   home: null,              // { lat, lng, savedAt } saved home area
   gpsWatch: null,          // id from navigator.geolocation.watchPosition while showing my location
@@ -1095,14 +1097,79 @@ const VOICE_ERRORS = { no_speech: 'voiceNoSpeech', voice_offline: 'voiceOffline'
 function toggleVoice() {
   if (state.stopVoice) { stopListening(); return; }
   els.reportStatus.textContent = '';
+  report.stopSpeaking();
+  if (state.voiceCaps.speak) report.unlockAudio(); // lets the read-back play later on iPhones
+  // The voice bot (Deepgram) if the proxy has its key; otherwise the phone's own voice input.
+  if (state.voiceCaps.listen && report.canRecord() && navigator.onLine !== false) startRecordingReport();
+  else startPhoneVoice();
+}
+
+// The phone's own speech recognition (Google on Android, Apple on iPhone). Words appear as
+// they're heard; the person then taps "Fill in the form".
+function startPhoneVoice() {
+  if (!report.isVoiceSupported()) { els.reportStatus.textContent = t('voiceDenied'); return; }
   els.reportVoice.setAttribute('aria-pressed', 'true');
   els.reportVoice.textContent = t('reportListening');
   state.stopVoice = report.startVoice(
     i18n.getLanguage(),
-    (text) => { els.reportText.value = text; },             // words appear as they're heard
+    (text) => { els.reportText.value = text; state.reportByVoice = true; }, // words appear as they're heard
     (code) => { els.reportStatus.textContent = t(VOICE_ERRORS[code] || 'voiceDenied'); },
     resetVoiceButton,                                         // listening stopped
   );
+}
+
+// The voice bot: record → Deepgram turns it into text → the report is read (Jev) at once →
+// the filled-in form opens and, if ElevenLabs is set up, the app says what it filled in.
+function startRecordingReport() {
+  els.reportVoice.setAttribute('aria-pressed', 'true');
+  els.reportVoice.textContent = t('reportRecording');
+  const stop = report.startRecording(
+    async (blob) => {
+      resetVoiceButton();
+      els.reportStatus.textContent = t('reportTranscribing');
+      els.reportVoice.disabled = true;
+      try {
+        const text = await report.transcribe(blob, i18n.getLanguage());
+        els.reportText.value = text;
+        state.reportByVoice = true;
+        els.reportStatus.textContent = '';
+        await readReport(); // hands-free: go straight on to filling in the form
+      } catch (err) {
+        if (err.message === 'no_speech') els.reportStatus.textContent = t('voiceNoSpeech');
+        else if (err.message === 'offline') els.reportStatus.textContent = t('voiceOffline');
+        else if (report.isVoiceSupported()) {
+          // The voice service failed: use the phone's own voice input instead, from now on.
+          state.voiceCaps = { ...state.voiceCaps, listen: false };
+          els.reportStatus.textContent = t('voiceFallback');
+        } else els.reportStatus.textContent = t('reportFailed');
+      } finally {
+        els.reportVoice.disabled = false;
+      }
+    },
+    (code) => {
+      resetVoiceButton();
+      els.reportStatus.textContent = t(VOICE_ERRORS[code] || 'voiceDenied');
+    },
+  );
+  state.stopVoice = stop;
+}
+
+// What the voice bot says after filling in the form, in the app's language. Short sentences,
+// and it names what it wasn't sure about, so the person knows what to check.
+function readBackText(draft) {
+  if (draft.kind === 'message') return t('sayMessage');
+  if (draft.kind === 'searched') return t('saySearched', { areas: t('nextAreasTitle'), button: t('markSearched') });
+  const parts = [t('saySighting')];
+  const missing = [];
+  if (draft.placeText) parts.push(t('sayPlace', { place: draft.placeText }));
+  else missing.push(t('sayFieldPlace'));
+  if (draft.minutesSince != null) parts.push(t('sayMinutes', { n: draft.minutesSince }));
+  else missing.push(t('sayFieldTime'));
+  if (draft.direction) parts.push(t('sayDirection', { direction: t('dir_' + draft.direction) }));
+  else missing.push(t('sayFieldDirection'));
+  if (missing.length) parts.push(t('sayMissing', { list: missing.join(', ') }));
+  parts.push(t('sayCheck'));
+  return parts.join(' ');
 }
 
 function stopListening() {
@@ -1112,6 +1179,7 @@ function stopListening() {
 
 function resetVoiceButton() {
   state.stopVoice = null;
+  els.reportVoice.disabled = false;
   els.reportVoice.setAttribute('aria-pressed', 'false');
   els.reportVoice.textContent = t('reportSpeak');
 }
@@ -1166,6 +1234,9 @@ async function readReport() {
   }
 
   els.reportStatus.textContent = '';
+  // The voice bot reads back what it filled in, if ElevenLabs is set up and the report was spoken.
+  if (state.voiceCaps.speak && state.reportByVoice) report.speak(readBackText(draft), i18n.getLanguage());
+  state.reportByVoice = false;
   if (draft.kind === 'sighting') {
     els.reportText.value = '';
     toggleReportBox(); // close it, so the filled-in form is right there
@@ -1828,6 +1899,12 @@ function start() {
   // Report box
   report.setProxyUrl(proxyUrl());
   els.reportVoice.hidden = !report.isVoiceSupported(); // e.g. Firefox has no voice input
+  // Is the voice bot set up (Deepgram / ElevenLabs keys on the proxy)? If not, nothing changes.
+  report.getVoiceCaps().then((caps) => {
+    state.voiceCaps = caps;
+    if (caps.listen && report.canRecord()) els.reportVoice.hidden = false; // Firefox can record
+  });
+  els.reportText.addEventListener('input', () => { state.reportByVoice = false; }); // typed, not spoken
   els.reportOpen.addEventListener('click', toggleReportBox);
   els.reportVoice.addEventListener('click', toggleVoice);
   els.reportRead.addEventListener('click', readReport);

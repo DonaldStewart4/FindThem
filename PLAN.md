@@ -16,7 +16,8 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - all five screens
 - the real engine, calibrated to the research
 - live sharing on real Firebase (`findthem-f4e5c`, rules tested)
-- report box code (Jev proxy, tested with a fake Jev)
+- report box code (Jev proxy, tested with a fake Jev), plus an optional voice bot (Deepgram speech → text, ElevenLabs read-back) that falls back to the phone's voice input without keys
+- map search (magnifying glass), clear offline messages, Demo offline
 - offline PWA
 - 5 languages
 - the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
@@ -26,7 +27,7 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
-2. **Deploy the Jev proxy** (BenStew: TypeSafe key + Cloudflare; `proxy/README.md`) and put its URL in `PROXY_URL` in `config.js`. `ALLOWED_ORIGIN` in `proxy/wrangler.toml` is already set to the Pages site.
+2. **Deploy the Jev proxy** (BenStew: TypeSafe key + Cloudflare; `proxy/README.md`), with the Deepgram and ElevenLabs keys as Worker secrets for the voice bot, and put its URL in `PROXY_URL` in `config.js`. `ALLOWED_ORIGIN` in `proxy/wrangler.toml` is already set to the Pages site.
 3. **Test on two real phones:** sharing, **voice with a real microphone**, offline, and the speed of the Demo.
 4. Nathan's UI review.
 5. **2–3 minute video**, then the **Devpost** write-up (description, setup steps, public repo link).
@@ -130,7 +131,7 @@ The official rules encourage AI use; we disclose who and what built each part.
 | `app.js` | BenStew | map, inputs, layers, panels, steps 0–8 |
 | `data.js` | BenStew | Overpass fetch + IndexedDB cache + Nominatim; returns raw OSM ways, nodes and features |
 | `sync.js` | BenStew | Firebase REST + EventSource: case, events, messages; offline write queue |
-| `report.js` | BenStew | voice (the browser's speech recognition) or text → Jev proxy → structured draft for the person to confirm |
+| `report.js` | BenStew | voice (Deepgram via the proxy, or the browser's speech recognition) or text → Jev proxy → structured draft for the person to confirm; optional ElevenLabs read-back |
 | `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
 | `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 (Leaflet.heat removed Nov 21 evening: replaced by likely-area bands) |

@@ -1,7 +1,11 @@
 // report.js: the voice/text report box (NOT a chatbot).
 //
 // What this file does:
-//   1. Voice input: turns speech into text with the browser's Web Speech API.
+//   1. Voice input: turns speech into text. Two ways:
+//      - the "voice bot" (if the proxy has the keys): record → Deepgram → text, and the
+//        app reads back what it filled in with ElevenLabs (getVoiceCaps, startRecording,
+//        transcribe, speak)
+//      - otherwise the browser's own Web Speech API (startVoice), as before
 //   2. parseReport(): sends the text to our tiny LLM proxy (proxy/worker.js),
 //      which returns a ReportDraft (see INTERFACES.md section 5).
 //   3. validateDraft(): checks and cleans a draft so bad data never gets through.
@@ -30,6 +34,146 @@ const VOICE_LANGS = { en: 'en-US', es: 'es-ES', fr: 'fr-FR', zh: 'zh-CN', ja: 'j
 const KINDS = ['sighting', 'searched', 'message'];
 const RELIABILITIES = [0.3, 0.6, 0.9];
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// ---------- Voice bot (Deepgram + ElevenLabs, through the proxy) ----------
+// Used only when the proxy says it has the keys (GET /voice). Any failure here falls back
+// to the browser's speech recognition or to typing; the report box never depends on it.
+
+const NO_VOICE_BOT = { listen: false, speak: false };
+const MAX_RECORDING_MS = 30000; // a report is a sentence or two; stop recording by itself after 30 s
+
+// Asks the proxy which voice services are set up: { listen, speak }. Both false if the
+// proxy isn't set up, can't be reached, or answers oddly.
+export async function getVoiceCaps() {
+  if (!proxyUrl || typeof fetch === 'undefined') return NO_VOICE_BOT;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${proxyUrl}/voice`, { signal: controller.signal });
+    if (!res.ok) return NO_VOICE_BOT;
+    const caps = await res.json();
+    return { listen: caps.listen === true, speak: caps.speak === true };
+  } catch (err) {
+    return NO_VOICE_BOT;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// true if this browser can record audio (needed for the Deepgram path).
+export function canRecord() {
+  return typeof window !== 'undefined' && typeof window.MediaRecorder !== 'undefined'
+    && Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+// The recording format this browser supports: WebM/Opus (Chrome, Android, Firefox) or MP4 (Safari).
+function recordingType() {
+  for (const type of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
+    if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return '';
+}
+
+// Starts recording from the microphone. Calls onDone(blob) when recording stops (tap again,
+// or after 30 s), or onError(code) ('mic_denied' or 'voice_error'). Returns stop().
+export function startRecording(onDone, onError) {
+  let recorder = null;
+  let stream = null;
+  let stopped = false;
+  let timer = null;
+  const chunks = [];
+
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  };
+
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
+    stream = s;
+    if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; } // cancelled while asking
+    const type = recordingType();
+    recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop()); // turn the microphone off
+      onDone(new Blob(chunks, { type: recorder.mimeType || type || 'audio/webm' }));
+    };
+    recorder.start();
+    timer = setTimeout(stop, MAX_RECORDING_MS);
+  }).catch((err) => {
+    onError(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError') ? 'mic_denied' : 'voice_error');
+  });
+
+  return stop;
+}
+
+// Sends a recording to the proxy (Deepgram) and returns the text. Throws 'offline',
+// 'proxy_error' or 'no_speech'.
+export async function transcribe(blob, lang = 'en') {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('offline');
+  if (!proxyUrl) throw new Error('proxy_error');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${proxyUrl}/listen?lang=${encodeURIComponent(lang)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      body: blob,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw new Error('offline');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error('proxy_error');
+  const data = await res.json().catch(() => ({}));
+  const text = typeof data.text === 'string' ? data.text.trim() : '';
+  if (!text) throw new Error('no_speech');
+  return text;
+}
+
+// One audio player, reused for every read-back. iPhones only allow sound that starts during
+// a tap; the read-back starts seconds later (after Deepgram and Jev), so unlockAudio() plays
+// a silent sound on this player during the Speak tap, and later plays on the same player work.
+let player = null;
+const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+export function unlockAudio() {
+  if (typeof Audio === 'undefined') return;
+  if (!player) player = new Audio();
+  player.src = SILENCE;
+  player.play().catch(() => { /* blocked or unsupported: the read-back may be silent */ });
+}
+
+// Says `text` out loud with the proxy's ElevenLabs voice. Resolves when it has finished
+// (or right away if it can't play); never throws, because speaking is a nice extra.
+export async function speak(text, lang = 'en') {
+  stopSpeaking();
+  if (!proxyUrl || !text || typeof Audio === 'undefined') return;
+  try {
+    const res = await fetch(`${proxyUrl}/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, lang }),
+    });
+    if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob());
+    if (!player) player = new Audio();
+    player.src = url;
+    await new Promise((resolve) => {
+      player.onended = player.onerror = player.onpause = resolve;
+      player.play().catch(resolve); // still blocked: no sound, the form shows the same thing
+    });
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    /* no sound is fine: the form shows the same thing */
+  }
+}
+export function stopSpeaking() {
+  if (player && !player.paused) player.pause();
+}
 
 // ---------- Voice ----------
 

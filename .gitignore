@@ -6,3 +6,11 @@
 
 # Python cache files
 __pycache__/
+
+# API keys for the proxy's local testing (wrangler reads proxy/.dev.vars). NEVER commit keys.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example

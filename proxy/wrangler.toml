@@ -1,5 +1,10 @@
 # Cloudflare Worker settings for the FindThem LLM proxy.
-# NO SECRETS HERE. The Jev (TypeSafe) key is set with: wrangler secret put TYPESAFE_API_KEY
+# NO SECRETS HERE. API keys are environment variables of the Worker, set as secrets:
+#   npx wrangler secret put TYPESAFE_API_KEY     (Jev: reads reports; needed for the report box)
+#   npx wrangler secret put DEEPGRAM_API_KEY     (optional voice bot: speech → text)
+#   npx wrangler secret put ELEVENLABS_API_KEY   (optional voice bot: reads the form back aloud)
+# For `npx wrangler dev` on your computer, put them in proxy/.dev.vars instead
+# (copy .dev.vars.example; that file is gitignored).
 name = "findthem-proxy"
 main = "worker.js"
 compatibility_date = "2024-11-01"
@@ -8,3 +13,5 @@ compatibility_date = "2024-11-01"
 # Only this website may call the proxy (no trailing slash). Use "*" to allow any site
 # while testing from your own computer.
 ALLOWED_ORIGIN = "https://donaldstewart4.github.io"
+# Optional: a different ElevenLabs voice (find ids in your ElevenLabs voice library).
+# ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"

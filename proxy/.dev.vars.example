@@ -1,0 +1,10 @@
+# Copy this file to proxy/.dev.vars and fill in your keys for `npx wrangler dev` (local testing).
+# proxy/.dev.vars is gitignored: never commit real keys.
+# For the deployed Worker, set the same names with `npx wrangler secret put <NAME>` instead.
+# Leave a voice key empty and the app simply uses the phone's own voice input / no read-back.
+
+TYPESAFE_API_KEY=
+DEEPGRAM_API_KEY=
+ELEVENLABS_API_KEY=
+# ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
+ALLOWED_ORIGIN=*

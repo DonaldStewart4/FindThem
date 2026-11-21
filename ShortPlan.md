@@ -20,7 +20,7 @@
 5. **Share the link.** Each searcher who joins gets an area and a walking route.
 6. **Talk and report.**
    - A shared message feed.
-   - A report box: type or speak "saw him by the lake 10 min ago" and it becomes a sighting on the map once you confirm it.
+   - A report box: type or speak "saw him by the lake 10 min ago" and it becomes a sighting on the map once you confirm it. Optional voice bot reads the form back aloud.
 7. **Update as you go.** Searched routes and sightings shift the map for everyone.
 8. **Hand off to police.** One tap gives a sheet of what was searched, what was seen, and what's left.
 

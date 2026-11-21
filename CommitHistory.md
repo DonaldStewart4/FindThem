@@ -43,7 +43,7 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
   - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback. **Live at `https://findthem-f4e5c-default-rtdb.firebaseio.com` since 2026-11-21**, with the rules from `firebase-rules.json` published.
-  - a Cloudflare Worker holding the Jev (TypeSafe) key for the report box; no FastAPI or other server
+  - a Cloudflare Worker holding the API keys as Worker secrets: Jev (TypeSafe) for the report box, and since 2026-11-21 evening, optional Deepgram (speech → text) and ElevenLabs (read-back) keys for the voice bot, which falls back to the phone's own voice input without them; no FastAPI or other server
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
@@ -58,6 +58,24 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Voice bot: Deepgram speech-to-text and ElevenLabs read-back through the proxy, with fallback
+
+- **Date:** 2026-11-21
+- **Stage:** Screen + proxy (BenStew)
+- **Decision change:** BenStew asked for "a voice bot to work with ElevenLabs and Deepgram… make them env variables… if API keys aren't in, the voice mode reverts to the way it is right now". The Worker now also holds two optional keys (Project context updated). Jev still fills the form; Deepgram and ElevenLabs only convert speech ↔ text, and nothing reaches the map until the person confirms.
+- **What changed:**
+  - `proxy/voice.js` (new): request builders for **Deepgram** (`POST https://api.deepgram.com/v1/listen?model=nova-3&language=…&smart_format=true`, `Authorization: Token …`; languages en/es/fr/zh-CN/ja) and **ElevenLabs** (`POST https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_22050_32`, `xi-api-key`, model `eleven_flash_v2_5`, `language_code`, `apply_text_normalization: on`). Default voice `JBFqnCBsd6RMkjVDRZzb` (the one in ElevenLabs' docs examples), changeable with `ELEVENLABS_VOICE_ID`. Values checked against the current Deepgram and ElevenLabs API docs.
+  - `proxy/worker.js`: routes `GET /voice` (`{listen, speak}`, which keys exist, never the keys), `POST /listen` (recording ≤ 3 MB → `{text}`), `POST /speak` (`{text, lang}` ≤ 500 chars → MP3), plus the old `POST /`. Same origin check and rate limit; missing key → 503 `not_configured`; upstream failure → 502.
+  - **Environment variables:** `TYPESAFE_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY` as Worker secrets (`npx wrangler secret put …`); `proxy/.dev.vars.example` for `wrangler dev`; `.gitignore` now ignores `.dev.vars` and `.env` files (examples allowed). No key is in the repo or the website.
+  - `report.js`: `getVoiceCaps()` (asks `GET /voice`; any failure → both false), `canRecord()`, `startRecording()` (MediaRecorder, WebM/Opus or MP4 for Safari, stops by itself after 30 s, turns the mic off), `transcribe()`, `speak()` / `stopSpeaking()` (never throws), `unlockAudio()` (plays a silent sound on the shared player during the Speak tap, because iPhones only allow sound that starts during a tap and the read-back comes seconds later).
+  - `app.js`: the Speak button uses the voice bot when `listen` is true and the phone can record: "Recording… tap to stop" → "Turning your words into text…" → the report is read at once (hands-free) → the filled form opens → if `speak` is true and the report was spoken, the app says what it filled in and what it wasn't sure about (`readBackText`, e.g. "I filled in a sighting. Seen 10 minutes ago. Heading East. I wasn't sure about: where. Please fill that in. Check the form…"). If Deepgram fails, it switches to the phone's speech recognition for the rest of the session. **With no keys (or no proxy) nothing changes:** the phone's own speech recognition, no speaking.
+  - `i18n.js`: 15 new strings in 5 languages (the "searched" read-back uses the real "Next areas to search" / "Searched, nobody found" labels).
+  - `tools/mock-proxy.py`: `--voice` makes `/voice` say yes, `/listen` return a fixed sentence, `/speak` return a short beep (WAV); without it `/voice` says no, like a proxy without voice keys.
+  - `tests/voice.test.js` (new, 8 tests): `/voice` flags; wrong origin 403; `/listen` without key 503; Deepgram URL, language code, auth and content type; empty audio 400; ElevenLabs URL, voice, format, key, model and language; `/speak` no key 503 / upstream failure 502; the app's `getVoiceCaps` with no proxy, an unreachable proxy, and a non-boolean answer.
+  - Docs: README (voice steps, AI section, files table, deploy, privacy), `proxy/README.md` (voice bot section, keys, curl check, privacy, mock), `INTERFACES.md` §5, `CLAUDE.md` code rules, `PLAN.md` status/left/file table, `ShortPlan.md` one line. `sw.js` v13.
+- **How it was verified:** `node --test` 62/62. Built-in browser at 375×812 with `?proxy=http://localhost:9100` and the mock in `--voice` mode, a fake microphone (test tone): Speak → "Recording… tap to stop" → stop → calls `/voice`, `/listen?lang=en`, `/`, `/speak` in that order; the sighting form opened with 10 min, east, "blue coat"; the player played the silent unlock on the tap, then the read-back. Without a proxy: Speak started the phone's speech recognition, no recording, no proxy calls.
+- **Known issues / not done:** not tested with real Deepgram/ElevenLabs keys (BenStew has them; they go in as Worker secrets when the proxy is deployed). Real-microphone test on phones still to do; Safari's MP4 recording and the iPhone audio unlock aren't tested on a real iPhone.
 
 ### Offline: say "no internet" instead of "server busy", Demo works offline, tested
 
