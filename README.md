@@ -2,6 +2,8 @@
 
 > **New here? Read [ShortPlan.md](ShortPlan.md) first** (2 minutes). Then `PLAN.md` (full plan), `INTERFACES.md` (screen ↔ engine contract) and `CommitHistory.md` (every decision and commit).
 
+**Try it: https://donaldstewart4.github.io/FindThem/** (tap **Demo** for a sample case in Fremont, CA).
+
 **If someone is missing, call emergency services first (911 in the US).** FindThem helps a search get organized. It does not replace the police or search-and-rescue.
 
 FindThem is a phone app (a website you can install) for the first hour after a person with dementia goes missing, for the family and neighbors who start looking before professionals arrive. It tells them where to look first, gives each searcher an area and a walking route, keeps everyone on one live map, and updates the map as places come up empty or someone reports a sighting.
@@ -174,6 +176,8 @@ Follow `proxy/README.md`: a free Cloudflare account, a TypeSafe API key for Jev 
 ## Deploy for free with GitHub Pages
 
 GitHub Pages gives you a free HTTPS address, which offline mode needs. On a free account the repository must be public.
+
+This repo is already deployed at **https://donaldstewart4.github.io/FindThem/**. Pushing to `main` updates it within a minute or two. To deploy your own copy:
 
 1. On GitHub, open the repository's **Settings → General → Danger Zone → Change visibility** and make it public.
 2. Open **Settings → Pages**. Under **Build and deployment**, set **Source** to "Deploy from a branch", choose `main` and `/ (root)`, and click **Save**.

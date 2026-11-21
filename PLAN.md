@@ -24,8 +24,8 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - commit emails switched to the GitHub noreply address
 
 **Left, in order:**
-1. **Make the repo public and turn on GitHub Pages** (BenStew, about 2 minutes) → `https://donaldstewart4.github.io/FindThem/`.
-2. **Deploy the Jev proxy** (BenStew: TypeSafe key + Cloudflare; `proxy/README.md`), put its URL in `config.js`, and set `ALLOWED_ORIGIN`.
+1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
+2. **Deploy the Jev proxy** (BenStew: TypeSafe key + Cloudflare; `proxy/README.md`) and put its URL in `PROXY_URL` in `config.js`. `ALLOWED_ORIGIN` in `proxy/wrangler.toml` is already set to the Pages site.
 3. **Test on two real phones:** sharing, **voice with a real microphone**, offline, and the speed of the Demo.
 4. Nathan's UI review.
 5. **2–3 minute video**, then the **Devpost** write-up (description, setup steps, public repo link).

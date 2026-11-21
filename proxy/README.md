@@ -41,12 +41,12 @@ Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in
    ```
 
 6. Wrangler prints the address, like `https://findthem-proxy.<you>.workers.dev`. Put it in `PROXY_URL` in `config.js`.
-7. In `wrangler.toml`, set `ALLOWED_ORIGIN` to the site's address (e.g. `https://<your-username>.github.io`, no trailing slash) and run `npx wrangler deploy` again.
+7. `ALLOWED_ORIGIN` in `wrangler.toml` is already `https://donaldstewart4.github.io`, so only the live site can use the proxy. To test from `localhost`, set it to `"*"` temporarily and deploy again.
 
 Test it (English, then try Spanish, French, Chinese and Japanese; Jev's language support isn't documented):
 
 ```bash
-curl -X POST https://findthem-proxy.<you>.workers.dev -H 'Content-Type: application/json' -d '{"text":"I think I saw him by Lake Elizabeth 10 minutes ago, blue coat, walking east","lang":"en","context":{"places":[{"name":"Lake Elizabeth","lat":37.5487,"lng":-121.9637}]}}'
+curl -X POST https://findthem-proxy.<you>.workers.dev -H 'Content-Type: application/json' -H 'Origin: https://donaldstewart4.github.io' -d '{"text":"I think I saw him by Lake Elizabeth 10 minutes ago, blue coat, walking east","lang":"en","context":{"places":[{"name":"Lake Elizabeth","lat":37.5487,"lng":-121.9637}]}}'
 ```
 
 ## Limits

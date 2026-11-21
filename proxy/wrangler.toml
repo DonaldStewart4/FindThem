@@ -5,6 +5,6 @@ main = "worker.js"
 compatibility_date = "2024-11-01"
 
 [vars]
-# The website's address (no trailing slash), e.g. "https://benstew.github.io".
-# "*" allows any site; set the real one before the demo.
-ALLOWED_ORIGIN = "*"
+# Only this website may call the proxy (no trailing slash). Use "*" to allow any site
+# while testing from your own computer.
+ALLOWED_ORIGIN = "https://donaldstewart4.github.io"

@@ -53,11 +53,29 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
   - **Emergency banner:** the local number from a country table (default 911), tap-to-call, can't be dismissed.
   - **Save my home area:** from an address search (Nominatim), a map tap, or GPS.
-  - **Deploy:** GitHub Pages by default, pending BenStew's research. The repo is private now and must go public before deploying there.
+  - **Deploy:** GitHub Pages, **live at https://donaldstewart4.github.io/FindThem/ since 2026-11-21**. The repo is public.
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Live on GitHub Pages: link in the README, proxy locked to the site
+
+- **Date:** 2026-11-21
+- **Stage:** Hosting (BenStew)
+- **What changed:**
+  - BenStew made the repo **public** and turned on **GitHub Pages** (`main`, `/`). The site is live at **https://donaldstewart4.github.io/FindThem/**; the first build took about 20 s.
+  - `README.md`: a "Try it" link at the top; the deploy section says this repo is already deployed and pushes to `main` update it.
+  - `PLAN.md` Status: Pages ticked, with what was checked.
+  - `proxy/wrangler.toml`: `ALLOWED_ORIGIN` = `https://donaldstewart4.github.io` (was `*`), so only the live site can use the Jev proxy once it's deployed. `proxy/README.md` step 7 explains switching to `"*"` temporarily for localhost testing.
+  - This file: "Project context" deploy bullet; this entry.
+- **How it was verified:**
+  - curl: the page, `app.js`, all 5 engine files, `lib/`, `sw.js`, `manifest.json`, `config.js`, `sync.js`, `report.js`, `i18n.js`, `data.js`, the 3 MB demo fixture and the icons all return 200 with the right content types. No Jekyll syntax in the docs, so the default Jekyll build is safe.
+  - Built-in browser at 375×812 on the live URL: Demo in 0.6 s (same top spots as locally); "Share this search" created a live search in Firebase from the `github.io` origin ("Shared live…"); the service worker registered with scope `/FindThem/`; no console errors.
+- **Known issues / not done:**
+  - The Jev proxy isn't deployed.
+  - Not tested on real phones yet. One more test search (`e3a7658b…`, "Live site check") is now in the live database.
+- **Next:** Jev deploy; two-phone test (sharing, voice with a real mic, offline); Nathan's UI review; video; Devpost.
 
 ### Docs catch-up: status list, voice explained, fake engine marked deleted
 
