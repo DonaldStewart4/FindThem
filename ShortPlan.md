@@ -53,7 +53,7 @@
 - [x] Voice/text report box
 - [x] Share link
 - [x] Police hand-off sheet
-- [ ] Works offline after the first visit
+- [x] Works offline after the first visit
 - [ ] English, Spanish, French, Chinese, Japanese
 - [ ] One-tap Demo button
 

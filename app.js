@@ -16,6 +16,9 @@
 //   9.   Report box: type or say a report; report.js asks the LLM proxy to fill in the
 //        sighting form (or a message). Nothing is added until the person checks it and
 //        taps the button. The LLM never touches the probabilities.
+//   10.  Offline: sw.js keeps the app and viewed map tiles on the phone; "Save my home area"
+//        downloads the streets around home ahead of time; a blue dot shows your own GPS
+//        position (GPS works without cell signal).
 //
 // Every phone recomputes the same map from the same case + events.
 // All on-screen words come from i18n.js (t('key')).
@@ -82,6 +85,9 @@ const state = {
   myName: '',
   engineEventsKey: '',     // lets us skip re-running the engine when only messages changed
   stopVoice: null,         // stops voice input while listening
+  homeDraft: null,         // { lat, lng } chosen in "Save my home area", not saved yet
+  home: null,              // { lat, lng, savedAt } saved home area
+  gpsWatch: null,          // id from navigator.geolocation.watchPosition while showing my location
 };
 
 // A random whole number for the engine's random-number generator.
@@ -137,6 +143,13 @@ const els = {
   reportVoice: $('report-voice'),
   reportRead: $('report-read'),
   reportStatus: $('report-status'),
+  offlineBanner: $('offline-banner'),
+  homeAddress: $('home-address'),
+  homeFind: $('home-find'),
+  homeTap: $('home-tap'),
+  homeGps: $('home-gps'),
+  homeSave: $('home-save'),
+  homeStatus: $('home-status'),
   areas: $('areas'),
   myName: $('my-name'),
   share: $('share'),
@@ -185,7 +198,8 @@ const layers = {
   route: L.layerGroup().addTo(map),     // the walking route of the selected area
   spots: L.layerGroup().addTo(map),     // numbered "check these first" markers
   sightings: L.layerGroup().addTo(map), // reported sightings
-  pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft
+  pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft, home
+  me: L.layerGroup().addTo(map),        // my own GPS position (blue dot)
 };
 
 // A small square or round marker with text in it.
@@ -214,6 +228,10 @@ function drawPins() {
   if (state.sightingDraft) {
     L.marker(state.sightingDraft, { icon: labelIcon('!', 'map-sighting'), keyboard: false }).addTo(layers.pins);
   }
+  const home = state.homeDraft || state.home;
+  if (home) {
+    L.marker(home, { icon: labelIcon('⌂', 'map-home'), keyboard: false }).bindTooltip(t('homeMarker')).addTo(layers.pins);
+  }
 }
 
 // What a tap on the map does depends on the current mode.
@@ -236,6 +254,9 @@ map.on('click', (e) => {
     state.sightingDraft = point;
     els.sightingWhere.textContent = t('sightingPlaced');
     showStatus(t('sightingPlaced'));
+  } else if (state.mode === 'home') {
+    setHomeDraft(point, `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
+    setMode(null);
   }
   drawPins();
 });
@@ -245,10 +266,12 @@ function setMode(mode) {
   els.setLastSeen.setAttribute('aria-pressed', String(mode === 'lastSeen'));
   els.addFamiliar.setAttribute('aria-pressed', String(mode === 'familiar'));
   els.reportSighting.setAttribute('aria-pressed', String(mode === 'sighting'));
+  els.homeTap.setAttribute('aria-pressed', String(mode === 'home'));
   els.lastSeenHelp.hidden = mode !== 'lastSeen';
   if (mode === 'familiar') showStatus(t('tapFamiliar'));
   if (mode === 'lastSeen') showStatus(t('tapLastSeen'));
   if (mode === 'sighting') showStatus(t('tapSighting'));
+  if (mode === 'home') showStatus(t('homeTapPrompt'));
 }
 
 // ---- Status messages -------------------------------------------------------------
@@ -830,6 +853,131 @@ async function readReport() {
   }
 }
 
+// ---- Offline ---------------------------------------------------------------------------
+
+// The service worker (sw.js) keeps the app on the phone so it opens with no signal.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return; // very old browsers: the app still works online
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Offline mode unavailable', err));
+}
+
+// Yellow "You're offline" line under the emergency banner.
+function showOnlineState(online) {
+  els.offlineBanner.hidden = online;
+  setTimeout(() => map.invalidateSize(), 0); // the map's height changed
+}
+
+// ---- My location (blue dot) ------------------------------------------------------------
+
+// A round button under the zoom buttons. GPS works without cell signal.
+const LocateControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const box = L.DomUtil.create('div', 'leaflet-bar');
+    const button = L.DomUtil.create('button', 'locate-button', box);
+    button.type = 'button';
+    button.textContent = '◎';
+    button.setAttribute('aria-pressed', 'false');
+    L.DomEvent.disableClickPropagation(box); // a tap on the button isn't a tap on the map
+    L.DomEvent.on(button, 'click', toggleMyLocation);
+    els.locateButton = button;
+    return box;
+  },
+});
+
+function toggleMyLocation() {
+  if (state.gpsWatch !== null) {
+    navigator.geolocation.clearWatch(state.gpsWatch);
+    state.gpsWatch = null;
+    layers.me.clearLayers();
+    els.locateButton.setAttribute('aria-pressed', 'false');
+    return;
+  }
+  if (!navigator.geolocation) { showStatus(t('locationDenied'), { error: true }); return; }
+  showStatus(t('locating'), { sticky: true });
+  els.locateButton.setAttribute('aria-pressed', 'true');
+  let first = true;
+  state.gpsWatch = navigator.geolocation.watchPosition(
+    (pos) => {
+      const here = [pos.coords.latitude, pos.coords.longitude];
+      layers.me.clearLayers();
+      L.circle(here, { radius: pos.coords.accuracy, color: '#0b57d0', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(layers.me);
+      L.circleMarker(here, { radius: 9, color: '#fff', weight: 3, fillColor: '#0b57d0', fillOpacity: 1 })
+        .bindTooltip(t('youAreHere'))
+        .addTo(layers.me);
+      if (first) { map.flyTo(here, Math.max(map.getZoom(), 16)); hideStatus(); first = false; }
+    },
+    () => {
+      showStatus(t('locationDenied'), { error: true });
+      toggleMyLocation(); // stop watching
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
+  );
+}
+
+// ---- Save my home area -----------------------------------------------------------------
+
+function setHomeDraft(point, label) {
+  state.homeDraft = { lat: point.lat, lng: point.lng };
+  els.homeStatus.textContent = t('homePicked', { place: label });
+  drawPins();
+  map.flyTo([point.lat, point.lng], 15);
+}
+
+async function findHomeAddress() {
+  const query = els.homeAddress.value.trim();
+  if (!query) return;
+  els.homeFind.disabled = true;
+  try {
+    const found = await data.geocode(query);
+    if (found) setHomeDraft(found, found.label.split(',').slice(0, 3).join(','));
+    else els.homeStatus.textContent = t('homeNotFound');
+  } catch {
+    els.homeStatus.textContent = t('homeSearchFailed');
+  } finally {
+    els.homeFind.disabled = false;
+  }
+}
+
+function useMyLocationForHome() {
+  if (!navigator.geolocation) { els.homeStatus.textContent = t('locationDenied'); return; }
+  els.homeStatus.textContent = t('locating');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setHomeDraft(p, `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`);
+    },
+    () => { els.homeStatus.textContent = t('locationDenied'); },
+    { enableHighAccuracy: true, timeout: 30000 },
+  );
+}
+
+async function saveHomeArea() {
+  const point = state.homeDraft || state.home;
+  if (!point) { els.homeStatus.textContent = t('homeNeedPoint'); return; }
+  els.homeSave.disabled = true;
+  els.homeStatus.textContent = t('homeSaving');
+  try {
+    const result = await data.loadArea(point.lat, point.lng); // downloads and stores it (or finds it saved)
+    state.home = { lat: point.lat, lng: point.lng, savedAt: result.savedAt };
+    state.homeDraft = null;
+    remember('home', JSON.stringify(state.home));
+    showHomeSaved();
+    drawPins();
+  } catch (err) {
+    console.error(err);
+    els.homeStatus.textContent = t('homeSaveFailed');
+  } finally {
+    els.homeSave.disabled = false;
+  }
+}
+
+function showHomeSaved() {
+  if (state.home && state.home.savedAt) {
+    els.homeStatus.textContent = t('homeSaved', { date: i18n.formatDateTime(state.home.savedAt) });
+  }
+}
+
 // ---- Demo ---------------------------------------------------------------------------
 
 async function runDemo() {
@@ -1158,6 +1306,11 @@ function applyLanguage(code) {
   els.callButton.textContent = t('call911Title', { number: state.emergencyNumber });
   els.panelToggle.textContent = els.panel.classList.contains('collapsed') ? t('showPanel') : t('hidePanel');
   if (state.sightingDraft) els.sightingWhere.textContent = t('sightingPlaced');
+  if (els.locateButton) {
+    els.locateButton.setAttribute('aria-label', t('myLocation'));
+    els.locateButton.title = t('myLocation');
+  }
+  showHomeSaved();
   drawResults();
   drawPins();
 }
@@ -1172,6 +1325,8 @@ function applyUnits(units) {
 // ---- Start-up -------------------------------------------------------------------------
 
 function start() {
+  registerServiceWorker();
+  new LocateControl().addTo(map);
   const region = i18n.detectRegion();
   state.emergencyNumber = i18n.emergencyNumber(region);
   els.callLink.href = 'tel:' + state.emergencyNumber;
@@ -1201,6 +1356,22 @@ function start() {
     els.panelToggle.textContent = collapsed ? t('showPanel') : t('hidePanel');
     setTimeout(() => map.invalidateSize(), 0); // the map got bigger or smaller
   });
+
+  // Offline and home area
+  showOnlineState(navigator.onLine);
+  window.addEventListener('online', () => showOnlineState(true));
+  window.addEventListener('offline', () => showOnlineState(false));
+  try { state.home = JSON.parse(recall('home')); } catch { state.home = null; }
+  showHomeSaved();
+  drawPins();
+  els.homeFind.addEventListener('click', findHomeAddress);
+  els.homeAddress.addEventListener('keydown', (e) => { if (e.key === 'Enter') findHomeAddress(); });
+  els.homeTap.addEventListener('click', () => {
+    els.panel.classList.remove('collapsed');
+    setMode(state.mode === 'home' ? null : 'home');
+  });
+  els.homeGps.addEventListener('click', useMyLocationForHome);
+  els.homeSave.addEventListener('click', saveHomeArea);
 
   // Report box
   report.setProxyUrl(proxyUrl());

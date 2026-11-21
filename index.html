@@ -13,6 +13,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#b00020">
   <title>FindThem</title>
+  <!-- Lets phones install FindThem like an app, with its icon. -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="lib/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -20,6 +24,8 @@
   <!-- Emergency banner: a tap-to-call link. The number depends on the phone's region. -->
   <header id="banner">
     <a id="call-link" href="tel:911"><span id="call-text">CALL 911 FIRST</span></a>
+    <!-- Shown only when the phone has no signal. -->
+    <p id="offline-banner" hidden data-i18n="offlineBanner"></p>
   </header>
 
   <main id="map-wrap">
@@ -159,6 +165,23 @@
         <select id="language" data-i18n-aria="language"></select>
         <button id="units" class="big" type="button" data-i18n-aria="units">mi</button>
       </div>
+
+      <!-- Before an emergency: download the streets around home so they work offline. -->
+      <details id="home-area">
+        <summary data-i18n="homeTitle"></summary>
+        <p class="help" data-i18n="homeHint"></p>
+        <label for="home-address" data-i18n="homeAddress"></label>
+        <div class="row">
+          <input id="home-address" type="text" autocomplete="street-address">
+          <button id="home-find" class="big" type="button" data-i18n="homeFind"></button>
+        </div>
+        <div class="row">
+          <button id="home-tap" class="big" type="button" aria-pressed="false" data-i18n="homeTap"></button>
+          <button id="home-gps" class="big" type="button" data-i18n="homeGps"></button>
+        </div>
+        <button id="home-save" class="big primary" type="button" data-i18n="homeSave"></button>
+        <p id="home-status" class="help" role="status"></p>
+      </details>
     </div>
   </section>
 

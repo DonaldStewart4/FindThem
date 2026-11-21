@@ -84,7 +84,9 @@ Then open http://localhost:8000.
 
 Service workers (the offline part) only work on `localhost` or over HTTPS. Opening `index.html` directly as a file won't work.
 
-To test offline mode: load the app once, run a prediction, then stop the server (Ctrl+C) and reload the page. You should see "You're offline – using saved data".
+To test offline mode: load the app twice (the second load is the first one the offline worker controls), run the Demo, then stop the server (Ctrl+C) and reload. The app still opens and the Demo still runs. The yellow "You're offline – using saved data" line appears when the phone itself has no signal.
+
+**While developing:** the offline worker serves saved copies first, so after you edit a file, reload twice to see the change. Bump `CACHE_VERSION` at the top of `sw.js` whenever app files change, so phones pick up the new version.
 
 ## Set up live sharing (Firebase)
 

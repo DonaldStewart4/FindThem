@@ -59,6 +59,46 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Screen E: offline worker on, app manifest, offline banner, Save my home area, GPS blue dot
+
+- **Date:** 2026-11-21
+- **Stage:** Screen E (BenStew)
+- **What changed:**
+  - `app.js`:
+    - **Offline worker:** `registerServiceWorker()` turns on `sw.js`. `showOnlineState()` shows a yellow "You're offline – using saved data" line under the emergency banner on the `offline` event and hides it on `online`.
+    - **My location:** a `LocateControl` button (◎) under the zoom buttons uses `watchPosition` to draw a blue dot with an accuracy circle and flies there on the first fix. Tap again to stop; denial shows a message.
+    - **Save my home area** (`<details>` at the bottom of the panel): pick the point by address (`data.geocode`), by tapping the map (new `'home'` tap mode) or by GPS. A green ⌂ pin shows it. "Save this area for offline use" calls `data.loadArea` (downloads + stores, or finds it saved), remembers `{lat, lng, savedAt}` in `localStorage`, and shows "Saved on … works within about 2 miles, even with no signal".
+  - `data.js`:
+    - **Address search:** `geocode(query)` via Nominatim (one request per button tap, per their 1/second rule).
+    - **Saved areas near a point:** `distanceM()` (haversine) and `findSavedAreaNear()`.
+    - **`loadArea` order is now:** exact saved spot → saved area within 1,000 m → download → if the download fails, a saved area within 2,500 m → error. **A home area saved ahead of time now covers a last-seen point a few streets away**, which an exact-key cache couldn't. With `navigator.onLine === false` it tries Overpass once instead of five times.
+  - `index.html`: `<link rel="manifest">`, the SVG favicon, the Apple touch icon, the offline banner, and the home-area section.
+  - `style.css`: offline banner, home-area row, locate button, home pin.
+  - `i18n.js`: 21 new strings in 5 languages.
+  - `sw.js`: `CACHE_VERSION` → v4.
+  - `README.md`: an updated offline test, and a note that while developing you reload twice / bump `CACHE_VERSION`.
+  - `ShortPlan.md`: ticked "Works offline after the first visit".
+- **Why:** Screen E in `PLAN.md`; the original prompt's offline PWA, GPS dot and "Save my home area".
+- **Decisions:**
+  - **Distance thresholds:** an area covers 3.2 km around its center and walkers need ~2 km around the last-seen point. So a saved area is reused online only within 1 km, and offline within 2.5 km, since a looser fit beats nothing.
+  - **Offline banner follows the browser's events.** With no signal the app still opens from cache; "offline" means the phone, not our server.
+  - **The locate button is a map control**, so it's always one tap away and doesn't take panel space.
+  - **Home saving reuses `loadArea`**, so a home area is just a saved area; nothing new to keep in sync.
+- **How it was verified** (built-in browser at 375×812):
+  - The service worker is active and controls the page; `findthem-shell-v4` holds 18 files including `config.js`; a `findthem-tiles` cache exists; `manifest.json` loads; the locate button is labeled "Show my location".
+  - The offline banner shows on an `offline` event with the right text and hides on `online`.
+  - Blue dot: with a stand-in `watchPosition` (no GPS in the test browser), the dot and accuracy circle drew and the button showed pressed.
+  - Home area: Fremont data seeded into IndexedDB, then a home point ~1 km from its center was tapped. Save took 0.05 s with no download, the remembered entry was saved, and the green pin appeared. Address search found "Fremont Central Park, …, Fremont" through Nominatim.
+  - **Real offline test:** web server stopped, page reloaded. The app opened from the cache, remembered the home area, and the Demo ran with results.
+  - `node --test`: 14/14 pass. `missingKeys()` is `{}`.
+- **Known issues / not done:**
+  - **Real GPS wasn't tested** (stand-in only).
+  - **The offline fallback path wasn't exercised** (download fails → saved area within 2.5 km), because the test machine had internet.
+  - Saving a home area that isn't saved yet needs Overpass, which can be busy.
+  - The page shows the saved home's date but doesn't list or delete saved areas.
+  - The manifest's start_url `./` works on GitHub Pages under `/FindThem/`, but that isn't tested yet.
+- **Next:** integration with Jev's engine (swap `engine/fake.js`, Nathan's tests); create Firebase; deploy the proxy; then the required benchmark.
+
 ### Screen D: voice/text report box that fills in the sighting form or a message, confirm before anything is added
 
 - **Date:** 2026-11-21

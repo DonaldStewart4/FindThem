@@ -197,17 +197,73 @@ export async function loadBundledArea(url = DEMO_AREA_URL) {
   return { osm, fromCache: false, savedAt: osm.savedAt || null };
 }
 
+// ---- Saved areas near a point -------------------------------------------------------
+
+// Straight-line distance in meters between two points (the "haversine" formula).
+export function distanceM(a, b) {
+  const R = 6371000;
+  const rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+async function dbGetAll() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(DB_STORE).objectStore(DB_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// The saved area whose center is closest to (lat, lng), if it's within maxM meters.
+// Lets a home area saved ahead of time cover a last-seen point a few streets away.
+export async function findSavedAreaNear(lat, lng, maxM) {
+  let best = null;
+  let bestD = maxM;
+  for (const saved of await dbGetAll()) {
+    if (!saved || !saved.osm) continue;
+    const d = distanceM({ lat, lng }, saved.osm.center);
+    if (d <= bestD) { best = saved; bestD = d; }
+  }
+  return best;
+}
+
+// ---- Address search (Nominatim) ---------------------------------------------------------
+
+// Turns an address into a point using OpenStreetMap's free Nominatim service.
+// Their rules: at most 1 request per second, so this is only called on a button tap.
+// Returns { lat, lng, label } or null if nothing was found. Needs signal.
+export async function geocode(query) {
+  const params = new URLSearchParams({ format: 'jsonv2', limit: '1', q: query });
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Nominatim ${res.status}`);
+  const results = await res.json();
+  if (!results.length) return null;
+  return { lat: Number(results[0].lat), lng: Number(results[0].lon), label: results[0].display_name };
+}
+
 // ---- The one function app.js calls ----------------------------------------------
 
+// How far a saved area's center may be from the last-seen point and still be used.
+// The walkers need ~2 km around the last-seen point, and an area covers 3.2 km around its center.
+const NEAR_ONLINE_M = 1000;   // with signal: reuse a saved area only if it's this close
+const NEAR_OFFLINE_M = 2500;  // no signal: accept a looser fit rather than nothing
+
 // Returns { osm, fromCache, savedAt }.
-// Order: saved copy first (fast, works offline), otherwise download and save.
-// If saving fails (private browsing, full storage) the app still works, it just
-// won't have the area offline next time.
+// Order: a saved copy of this exact spot → a saved area close by → download (and save)
+// → if the download fails (no signal), any saved area that roughly covers the spot.
+// If saving fails (private browsing, full storage) the app still works, it just won't
+// have the area offline next time.
 export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M } = {}) {
   const key = areaKey(lat, lng);
 
   try {
-    const saved = await dbGet(key);
+    const saved = (await dbGet(key)) || (await findSavedAreaNear(lat, lng, NEAR_ONLINE_M));
     if (saved && saved.osm && saved.osm.radiusM >= radiusM) {
       return { osm: saved.osm, fromCache: true, savedAt: saved.savedAt };
     }
@@ -215,7 +271,14 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M } = {}) {
     console.warn('Could not read saved map data', err);
   }
 
-  const json = await fetchOverpass(lat, lng, radiusM);
+  let json;
+  try {
+    json = await fetchOverpass(lat, lng, radiusM, { attempts: navigator.onLine === false ? 1 : 5 });
+  } catch (err) {
+    const fallback = await findSavedAreaNear(lat, lng, NEAR_OFFLINE_M).catch(() => null);
+    if (fallback) return { osm: fallback.osm, fromCache: true, savedAt: fallback.savedAt };
+    throw err;
+  }
   const osm = parseOverpass(json, { lat, lng }, radiusM);
   const savedAt = new Date().toISOString();
   try {
