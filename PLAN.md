@@ -7,9 +7,29 @@ This merges three sources:
 
 > **Update 2 (Nov 21):** the official EvoHacks 2 rules *encourage* AI use and say nothing against AI building the whole project or about explaining your own code on video (that came from the game plan's reading of an older page). **The engine is now built with Claude Code** at BenStew's request. Submission needs a public repo, setup instructions and a **2–3 minute** video; judging is 25% each for impact, technical execution, creativity and presentation.
 >
-> **Update (Nov 21, afternoon):** "Jev" in the team doc is **not a teammate**. It's TypeSafe AI's Jev model, now used in the report box instead of DeepSeek. The team is BenStew + Nathan, and **BenStew hand-writes the engine**. Sections below are updated to match.
+> **Update (Nov 21, afternoon):** "Jev" in the team doc is **not a teammate**. It's TypeSafe AI's Jev model, now used in the report box instead of DeepSeek. The team is BenStew + Nathan. (The engine was briefly planned as hand-written by BenStew; Update 2 replaced that.)
 
 EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**, with freeze at 9:30 am.
+
+## Status (Nov 21, evening)
+**Done and pushed:**
+- all five screens
+- the real engine, calibrated to the research
+- live sharing on real Firebase (`findthem-f4e5c`, rules tested)
+- report box code (Jev proxy, tested with a fake Jev)
+- offline PWA
+- 5 languages
+- the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
+- 48 tests
+- commit emails switched to the GitHub noreply address
+
+**Left, in order:**
+1. **Make the repo public and turn on GitHub Pages** (BenStew, about 2 minutes) → `https://donaldstewart4.github.io/FindThem/`.
+2. **Deploy the Jev proxy** (BenStew: TypeSafe key + Cloudflare; `proxy/README.md`), put its URL in `config.js`, and set `ALLOWED_ORIGIN`.
+3. **Test on two real phones:** sharing, **voice with a real microphone**, offline, and the speed of the Demo.
+4. Nathan's UI review.
+5. **2–3 minute video**, then the **Devpost** write-up (description, setup steps, public repo link).
+
 
 ## The user and the moment
 A family member or neighbor in the first hour after a person with dementia goes missing, before professionals arrive. The app tells them where to look first, gives each searcher a route, keeps everyone talking on one shared map, and updates as places come up empty or someone reports a sighting.
@@ -109,14 +129,14 @@ The official rules encourage AI use; we disclose who and what built each part.
 | `app.js` | BenStew | map, inputs, layers, panels, steps 0–8 |
 | `data.js` | BenStew | Overpass fetch + IndexedDB cache + Nominatim; returns raw OSM ways, nodes and features |
 | `sync.js` | BenStew | Firebase REST + EventSource: case, events, messages; offline write queue |
-| `report.js` | BenStew | voice (Web Speech API) or text → LLM proxy → structured draft for the person to confirm |
+| `report.js` | BenStew | voice (the browser's speech recognition) or text → Jev proxy → structured draft for the person to confirm |
 | `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
 | `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 + Leaflet.heat 0.2.0 |
 | `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (with Claude Code) | graph, walkers, grid math, routes |
 | `tests/*.test.js`, `bench/` | Nathan | `node --test`, speed checks, later the benchmark |
 | `INTERFACES.md` | all | exact function signatures and data shapes; change only by agreement |
-| `engine/fake.js` | BenStew | dev-only fake engine with the same interface; deleted at integration |
+| ~~`engine/fake.js`~~ | — | dev-only fake engine; **deleted** when the real engine was integrated |
 | `ShortPlan.md`, `PLAN.md`, `CLAUDE.md`, `README.md`, `ROADMAP.md`, `CommitHistory.md` | all | docs |
 
 **Sync design.**
@@ -129,18 +149,18 @@ The official rules encourage AI use; we disclose who and what built each part.
 Chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts, photos, and everything in `ROADMAP.md`.
 
 ## Schedule
-1. **Setup:**
+1. ✅ **Setup:**
    - docs and `INTERFACES.md` (all three agree)
    - skeleton files, `/lib`, `package.json`
    - Firebase project, demo fixture for Fremont
    - BenStew starts the hosting/proxy research
-2. **Screen A:** map + inputs + i18n + `data.js` + fake engine results. *Pause for a check.*
-3. **Screen B:** heatmap, colored streets, rings, top spots, sectors and routes UI, 911 script + house checklist, sighting form.
-4. **Screen C:** Firebase sync (two phones share one map), share and join links, message feed, hand-off sheet.
-5. **Screen D:** report box (voice/text → proxy → confirm → event), with the manual form as fallback.
-6. **Integration with the real engine** (target: evening of Nov 21): swap `fake.js` for the real engine; Nathan's tests pass. *Pause for a check.*
-7. **Screen E:** offline PWA, Save my home area, GPS dot, Demo button. Nathan does a speed and reliability pass.
-8. **Benchmark** (required, after the core works; Nathan + BenStew): uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README.
+2. ✅ **Screen A:** map + inputs + i18n + `data.js` + fake engine results.
+3. ✅ **Screen B:** heatmap, colored streets, rings, top spots, sectors and routes UI, 911 script + house checklist, sighting form.
+4. ✅ **Screen C:** Firebase sync (two phones share one map), share and join links, message feed, hand-off sheet.
+5. ✅ **Screen D:** report box (voice/text → proxy → confirm → event), with the manual form as fallback.
+6. ✅ **Integration with the real engine:** `fake.js` swapped for the real engine, and the tests pass.
+7. ✅ **Screen E:** offline PWA, Save my home area, GPS dot, Demo button. Nathan does a speed and reliability pass.
+8. ✅ **Benchmark** (required, after the core works; Nathan + BenStew): uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README.
 9. **Freeze at 9:30 am Nov 22.** Deploy, 3-minute video, Devpost text. Submit by 11:00.
 
 **If time runs short, cut from the end of this list:** engine + tests → shared coverage → sightings → share link → routes → messaging → report box → hand-off → demo → benchmark → offline → languages beyond en/es.

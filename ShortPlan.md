@@ -50,7 +50,7 @@
 - [x] Routes for each searcher
 - [x] Sightings update the map
 - [x] Messaging between searchers
-- [x] Voice/text report box
+- [x] Voice/text report box (live once the Jev proxy is deployed)
 - [x] Share link
 - [x] Police hand-off sheet
 - [x] Works offline after the first visit

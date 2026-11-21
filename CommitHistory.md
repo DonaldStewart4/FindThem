@@ -59,6 +59,29 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Docs catch-up: status list, voice explained, fake engine marked deleted
+
+- **Date:** 2026-11-21
+- **Stage:** Docs
+- **What changed:**
+  - `PLAN.md`:
+    - a new **"Status (Nov 21, evening)"** section: what's done, and what's left, in order (Pages → Jev deploy → two-phone test incl. a real microphone → Nathan's UI review → video + Devpost)
+    - schedule steps 1–8 marked ✅
+    - `engine/fake.js` marked deleted; `report.js` row says "Jev proxy"
+    - the afternoon update no longer says BenStew hand-writes the engine (Update 2 replaced that)
+  - `CLAUDE.md`: a "Where things stand" pointer to `PLAN.md` → Status; the `fake.js` bullet now says the real engine is integrated and `fake.js` was deleted.
+  - `INTERFACES.md`:
+    - status "implemented" (engine and screen follow it, tests check it)
+    - the ground rule no longer says the screen imports `fake.js`
+    - §5 says the report box sends up to 60 nearby named places `{name, lat, lng}` and the proxy asks Jev five questions
+  - `README.md`:
+    - the report-box step explains how voice works: phone speech recognition (Google on Android Chrome, Apple on iPhone Safari) → the Jev proxy's five questions, low-confidence answers blank → you check and add; the manual form on any failure
+    - Limits: what leaves the phone (text to TypeSafe without coordinates, speech to Google or Apple); voice usually needs signal, isn't in Firefox, and hasn't been tested with a real microphone
+  - `ShortPlan.md`: the report box line notes it's live once the Jev proxy is deployed.
+- **Why:** BenStew asked how voice mode works and for the .md files to be brought up to date.
+- **How it was verified:** docs only. Grepped for `fake.js`, `streetNames` and "street names in view"; the only remaining mentions are marked as deleted history.
+- **Next:** GitHub Pages; Jev deploy; two-phone test; video; Devpost.
+
 ### Note: history rewritten to hide the author email (no code change)
 
 - **Date:** 2026-11-21

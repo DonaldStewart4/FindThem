@@ -16,7 +16,10 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
   - **The engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), now **built with Claude Code** at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
 - **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
 - `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.
-- `engine/fake.js` is a dev-only stand-in so the screen works before the real engine lands. Delete it at integration.
+- The real engine is integrated: `app.js` imports `engine/index.js`. (`engine/fake.js` was a dev-only stand-in and was deleted at integration.)
+
+## Where things stand
+`PLAN.md` → "Status" lists what's done and what's left. Update it when something ships.
 
 ## Event rules (official EvoHacks 2 rules, posted Nov 21)
 - **Fresh code only:** everything is made between Nov 21 9:00 AM PST and Nov 22 12:00 PM PST. Open-source libraries, frameworks and APIs are fine.

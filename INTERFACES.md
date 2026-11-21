@@ -6,12 +6,12 @@ This is the contract between the two halves of FindThem:
 - **Engine** (`engine/`): BenStew, built with Claude Code.
 - **Tests and speed** (`tests/`, `bench/`): Nathan, with AI help allowed.
 
-If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: draft. Not yet reviewed by Nathan.* ("Jev" is not a teammate; it's the AI model in the report box.)
+If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: implemented. `engine/` and the screen both follow it, and the tests check it. Not yet reviewed by Nathan.* ("Jev" is not a teammate; it's the AI model in the report box.)
 
 ## Ground rules
 
 - **Modules:** ES modules (`export function …`). The browser loads them with `<script type="module">`. `package.json` holds only `{ "type": "module" }` so `node --test` can import them too. No dependencies.
-- **One entry point:** the screen imports everything from `engine/index.js`, which re-exports the engine files. Until the real engine is ready, the screen imports `engine/fake.js` instead. It has the same exports and returns made-up but well-shaped data.
+- **One entry point:** the screen imports everything from `engine/index.js`, which re-exports the engine files. (A dev-only `engine/fake.js` with the same exports was used until the real engine was ready, then deleted.)
 - **Pure and deterministic:** no DOM, no `Math.random()`, no `Date.now()` inside the engine. The same inputs and seed must give exactly the same output on every phone. That's what makes shared maps and share links work.
 - **Don't mutate inputs:** functions return new objects (copying a `Float64Array` is cheap).
 - **Units:**
@@ -211,7 +211,7 @@ PRIOR_FLOOR (small, so no cell is exactly 0)
 
 ## 5. Report box (screen-only, here for reference)
 
-`report.js` sends the typed or spoken text (plus the last-seen point and the street names in view, for context) to the LLM proxy. It gets back **only** this JSON:
+`report.js` sends the typed or spoken text, plus context (the last-seen point and up to 60 nearby named places as `{ name, lat, lng }`: streets, creeks, parks, lakes, nearest first), to the proxy. The proxy asks Jev five multiple-choice questions (`proxy/jev.js`) and returns **only** this JSON:
 
 ```js
 ReportDraft = {
