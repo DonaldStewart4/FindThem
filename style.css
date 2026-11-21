@@ -462,3 +462,16 @@ h3 {
   #handoff-dialog .row { display: none; }
   #handoff-text { max-height: none; overflow: visible; }
 }
+
+/* ---- Screen D: report box ---- */
+#report-text {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  resize: vertical;
+}
+#report-voice[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: #fff; }
+#report-read { margin-top: 8px; font-size: 18px; }

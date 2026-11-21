@@ -17,7 +17,7 @@ the draft and taps Confirm before anything reaches the map.
    npx wrangler deploy
    ```
 4. Wrangler prints the address, like `https://findthem-proxy.<you>.workers.dev`.
-   Put it in `PROXY_URL` at the top of `report.js`.
+   Put it in `PROXY_URL` in `config.js`.
 5. In `wrangler.toml`, set `ALLOWED_ORIGIN` to the site's address
    (e.g. `https://benstew.github.io`, no trailing slash) and run `npx wrangler deploy` again.
 

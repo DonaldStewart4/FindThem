@@ -10,11 +10,24 @@
 export const FIREBASE_DB_URL = '';
 // Example: 'https://findthem-12345-default-rtdb.firebaseio.com'
 
-// For testing on your own computer only: open http://localhost:8000/?db=http://localhost:9000
-// to use tools/mock-firebase.py instead of the real database.
-export function databaseUrl() {
+// PROXY_URL: the address of the deployed LLM proxy (proxy/README.md), used by the report
+// box. Also not a secret: the DeepSeek key lives only inside the proxy.
+export const PROXY_URL = '';
+// Example: 'https://findthem-proxy.yourname.workers.dev'
+
+// For testing on your own computer only:
+//   ?db=http://localhost:9000      uses tools/mock-firebase.py instead of the real database
+//   ?proxy=http://localhost:9100   uses tools/mock-proxy.py instead of the real proxy
+function localOverride(name) {
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-  const override = new URLSearchParams(location.search).get('db');
-  if (local && override) return override.replace(/\/$/, '');
-  return FIREBASE_DB_URL.replace(/\/$/, '');
+  const value = new URLSearchParams(location.search).get(name);
+  return local && value ? value.replace(/\/$/, '') : null;
+}
+
+export function databaseUrl() {
+  return localOverride('db') ?? FIREBASE_DB_URL.replace(/\/$/, '');
+}
+
+export function proxyUrl() {
+  return localOverride('proxy') ?? PROXY_URL.replace(/\/$/, '');
 }

@@ -49,8 +49,8 @@
 - [ ] Live shared map with searched areas
 - [ ] Routes for each searcher
 - [ ] Sightings update the map
-- [ ] Messaging between searchers
-- [ ] Voice/text report box
+- [x] Messaging between searchers
+- [x] Voice/text report box
 - [x] Share link
 - [x] Police hand-off sheet
 - [ ] Works offline after the first visit

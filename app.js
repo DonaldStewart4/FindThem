@@ -13,13 +13,17 @@
 //   7.   "Share this search" puts the case in Firebase and gives a link. Everyone who opens
 //        it sees the same live map, messages, searched areas and sightings (sync.js).
 //   8.   "Hand-off sheet for police": a plain-text summary to copy, share or print.
+//   9.   Report box: type or say a report; report.js asks the LLM proxy to fill in the
+//        sighting form (or a message). Nothing is added until the person checks it and
+//        taps the button. The LLM never touches the probabilities.
 //
 // Every phone recomputes the same map from the same case + events.
 // All on-screen words come from i18n.js (t('key')).
 
 import * as data from './data.js';
 import * as sync from './sync.js';
-import { databaseUrl } from './config.js';
+import * as report from './report.js';
+import { databaseUrl, proxyUrl } from './config.js';
 import * as i18n from './i18n.js';
 import { t } from './i18n.js';
 // The FAKE engine, until Jev's real one is ready. At integration change this one line to:
@@ -77,6 +81,7 @@ const state = {
   areaSource: 'live',      // 'demo' if the bundled Fremont data is used (shared with joiners)
   myName: '',
   engineEventsKey: '',     // lets us skip re-running the engine when only messages changed
+  stopVoice: null,         // stops voice input while listening
 };
 
 // A random whole number for the engine's random-number generator.
@@ -125,6 +130,13 @@ const els = {
   sightingNote: $('sighting-note'),
   sightingSave: $('sighting-save'),
   sightingCancel: $('sighting-cancel'),
+  sightingCheck: $('sighting-check'),
+  reportOpen: $('report-open'),
+  reportBox: $('report-box'),
+  reportText: $('report-text'),
+  reportVoice: $('report-voice'),
+  reportRead: $('report-read'),
+  reportStatus: $('report-status'),
   areas: $('areas'),
   myName: $('my-name'),
   share: $('share'),
@@ -676,20 +688,38 @@ function markSearched(sectorId, minutes) {
 
 // ---- Sightings --------------------------------------------------------------------------
 
-function openSightingForm() {
+// Opens the sighting form, empty, or filled in from a report-box draft (which the person
+// then checks and fixes before tapping "Add sighting to the map").
+function openSightingForm({ draft = null } = {}) {
   if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
   state.sightingDraft = null;
   els.sightingWhere.textContent = t('tapSighting');
-  els.sightingMinutes.value = '0';
-  els.sightingDirection.value = '';
-  els.sightingNote.value = '';
+  els.sightingMinutes.value = draft && draft.minutesSince != null ? String(draft.minutesSince) : '0';
+  els.sightingDirection.value = (draft && draft.direction) || '';
+  els.sightingNote.value = (draft && draft.note) || '';
+  const sure = draft ? String(draft.reliability) : '0.6';
+  const radio = document.querySelector(`input[name="sure"][value="${sure}"]`);
+  if (radio) radio.checked = true;
+  els.sightingCheck.hidden = !draft;
   els.sightingForm.hidden = false;
   setMode('sighting');
+  if (draft && draft.lat != null && draft.lng != null) {
+    // The report named a place we could pin: show it; a tap on the map still moves it.
+    state.sightingDraft = { lat: draft.lat, lng: draft.lng };
+    els.sightingWhere.textContent = t('sightingPlaced');
+    showStatus(t('sightingPlaced'));
+    drawPins();
+    map.flyTo([draft.lat, draft.lng], 17);
+  } else if (draft) {
+    showStatus(t('reportNeedPin'), { sticky: true });
+  }
+  els.sightingForm.scrollIntoView({ block: 'start' });
 }
 
 function closeSightingForm() {
   state.sightingDraft = null;
   els.sightingForm.hidden = true;
+  els.sightingCheck.hidden = true;
   setMode(null);
   drawPins();
 }
@@ -708,6 +738,96 @@ function saveSighting() {
   closeSightingForm();
   recordEvent(sighting);
   showStatus(t('sightingAdded'));
+}
+
+// ---- Report box (type or speak) ---------------------------------------------------------
+
+function toggleReportBox() {
+  const opening = els.reportBox.hidden;
+  els.reportBox.hidden = !opening;
+  els.reportOpen.setAttribute('aria-expanded', String(opening));
+  if (opening) els.reportText.focus();
+  else stopListening();
+}
+
+function toggleVoice() {
+  if (state.stopVoice) { stopListening(); return; }
+  els.reportStatus.textContent = '';
+  els.reportVoice.setAttribute('aria-pressed', 'true');
+  els.reportVoice.textContent = t('reportListening');
+  state.stopVoice = report.startVoice(
+    i18n.getLanguage(),
+    (text) => { els.reportText.value = text; },             // words appear as they're heard
+    (code) => { els.reportStatus.textContent = code === 'no_speech' ? t('voiceNoSpeech') : t('voiceDenied'); },
+    resetVoiceButton,                                         // listening stopped
+  );
+}
+
+function stopListening() {
+  if (state.stopVoice) state.stopVoice();
+  resetVoiceButton();
+}
+
+function resetVoiceButton() {
+  state.stopVoice = null;
+  els.reportVoice.setAttribute('aria-pressed', 'false');
+  els.reportVoice.textContent = t('reportSpeak');
+}
+
+// Named streets near the last-seen point, nearest first. Sent with the report so the
+// LLM can pin a place like "the corner of Paseo Padre and Stevenson".
+function nearbyStreetNames(limit = 50) {
+  if (!areaCache.osm || !state.lastSeen) return [];
+  const nodeById = new Map(areaCache.osm.nodes.map((n) => [n.id, n]));
+  const best = new Map(); // name -> distance in meters
+  for (const way of areaCache.osm.ways) {
+    if (!way.name) continue;
+    const n = nodeById.get(way.nodeIds[0]);
+    if (!n) continue;
+    const d = map.distance(state.lastSeen, [n.lat, n.lng]);
+    if (!best.has(way.name) || d < best.get(way.name)) best.set(way.name, d);
+  }
+  return [...best.entries()].sort((a, b) => a[1] - b[1]).slice(0, limit).map(([name]) => name);
+}
+
+// Sends the report to the proxy and puts the answer into a form for the person to check.
+async function readReport() {
+  const text = els.reportText.value.trim();
+  if (!text) { els.reportStatus.textContent = t('reportEmpty'); return; }
+  if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
+  stopListening();
+  els.reportStatus.textContent = t('reportReading');
+  els.reportRead.disabled = true;
+
+  let draft;
+  try {
+    draft = await report.parseReport(text, { lastSeen: state.lastSeen, streetNames: nearbyStreetNames() }, i18n.getLanguage());
+  } catch (err) {
+    // Whatever went wrong, the manual form is always the way out.
+    if (err.message === 'offline') els.reportStatus.textContent = t('reportOffline');
+    else if (!report.isProxyConfigured()) els.reportStatus.textContent = t('reportNotSetUp');
+    else els.reportStatus.textContent = t('reportFailed');
+    openSightingForm();
+    return;
+  } finally {
+    els.reportRead.disabled = false;
+  }
+
+  els.reportStatus.textContent = '';
+  if (draft.kind === 'sighting') {
+    els.reportText.value = '';
+    toggleReportBox(); // close it, so the filled-in form is right there
+    openSightingForm({ draft });
+  } else if (draft.kind === 'message') {
+    els.reportText.value = '';
+    toggleReportBox();
+    els.messageText.value = draft.note || draft.placeText;
+    els.messageText.scrollIntoView({ block: 'center' });
+    showStatus(t('reportMessageReady'));
+  } else {
+    // 'searched' needs an area from the map, which the person picks under "Next areas".
+    els.reportStatus.textContent = t('reportSearched');
+  }
 }
 
 // ---- Demo ---------------------------------------------------------------------------
@@ -1081,6 +1201,13 @@ function start() {
     els.panelToggle.textContent = collapsed ? t('showPanel') : t('hidePanel');
     setTimeout(() => map.invalidateSize(), 0); // the map got bigger or smaller
   });
+
+  // Report box
+  report.setProxyUrl(proxyUrl());
+  els.reportVoice.hidden = !report.isVoiceSupported(); // e.g. Firefox has no voice input
+  els.reportOpen.addEventListener('click', toggleReportBox);
+  els.reportVoice.addEventListener('click', toggleVoice);
+  els.reportRead.addEventListener('click', readReport);
 
   // Sharing
   sync.setDbUrl(databaseUrl());

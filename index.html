@@ -76,9 +76,25 @@
           <input id="share-link" type="text" readonly hidden data-i18n-aria="copyThisLink">
         </div>
 
+        <!-- Report box: type or speak a report; it fills in the sighting form or a message,
+             and nothing is added until the person checks it and taps the button. -->
+        <button id="report-open" class="big" type="button" aria-expanded="false" data-i18n="reportOpen"></button>
+        <div id="report-box" class="sub-form" hidden>
+          <p class="help" data-i18n="reportHint"></p>
+          <label for="report-text" data-i18n="reportLabel"></label>
+          <textarea id="report-text" rows="3" maxlength="1000"></textarea>
+          <div class="row">
+            <button id="report-voice" class="big" type="button" aria-pressed="false" data-i18n="reportSpeak"></button>
+            <button id="report-read" class="big primary" type="button" data-i18n="reportRead"></button>
+          </div>
+          <p id="report-status" class="help" role="status"></p>
+          <p class="note" data-i18n="reportPrivacy"></p>
+        </div>
+
         <!-- Sighting: tap the map, fill in the form, and the map updates. -->
         <button id="report-sighting" class="big" type="button" aria-pressed="false" data-i18n="sightingStart"></button>
         <div id="sighting-form" class="sub-form" hidden>
+          <p id="sighting-check" class="note warn" hidden data-i18n="reportCheck"></p>
           <p id="sighting-where" class="help" data-i18n="tapSighting"></p>
           <label for="sighting-minutes" data-i18n="sightingMinutes"></label>
           <input id="sighting-minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" value="0">

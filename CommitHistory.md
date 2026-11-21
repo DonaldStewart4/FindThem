@@ -59,6 +59,54 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Screen D: voice/text report box that fills in the sighting form or a message, confirm before anything is added
+
+- **Date:** 2026-11-21
+- **Stage:** Screen D (BenStew)
+- **What changed:**
+  - `index.html`, `style.css`:
+    - a "Type or say what you saw" button opening the report box: example, textarea, **Speak** (turns red while listening), **Fill in the form**, a status line, and a privacy note ("sent to an AI service only to fill in the form; leave out names and medical details; you check everything")
+    - a yellow "Check this: it was filled in from your report" note at the top of the sighting form
+  - `app.js`:
+    - `toggleReportBox`; `toggleVoice` / `stopListening` with `report.startVoice` (words appear as heard; the Speak button is hidden where the browser has no voice input)
+    - `nearbyStreetNames()`: up to 50 named streets, nearest the last-seen point first, sent as context
+    - `readReport()`:
+      - **sighting** → the report box closes and the sighting form opens **pre-filled** (minutes, direction, how sure, note). If the draft has a location it's shown as a draft pin and the map flies there; otherwise "Now tap the map where they were seen".
+      - **message** → the text goes into the message box, waiting for Send.
+      - **searched** → explains how to mark an area under "Next areas".
+      - Errors (offline / not set up / unreadable) → a message, and the **manual sighting form opens**.
+    - `openSightingForm({ draft })` can now pre-fill.
+  - `report.js`:
+    - `PROXY_URL` constant replaced by `setProxyUrl()` / `isProxyConfigured()`, so app.js sets it from `config.js`
+    - `startVoice()` gained an `onEnd` callback (it never said when listening stopped)
+  - `config.js`: `PROXY_URL` (empty until the proxy is deployed); `?proxy=` override on localhost, sharing one `localOverride()` helper with `?db=`.
+  - `tools/mock-proxy.py`: a keyword-rule stand-in for the proxy on port 9100 (no AI, no key) for testing. "here" pins the draft to the last-seen point.
+  - `i18n.js`: 18 new strings in 5 languages. The word "chatbot" appears only in code comments.
+  - `proxy/README.md`: points to `PROXY_URL` in `config.js`.
+  - `sw.js`: `CACHE_VERSION` → v3.
+  - `ShortPlan.md`: ticked "Messaging between searchers" (tested in Screen C) and "Voice/text report box".
+- **Why:** Screen D in `PLAN.md`; the team doc's voice/text "report box"; the rule that nothing unconfirmed reaches the engine.
+- **Decisions:**
+  - **The confirm step is the existing forms.** A draft only ever fills in the sighting form or the message box; the person taps "Add sighting to the map" or "Send" as usual. No separate confirm dialog, and the engine only sees normal events.
+  - **Close the report box after a draft** so the filled-in form is right below. Testing showed the open box pushed the form out of view.
+  - **Every failure falls back to the manual form**, so the report box can never block reporting.
+  - **`searched` drafts don't become events:** a searched event needs a sector, which only the map can give.
+  - The privacy note sits right under the button, before anything is sent.
+- **How it was verified:**
+  - Built-in browser at 375×812 with `tools/mock-proxy.py`, Demo case:
+    - "I think I saw a man in a blue coat by the lake 10 min ago heading east" → form with 10 / East / Probably / "blue coat", the check note, "Now tap the map…", and no sighting on the map.
+    - "Definitely saw her right here 5 minutes ago, red sweater, going north" → pinned draft with 5 / North / Sure / "red sweater". **The top spots were unchanged until "Add sighting" was tapped**, then changed, with "Sighting added…".
+    - A message-type report filled the message box, and nothing was sent until Send.
+    - No proxy → "The report box isn't set up on this site yet…" and the manual form opened. Empty text → "Type or say your report first."
+  - `node --test`: 14/14 pass.
+  - Console errors seen were only the earlier test tab's live stream retrying the stopped mock database. The current page makes none.
+- **Known issues / not done:**
+  - **Voice input was not tested** (no microphone in the test browser).
+  - **The real proxy isn't deployed:** DeepSeek and the Cloudflare account are still to do (`proxy/README.md`), and `ALLOWED_ORIGIN` is `*`.
+  - With a proxy set but unreachable, the message says "No signal" (`report.js` treats network failures as offline).
+  - The draft pin uses the same orange "!" look as confirmed sightings.
+- **Next:** Screen E (register `sw.js`, link the manifest, Save my home area, GPS dot); create Firebase; deploy the proxy.
+
 ### Add offline worker, app manifest and icons, report box module and LLM proxy (from a parallel session)
 
 - **Date:** 2026-11-21

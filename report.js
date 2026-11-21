@@ -12,8 +12,11 @@
 // 'bad_response', 'no_voice', ...) that app.js turns into words via i18n.js.
 
 // Address of the deployed proxy, e.g. 'https://findthem-proxy.<you>.workers.dev'.
-// Empty means "not set up yet": parseReport throws 'proxy_error'.
-export const PROXY_URL = '';
+// app.js sets it from config.js (PROXY_URL there). Empty means "not set up yet":
+// parseReport throws 'proxy_error'.
+let proxyUrl = '';
+export function setProxyUrl(url) { proxyUrl = (url || '').replace(/\/$/, ''); }
+export function isProxyConfigured() { return proxyUrl !== ''; }
 
 // Longest report we send (the proxy also cuts at this length).
 export const MAX_TEXT = 1000;
@@ -42,11 +45,13 @@ export function isVoiceSupported() {
 }
 
 // Start listening. onText(text, isFinal) is called as words arrive.
-// onError(code) is called on problems. Returns a stop() function.
-export function startVoice(lang, onText, onError) {
+// onError(code) is called on problems; onEnd() when listening stops for any reason.
+// Returns a stop() function.
+export function startVoice(lang, onText, onError, onEnd = () => {}) {
   const Recognizer = getRecognizerClass();
   if (!Recognizer) {
     onError('no_voice');
+    onEnd();
     return () => {};
   }
   const rec = new Recognizer();
@@ -70,10 +75,12 @@ export function startVoice(lang, onText, onError) {
     else if (e.error === 'no-speech') onError('no_speech');
     else if (e.error !== 'aborted') onError('voice_error');
   };
+  rec.onend = () => onEnd();
   try {
     rec.start();
   } catch (err) {
     onError('voice_error');
+    onEnd();
   }
   return () => {
     try { rec.stop(); } catch (err) { /* already stopped */ }
@@ -139,7 +146,7 @@ export function validateDraft(raw) {
 // Throws an Error whose message is 'offline', 'proxy_error' or 'bad_response'.
 export async function parseReport(text, context = {}, lang = 'en') {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('offline');
-  if (!PROXY_URL) throw new Error('proxy_error');
+  if (!proxyUrl) throw new Error('proxy_error');
 
   const body = {
     text: String(text || '').slice(0, MAX_TEXT),
@@ -154,7 +161,7 @@ export async function parseReport(text, context = {}, lang = 'en') {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res;
   try {
-    res = await fetch(PROXY_URL, {
+    res = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
