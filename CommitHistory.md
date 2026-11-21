@@ -59,6 +59,22 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Note: history rewritten to hide the author email (no code change)
+
+- **Date:** 2026-11-21
+- **Stage:** Repo hygiene, before making the repo public
+- **What changed:**
+  - All 17 earlier commits were rewritten with `git filter-branch --env-filter` so the author and committer email is BenStew's GitHub noreply address (`289519839+DonaldStewart4@users.noreply.github.com`) instead of a personal address.
+  - Checked before pushing: files identical (same tree), dates and messages identical.
+  - Force-pushed with `--force-with-lease`. GitHub's commit list now shows only the noreply address.
+  - This repo's local `user.email` is set to the noreply address, so new commits use it too.
+- **Why:** the repo is about to go public for GitHub Pages and the Devpost requirement, and commit metadata is visible to anyone.
+- **Effect on others:**
+  - **Every commit id changed.** Entries in this file are titled by commit message, not id, so they still match.
+  - Anyone who cloned before this must re-clone, or run `git fetch` then `git reset --hard origin/main` (that discards their local commits, so save work first).
+- **How it was verified:** the tree of the new HEAD equals the old HEAD's tree; `git log` dates and messages match line for line; the GitHub API's commit list has one unique email, the noreply one.
+- **Next:** make the repo public; turn on GitHub Pages.
+
 ### Live sharing on real Firebase; fix duplicate events and stale offline copies
 
 - **Date:** 2026-11-21
