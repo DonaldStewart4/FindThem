@@ -2,7 +2,7 @@
 
 A detailed log of every commit, for people and AI agents who don't have the chat history behind this project. `git log` gives one-line titles; this file explains what changed, why, what was decided, and what's left.
 
-**Read `ShortPlan.md` first** (2 minutes) if you're picking up the project cold, then this file and `PLAN.md`. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built, once written).
+**Read `ShortPlan.md` first** (2 minutes) if you're picking up the project cold, then this file and `PLAN.md`. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built).
 
 ## How to add an entry
 
@@ -58,6 +58,34 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Rewrite README for the app as built; add ROADMAP.md
+
+- **Date:** 2026-11-21
+- **Stage:** Docs (BenStew)
+- **What changed:**
+  - `README.md` rewritten. It had described the app from before the game-plan merge (a `sim.js`, street marking, "copy summary", median 0.88 km, no sharing or report box). Now it has:
+    - a status line: the numbers come from the stand-in engine until Jev's lands; Firebase and the proxy aren't set up yet
+    - **What it does** (steps 0–8 plus home area, blue dot and Demo)
+    - **How the prediction works** (walkers → 25 m grid → Bayes updates with Koopman detection → allocation; median ~0.8 km per the game plan)
+    - a **Benchmark** section saying "not run yet", with what it will compare
+    - languages and units
+    - **Who built what, and how AI was used**: a table for BenStew (with Claude Code), Jev (engine by hand) and Nathan (tests, AI may help), plus the app's own narrow AI use
+    - an updated file table
+    - run locally plus `node --test`
+    - Firebase setup, a new AI-proxy setup section, and GitHub Pages steps for the existing repo (make it public, turn on Pages)
+    - a **Limits** list
+    - credits, now including Koopman and Bayesian search theory
+  - `ROADMAP.md` (new): "Future Plans (not yet built)" from the original prompt. Each item has, where it applies, an "Already in the app" line and a "Not built" line so the boundary is clear: live group search, caregiver profile, working with authorities, accessibility, privacy. Languages were moved out because they're built. Added the game-plan ideas that weren't built (time-aware map, "no one here" clues, GPS-trail coverage, doorbell-camera list, drill mode) and the open found-location dataset.
+  - `CLAUDE.md` and the intro of this file now refer to `ROADMAP.md` as existing.
+- **Why:** BenStew asked for the docs to be updated while Jev finishes the engine. The rules require disclosing AI use and separating built from planned work.
+- **Decisions:**
+  - **AI use is disclosed in the README**, naming Claude Code for the screen and noting that several screen files and the test servers were written by Claude Code sessions. That matches the commit log.
+  - **The benchmark section is honest:** "not run yet" rather than placeholder numbers.
+  - **The deploy steps match this repo:** it already exists and is private, so the steps are "make public → Pages" and the URL uses a placeholder username.
+- **How it was verified:** docs only. Checked against the code: file names, buttons, behavior and settings (`FIREBASE_DB_URL`, `PROXY_URL`, `?db=`, `?proxy=`, `CACHE_VERSION`) all exist as described. README is 2,255 words; ROADMAP is 704.
+- **Known issues / not done:** once the real engine and benchmark land, the README status line and Benchmark section need updating.
+- **Next:** integration with Jev's engine; Firebase; proxy deploy; the benchmark.
 
 ### Screen E: offline worker on, app manifest, offline banner, Save my home area, GPS blue dot
 

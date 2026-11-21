@@ -7,7 +7,7 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 2. `PLAN.md`: the merged build plan (original build prompt + EvoHacks II game plan + the team's planning doc). Scope, team, file layout, schedule.
 3. `INTERFACES.md`: the contract between screen and engine.
 4. `CommitHistory.md`: every decision so far and a detailed log of each commit.
-5. `README.md`: what the app is. `ROADMAP.md` (once written): future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
+5. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team: who writes what
 - **BenStew** (repo owner, the person in Claude Code sessions here): **screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches the free hosting and LLM provider, and security.

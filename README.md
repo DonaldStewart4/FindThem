@@ -1,76 +1,98 @@
 # FindThem
 
-> **New here? Read [ShortPlan.md](ShortPlan.md) first** (2 minutes). It's the current summary; the rest of this README is being updated to match.
+> **New here? Read [ShortPlan.md](ShortPlan.md) first** (2 minutes). Then `PLAN.md` (full plan), `INTERFACES.md` (screen ↔ engine contract) and `CommitHistory.md` (every decision and commit).
 
 **If someone is missing, call emergency services first (911 in the US).** FindThem helps a search get organized. It does not replace the police or search-and-rescue.
 
-FindThem is a phone-first website for families looking for a person with dementia who has wandered away. You drop a pin where the person was last seen and answer a few questions. The app then simulates 5,000 "virtual walkers" on the real street map, based on search-and-rescue research about how people with dementia move when they're lost. It shows:
-
-- a **heatmap** of where the person is most likely to be,
-- **streets colored** by how many walkers used them,
-- **distance rings** at 0.5, 1 and 1.5 miles,
-- a **"Check these first"** list of the 8 most likely spots, with a reason for each (for example, "Creek 130 ft off Main St – 12% of walkers").
+FindThem is a phone app (a website you can install) for the first hour after a person with dementia goes missing, for the family and neighbors who start looking before professionals arrive. It tells them where to look first, gives each searcher an area and a walking route, keeps everyone on one live map, and updates the map as places come up empty or someone reports a sighting.
 
 This is a guide to help focus the search, not a guarantee.
 
-> Status: hackathon project, being built in stages. Sections below describe the finished app.
+Built for EvoHacks II (theme: social good).
+
+> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until Jev's hand-written engine is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
+
+## What it does
+
+0. **Call 911 first.** The red banner is always on screen and is a tap-to-call link with your country's emergency number. "First steps" also has a script of what to tell the dispatcher.
+1. **Check the house and yard.** A 2-minute checklist: closets, under beds, bathrooms, garage, parked cars, shed, neighbors' yards. In search-and-rescue data, many are found close to home or even inside it.
+2. **Enter what you know.** Tap the map where they were last seen, then add minutes since, the direction they were heading, how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
+3. **See the map.**
+   - a heatmap of where they most likely are
+   - streets colored by how many simulated walkers used them
+   - dashed rings at 0.5, 1 and 1.5 miles
+   - **Check these first:** the top 3 places (8 when expanded), each with a reason such as "Creek 130 ft off Main St – 12% of walkers". Water and wetland spots are marked "leave this to professionals".
+4. **Next areas to search.** Areas A, B and C are the best places for the next searcher, each with its chance and a walking route. Open one, search it, and tap **Searched, nobody found** with the minutes spent.
+5. **Share the search.** Enter your name and tap **Share this search**. Everyone who opens the link sees the same live map: searched areas, sightings and messages appear for everyone within about a second.
+6. **Report a sighting**, either:
+   - on the map: tap where they were seen, then say how long ago, which way, how sure, and any details, or
+   - in the **report box**: type or speak ("saw a man in a blue coat by the lake 10 minutes ago, heading east") and an AI fills in the form. **Nothing is added until you check it and tap the button.**
+7. **Messages** between everyone on the search.
+8. **Hand-off sheet for police:** last seen, how they walk, a timeline of everything searched and seen, the most likely places still to check (with coordinates), and the live link. You can copy or print it. A non-English sheet includes an English copy.
+
+**Before an emergency:** "Save my home area" stores the streets around home on the phone (find it by address, map tap or GPS), so the app works there even with no signal.
+
+**Anytime:** the ◎ button shows your own position as a blue dot (GPS works without cell signal). **Demo** runs a sample case in Fremont, CA in one tap.
 
 ## How the prediction works
 
-The simulation follows a few patterns that show up again and again in search-and-rescue case studies of lost people with dementia:
+1. **Simulated walkers.** 5,000 virtual walkers start where the person was last seen and move along the real OpenStreetMap streets, following patterns from search-and-rescue studies of lost people with dementia:
+   - **They walk in a straight line until they get stuck.** They strongly prefer going straight at intersections and stop at dead ends.
+   - **Most are found close by:** a median of about 0.8 km from the last-seen point, about 89% within 1 mile. Each walker gets a random "give up" distance that matches this.
+   - **They're usually found just off the road.** A walker that stops within 30 m of a creek, drainage, brush, woods or water usually ends up in it.
+   - **Familiar places pull, and speed matters** (normal, slow, or with a walker or cane).
+2. **A probability map.** Where the walkers stop becomes the starting map on a grid of 25 m squares.
+3. **Updates from the search (Bayesian search theory).** When an area is searched and nobody is found, its chance drops by how likely the searchers were to spot the person there (1 − e^(−coverage), Koopman's formula), and every other area rises. A sighting reruns walkers from where they were seen and blends that in, weighted by how sure the person is.
+4. **What to search next.** Each searcher's next area is the one where their minutes add the most chance of finding the person.
 
-- **They walk in a straight line until they get stuck.** At each intersection, walkers strongly prefer to keep going straight, and they stop at dead ends.
-- **Most are found close by.** The median distance from the last-seen point is about 0.88 km (0.55 mi), and about 89% are found within 1 mile. Each walker gets a random "give up" distance that matches this.
-- **They're usually found just off the road.** If a walker stops within 30 m (100 ft) of a creek, drainage ditch, brush, woods or water, there's a 60% chance it ends up in that feature.
-- **Familiar places pull.** An old home, old job or church nudges walkers toward it.
-- **Speed matters.** Normal walking, slow walking, or using a walker/cane changes how far they can get in the time since they were last seen.
+The same case and seed always give the same map, so every phone computes the identical map by itself from the shared list of events. All the tuning numbers are named constants at the top of the engine files.
 
-The same inputs always give the same map (the random numbers are "seeded"), so a shared link shows everyone the exact same prediction.
+## Benchmark
 
-All the tuning numbers sit at the top of `sim.js` with comments, so they're easy to adjust.
-
-## Using it
-
-1. Tap **Set last seen**, then tap the map where the person was last seen.
-2. Enter how many minutes ago that was.
-3. Optional: pick the direction they were heading, their mobility, and up to 3 familiar places (tap the map for each).
-4. Tap **Run search prediction**.
-5. Tap any spot in **Check these first** to zoom to it.
-
-Other buttons:
-
-- **Demo** fills in sample inputs and runs the prediction in one tap.
-- **Share** creates a link with all the inputs. On phones it opens the share sheet; otherwise it copies the link.
-- **Save my home area** downloads the street data around an address, a tapped point, or your current location, so the app works there later with no signal. Caregivers can set this up ahead of time.
-- **Copy summary for police** copies a plain-text summary: last-seen point and time, inputs, and the top spots with coordinates.
-- Tap a colored street to mark it **searched**. This is saved on your phone only.
-- Your own location shows as a blue dot. GPS works without cell service.
+*Not run yet: it's built after the real engine works.* It will compare three ways of searching with the same number of volunteers: volunteers searching on their own, a coordinated ring sweep, and FindThem's allocation. A results table goes here, whatever it shows.
 
 ## Languages and units
 
-- English, Spanish, French, Simplified Chinese and Japanese. The app starts in your phone's language, and you can change it with the language picker.
-- Distances use your phone's region: miles and feet in the US, kilometers and meters elsewhere. The **mi/km** button switches between them.
-- The emergency banner shows your country's emergency number (911, 112, 999, 000, and so on) as a tap-to-call link.
+- **Five languages:** English, Spanish, French, Simplified Chinese and Japanese. The app starts in your phone's language; switch with the language picker.
+- **Units:** miles and feet in the US (and Liberia, Myanmar), kilometers and meters elsewhere. The **mi/km** button switches.
+- **Emergency number:** the banner shows your country's number (911, 112, 999, 000, 110…).
 
-The translations haven't been checked by native speakers yet.
+The translations were written by AI and haven't been checked by native speakers yet.
+
+## Who built what, and how AI was used
+
+| Who | Part | AI use |
+|---|---|---|
+| **BenStew** | Screen and hosting: the page, map, inputs, data loading, live sharing, messages, report box, offline mode, translations | Built with Claude Code (Anthropic's AI coding assistant), with BenStew directing and reviewing. Several screen files and the test servers were written by Claude Code sessions. |
+| **Jev** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | **Written by hand.** AI used only to explain the math and review. |
+| **Nathan** | Tests, debugging, speed (`tests/`, `bench/`) | AI may help write tests; Nathan reviews and explains them. |
+
+**AI inside the app:** only the report box uses an AI (DeepSeek, through our own small proxy). It turns a typed or spoken report into a filled-in form that the person checks before anything is added. It never sets the probabilities, and the word "chatbot" never appears in the app.
+
+`CommitHistory.md` records every commit, including which work came from which session.
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `index.html` | The page layout: emergency banner, map, input panel, results panel and buttons |
-| `style.css` | How it looks. Mobile-first, with big buttons and high contrast for reading outdoors |
-| `app.js` | Runs the page: handles taps and inputs, draws everything on the map, sharing, GPS dot, offline message. The demo location is a constant at the top |
-| `sim.js` | The simulation. No page code, just math, so it can be tested and tuned on its own |
-| `data.js` | Downloads streets and terrain from OpenStreetMap (Overpass API), builds the street graph, and saves data in the browser (IndexedDB) for offline use |
-| `i18n.js` | All the text in every language, the emergency-number table, and distance formatting |
-| `sw.js` | The service worker. Saves the app and map tiles you've viewed so it loads instantly and works offline |
-| `manifest.json` | Lets you install the site to your home screen like an app |
-| `icons/` | App icons |
-| `lib/` | Leaflet (the map) and Leaflet.heat (the heatmap), stored in the project instead of loaded from the internet |
-| `ROADMAP.md` | Future plans that aren't built yet |
+| `index.html` | The page layout: emergency banner, map, panel with inputs and results |
+| `style.css` | How it looks: mobile-first, big buttons, high contrast for outdoors |
+| `app.js` | Runs the page: taps and inputs, drawing the map, areas and routes, sightings, sharing, messages, hand-off sheet, report box, offline and home area. The demo case is at the top |
+| `data.js` | Streets and creeks from OpenStreetMap (Overpass), address search (Nominatim), saving areas in the browser (IndexedDB) |
+| `sync.js` | Live sharing through Firebase's web API: the case, events and messages; an offline queue |
+| `report.js` | Report box logic: voice input, sending to the proxy, checking the answer |
+| `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
+| `config.js` | The Firebase and proxy addresses (not secrets) |
+| `engine/` | The prediction engine (Jev). `engine/fake.js` is the stand-in until it's ready |
+| `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
+| `lib/` | Leaflet (map) and Leaflet.heat (heatmap), stored here rather than loaded from the internet |
+| `proxy/` | Tiny Cloudflare Worker that holds the DeepSeek key and returns form data only |
+| `firebase-rules.json` | Database rules: no listing searches, events can only be added |
+| `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
+| `tools/` | `make-fixture.js` (rebuild the Fremont data), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
+| `ShortPlan.md`, `PLAN.md`, `INTERFACES.md`, `CommitHistory.md`, `ROADMAP.md` | Plans, the engine contract, the decision log, and future plans |
 
-No frameworks, no build step, no backend. It's plain HTML, CSS and JavaScript.
+No frameworks and no build step: plain HTML, CSS and JavaScript. The only online parts are the Firebase database (sharing) and the AI proxy (report box). The prediction always runs on the phone.
 
 ## Run it locally
 
@@ -80,9 +102,15 @@ From this folder:
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000.
+Then open http://localhost:8000 and tap **Demo**.
 
 Service workers (the offline part) only work on `localhost` or over HTTPS. Opening `index.html` directly as a file won't work.
+
+Run the tests:
+
+```bash
+node --test
+```
 
 To test offline mode: load the app twice (the second load is the first one the offline worker controls), run the Demo, then stop the server (Ctrl+C) and reload. The app still opens and the Demo still runs. The yellow "You're offline – using saved data" line appears when the phone itself has no signal.
 
@@ -102,34 +130,39 @@ Live sharing (one map for every searcher, messages, searched areas) needs a free
 
 The URL isn't a secret, so it's fine in the repo. No API key is needed.
 
-**Testing without Firebase:** run the mock database and open two tabs with `?db=`:
+**Testing without Firebase:** run the mock database, then open two tabs with `?db=`:
 
 ```bash
 python3 tools/mock-firebase.py
 ```
 
-Then open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo in one, tap **Share this search**, and open the link in the other.
+Open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo in one, tap **Share this search**, and open the link in the other.
+
+## Set up the report box (AI proxy)
+
+Follow `proxy/README.md`: a free Cloudflare account, a DeepSeek API key stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. **Never put the DeepSeek key in the website or the repo.**
+
+**Testing without DeepSeek:** `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple keyword rules instead of AI.
 
 ## Deploy for free with GitHub Pages
 
-GitHub Pages gives you a free HTTPS address, which the offline features need.
+GitHub Pages gives you a free HTTPS address, which offline mode needs. On a free account the repository must be public.
 
-1. Create a new public repository on GitHub, for example `findthem`.
-2. Push this folder to it:
+1. On GitHub, open the repository's **Settings → General → Danger Zone → Change visibility** and make it public.
+2. Open **Settings → Pages**. Under **Build and deployment**, set **Source** to "Deploy from a branch", choose `main` and `/ (root)`, and click **Save**.
+3. After a minute or two the site is live at `https://<your-username>.github.io/FindThem/`.
 
-   ```bash
-   git remote add origin https://github.com/YOUR-USERNAME/findthem.git
-   ```
+After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pick up the new files.
 
-   ```bash
-   git push -u origin main
-   ```
+## Limits
 
-3. On GitHub, open the repository's **Settings → Pages**.
-4. Under **Build and deployment**, set **Source** to "Deploy from a branch", choose `main` and `/ (root)`, and click **Save**.
-5. After a minute or two the site is live at `https://YOUR-USERNAME.github.io/findthem/`.
-
-After changing the app, bump the cache version at the top of `sw.js` so phones pick up the new files.
+- The search-and-rescue data behind the patterns is small, old and mostly rural (87 Virginia cases in Koester's study).
+- Nothing has been validated on real searches; the benchmark will be a simulation.
+- Untrained volunteers should not go into water or dense brush; the app flags those for professionals.
+- Browser GPS only works while the page is open.
+- Anyone with a search link can see and add to that search. There are no accounts yet.
+- Report-box text leaves the phone and goes to an AI service; the app asks people to leave out names and medical details.
+- The map doesn't grow with time after the search starts (the minutes are fixed when the search is created).
 
 ## Data and credits
 
@@ -138,4 +171,4 @@ After changing the app, bump the cache version at the top of `sw.js` so phones p
 - Street and terrain data from the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API).
 - Address search from [Nominatim](https://nominatim.org/), one request at a time.
 - Map library: [Leaflet](https://leafletjs.com/). Heatmap: [Leaflet.heat](https://github.com/Leaflet/Leaflet.heat).
-- The behavior patterns come from published search-and-rescue research on lost persons with dementia, including Robert Koester's lost-person behavior studies.
+- Behavior patterns from published search-and-rescue research on lost persons with dementia, including Robert Koester's lost-person behavior studies. Search theory: B. O. Koopman's detection model and Bayesian search theory.
