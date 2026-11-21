@@ -3,9 +3,11 @@
 EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm.** Code freeze 9:30 am; submit by 11:00 am.
 
 ## Read first
-1. `PLAN.md`: the merged build plan (original build prompt + EvoHacks II game plan). Scope, team split, file layout, schedule.
-2. `CommitHistory.md`: every decision so far and a detailed log of each commit.
-3. `README.md`: what the app is. `ROADMAP.md` (once written): future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
+1. `ShortPlan.md`: a 2-minute read of what the software is, who it's for, what it is NOT, and what must work by the deadline.
+2. `PLAN.md`: the merged build plan (original build prompt + EvoHacks II game plan). Scope, team split, file layout, schedule.
+3. `INTERFACES.md`: the contract between screen and engine.
+4. `CommitHistory.md`: every decision so far and a detailed log of each commit.
+5. `README.md`: what the app is. `ROADMAP.md` (once written): future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team split: who writes what
 - **Screen** (repo owner, with AI help): `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`.
@@ -20,6 +22,7 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 ## Every commit
 - Add an entry to the top of the Log in `CommitHistory.md` **in the same commit**, using the template in that file.
 - If a decision changes, add a new entry that says so and update the "Project context" section. Don't rewrite old entries.
+- **Keep `ShortPlan.md` in sync with the product.** When a change affects who the app is for, what it does, what it is NOT, or the must-have / after-the-core lists, update `ShortPlan.md` in the same commit. Tick its checkboxes as features start working. Not needed for code-only commits. Keep it a 2-minute read (~550 words by `wc -w`, mostly bullets, light on the how).
 - Work that isn't committed yet goes under "Uncommitted" in the Log.
 - Commit locally. Push only when the user asks.
 - AI use is disclosed openly. Naming Claude or other tools in the repo is fine. Don't add co-author or attribution lines to commits.

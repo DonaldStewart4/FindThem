@@ -2,7 +2,7 @@
 
 A detailed log of every commit, for people and AI agents who don't have the chat history behind this project. `git log` gives one-line titles; this file explains what changed, why, what was decided, and what's left.
 
-**Read this file and `PLAN.md` first** if you're picking up the project cold. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built, once written).
+**Read `ShortPlan.md` first** (2 minutes) if you're picking up the project cold, then this file and `PLAN.md`. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built, once written).
 
 ## How to add an entry
 
@@ -55,6 +55,24 @@ Current decisions. Updated 2026-11-21 after merging the EvoHacks II game plan in
 - **Do not build** chatbots, camera integration, trackers, GPS-trail coverage, drill mode, accounts, messaging or photos, or anything else on the roadmap.
 
 ## Log
+
+### Add ShortPlan.md: 2-minute read of what FindThem is
+
+- **Date:** 2026-11-21
+- **Stage:** Setup
+- **What changed:**
+  - `ShortPlan.md` (new): a one-sentence summary, why it matters (2 stats), who it's for, the 7 steps a user goes through, how it works in plain words, what it is NOT, the must-work-by-the-deadline checklist, and the benchmark under "after the core works (still required)".
+  - `CLAUDE.md`: reading order is now ShortPlan → PLAN → INTERFACES → CommitHistory → README. New rule: update `ShortPlan.md` in the same commit whenever the product changes (who, what, what it is NOT, priorities) and tick its checkboxes as features work.
+  - `README.md`: a pointer to `ShortPlan.md` at the top, since the README itself still describes the pre-merge app.
+  - `CommitHistory.md`: the intro points to `ShortPlan.md` first; this entry.
+- **Why:** the repo owner wanted a quick read for themselves and their teammate, kept up to date automatically.
+- **Decisions:**
+  - Audience is the two builders, not judges. Mostly bullets, light on the how, no formulas.
+  - Sections: why, who, what it does, how it works, what it is NOT, priorities. Team split and the evidence/limits sections are left to `PLAN.md`.
+  - Update rule: when the product changes, not on every commit.
+- **How it was verified:** word count checked: 562 by `wc -w`, including markdown symbols, about a 2-minute read.
+- **Known issues / not done:** the README body is still pre-merge.
+- **Next:** push so the teammate can review `INTERFACES.md` and `ShortPlan.md`; then the skeleton and Screen A.
 
 ### Add INTERFACES.md: contract between screen and engine
 

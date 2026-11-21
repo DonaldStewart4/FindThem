@@ -1,5 +1,7 @@
 # FindThem
 
+> **New here? Read [ShortPlan.md](ShortPlan.md) first** (2 minutes). It's the current summary; the rest of this README is being updated to match.
+
 **If someone is missing, call emergency services first (911 in the US).** FindThem helps a search get organized. It does not replace the police or search-and-rescue.
 
 FindThem is a phone-first website for families looking for a person with dementia who has wandered away. You drop a pin where the person was last seen and answer a few questions. The app then simulates 5,000 "virtual walkers" on the real street map, based on search-and-rescue research about how people with dementia move when they're lost. It shows:
