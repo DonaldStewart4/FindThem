@@ -10,7 +10,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until Jev's hand-written engine is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
+> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until BenStew's hand-written engine is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
 
 ## What it does
 
@@ -64,10 +64,10 @@ The translations were written by AI and haven't been checked by native speakers 
 | Who | Part | AI use |
 |---|---|---|
 | **BenStew** | Screen and hosting: the page, map, inputs, data loading, live sharing, messages, report box, offline mode, translations | Built with Claude Code (Anthropic's AI coding assistant), with BenStew directing and reviewing. Several screen files and the test servers were written by Claude Code sessions. |
-| **Jev** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | **Written by hand.** AI used only to explain the math and review. |
-| **Nathan** | Tests, debugging, speed (`tests/`, `bench/`) | AI may help write tests; Nathan reviews and explains them. |
+| **BenStew** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | **Written by hand.** AI used only to explain the math, suggest tests and review. |
+| **Nathan** | Tests, debugging, speed (`tests/`, `bench/`); tuning the Jev questions | AI may help write tests; Nathan reviews and explains them. |
 
-**AI inside the app:** only the report box uses an AI (DeepSeek, through our own small proxy). It turns a typed or spoken report into a filled-in form that the person checks before anything is added. It never sets the probabilities, and the word "chatbot" never appears in the app.
+**AI inside the app:** only the report box uses an AI: **Jev**, a model from TypeSafe AI, reached through our own small proxy. Jev doesn't write text; it answers five multiple-choice questions about a report (what kind, which way, how long ago, how sure, which nearby place), each with a confidence. Anything it isn't confident about is left empty for the person to fill in, and nothing is added until the person checks the form and taps the button. It never sets the probabilities, and the word "chatbot" never appears in the app.
 
 `CommitHistory.md` records every commit, including which work came from which session.
 
@@ -83,10 +83,10 @@ The translations were written by AI and haven't been checked by native speakers 
 | `report.js` | Report box logic: voice input, sending to the proxy, checking the answer |
 | `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
 | `config.js` | The Firebase and proxy addresses (not secrets) |
-| `engine/` | The prediction engine (Jev). `engine/fake.js` is the stand-in until it's ready |
+| `engine/` | The prediction engine (hand-written by BenStew). `engine/fake.js` is the stand-in until it's ready |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map) and Leaflet.heat (heatmap), stored here rather than loaded from the internet |
-| `proxy/` | Tiny Cloudflare Worker that holds the DeepSeek key and returns form data only |
+| `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
 | `tools/` | `make-fixture.js` (rebuild the Fremont data), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
@@ -140,9 +140,9 @@ Open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo i
 
 ## Set up the report box (AI proxy)
 
-Follow `proxy/README.md`: a free Cloudflare account, a DeepSeek API key stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. **Never put the DeepSeek key in the website or the repo.**
+Follow `proxy/README.md`: a free Cloudflare account, a TypeSafe API key for Jev stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. **Never put the TypeSafe key in the website or the repo.**
 
-**Testing without DeepSeek:** `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple keyword rules instead of AI.
+**Testing without a Jev key:** `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple keyword rules instead of Jev.
 
 ## Deploy for free with GitHub Pages
 

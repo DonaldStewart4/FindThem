@@ -33,16 +33,16 @@
 ## What it is NOT
 - **Not a replacement for 911**, police or search-and-rescue.
 - **Not a guarantee.** It's a guide to focus the search.
-- Not a chatbot. AI only turns a messy report into data you confirm, and never sets the probabilities.
+- Not a chatbot. AI (Jev) only fills in a report form you confirm, and never sets the probabilities.
 - Not a tracker, GPS watch or wander alarm.
 - Not connected to cameras.
 - Not a missing-persons network. One person, one hour, one map.
 - Doesn't send volunteers into water or dense brush; those are flagged for professionals.
 
 ## Team
-- **BenStew:** screen and hosting.
-- **Jev:** engine, hand-written.
-- **Nathan:** tests, debugging, speed.
+- **BenStew:** screen, hosting, and the engine (hand-written).
+- **Nathan:** tests, debugging, speed, and tuning Jev.
+- **Jev** isn't a person: it's TypeSafe's AI model, used only to fill in report forms.
 
 ## Must work by the deadline (Sun Nov 22, 12 pm)
 - [ ] Map, inputs and the prediction engine, with tests

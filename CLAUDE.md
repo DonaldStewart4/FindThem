@@ -10,16 +10,18 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 5. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team: who writes what
-- **BenStew** (repo owner, the person in Claude Code sessions here): **screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches the free hosting and LLM provider, and security.
-- **Jev**: **engine**, **written by hand**. Everything in `engine/` (`graph.js`, `sim.js`, `grid.js`, `routes.js`). EvoHacks rules say AI may not build the whole project and each person explains their own code on video. **AI must not write engine code.** It may explain the math, review code, and suggest tests.
-- **Nathan**: **tests, debugging, speed and reliability**. `tests/` and `bench/`. AI may help write tests; Nathan reviews them and must be able to explain them.
-- `INTERFACES.md` is the contract between the parts. Change it only when BenStew, Jev and Nathan agree.
+The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's TypeSafe AI's Jev model, used only in the report box (see below).
+- **BenStew** (repo owner, the person in Claude Code sessions here):
+  - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
+  - **The engine, written by hand.** Everything in `engine/` (`graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`). EvoHacks rules say AI may not build the whole project and each person explains their own code on video. **AI must not write engine code.** It may explain the math, suggest tests and review BenStew's code.
+- **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
+- `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.
 - `engine/fake.js` is a dev-only stand-in so the screen works before the real engine lands. Delete it at integration.
 
 ## Must not be forgotten
 - **The benchmark is required**: simulated wanderers, uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README. It gets built **after the core works**, not skipped.
 - Must-haves by the deadline: routes for searchers, messaging between searchers, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
-- **Never call the report box a "chatbot"** anywhere in the UI. The LLM only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine.
+- **Never call the report box a "chatbot"** anywhere in the UI. Jev only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine. Jev answers multiple-choice questions with a confidence; answers below `MIN_CONFIDENCE` are left empty for the person to fill in.
 - Demo and tuning area: **Fremont, CA** (Central Park / Lake Elizabeth). Skip `waterway=pressurised` (underground pipes) when finding creeks.
 
 ## Every commit
@@ -34,7 +36,7 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 - Plain HTML, CSS and vanilla JavaScript. No frameworks, no build step, no npm packages at runtime.
 - Online parts are only these two, and the prediction always runs on the phone:
   - **Firebase Realtime Database** for the shared search (case, events, messages), used through its REST API (`fetch` + `EventSource`) in `sync.js`, with no SDK. Supabase is the fallback.
-  - **A tiny serverless LLM proxy** (`proxy/`) that holds the DeepSeek key and returns JSON only.
+  - **A tiny Cloudflare Worker** (`proxy/`) that holds the Jev (TypeSafe) API key, asks Jev about a report, and returns a `ReportDraft` only. No FastAPI or other server.
 - **Never put an API key in the website's code** or commit one to the repo.
 - Engine code is pure and deterministic (seeded random numbers, no DOM), so every phone computes the same map from the same inputs and events. Tests run with `node --test`.
 - The repo owner is new to HTML/CSS/JS. Keep code simple, comment it well, and briefly explain changes in plain language.

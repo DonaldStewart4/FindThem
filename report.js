@@ -142,7 +142,8 @@ export function validateDraft(raw) {
 // ---------- Talking to the proxy ----------
 
 // Send the report text to the proxy and get back a checked ReportDraft.
-// context = { lastSeen: {lat, lng}, streetNames: ['Paseo Padre Pkwy', ...] }
+// context = { lastSeen: {lat, lng}, places: [{ name: 'Paseo Padre Parkway', lat, lng }, ...] }
+// (named streets, creeks, parks and lakes near the last-seen point, nearest first)
 // Throws an Error whose message is 'offline', 'proxy_error' or 'bad_response'.
 export async function parseReport(text, context = {}, lang = 'en') {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('offline');
@@ -153,7 +154,7 @@ export async function parseReport(text, context = {}, lang = 'en') {
     lang,
     context: {
       lastSeen: context.lastSeen || null,
-      streetNames: (context.streetNames || []).slice(0, 50),
+      places: (context.places || []).slice(0, 60),
     },
   };
 

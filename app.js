@@ -13,7 +13,7 @@
 //   7.   "Share this search" puts the case in Firebase and gives a link. Everyone who opens
 //        it sees the same live map, messages, searched areas and sightings (sync.js).
 //   8.   "Hand-off sheet for police": a plain-text summary to copy, share or print.
-//   9.   Report box: type or say a report; report.js asks the LLM proxy to fill in the
+//   9.   Report box: type or say a report; report.js asks the proxy (which asks Jev) to fill in the
 //        sighting form (or a message). Nothing is added until the person checks it and
 //        taps the button. The LLM never touches the probabilities.
 //   10.  Offline: sw.js keeps the app and viewed map tiles on the phone; "Save my home area"
@@ -797,20 +797,30 @@ function resetVoiceButton() {
   els.reportVoice.textContent = t('reportSpeak');
 }
 
-// Named streets near the last-seen point, nearest first. Sent with the report so the
-// LLM can pin a place like "the corner of Paseo Padre and Stevenson".
-function nearbyStreetNames(limit = 50) {
+// Named places near the last-seen point, nearest first: streets, plus named creeks, parks
+// and lakes. Sent with the report so Jev can pick the place a report mentions ("by the
+// lake", "on Paseo Padre"); the proxy turns the chosen name back into a map point.
+function nearbyPlaces(limit = 60) {
   if (!areaCache.osm || !state.lastSeen) return [];
+  const best = new Map(); // name -> { name, lat, lng, d }
+  const consider = (name, lat, lng) => {
+    const d = map.distance(state.lastSeen, [lat, lng]);
+    const old = best.get(name);
+    if (!old || d < old.d) best.set(name, { name, lat, lng, d });
+  };
   const nodeById = new Map(areaCache.osm.nodes.map((n) => [n.id, n]));
-  const best = new Map(); // name -> distance in meters
   for (const way of areaCache.osm.ways) {
     if (!way.name) continue;
-    const n = nodeById.get(way.nodeIds[0]);
-    if (!n) continue;
-    const d = map.distance(state.lastSeen, [n.lat, n.lng]);
-    if (!best.has(way.name) || d < best.get(way.name)) best.set(way.name, d);
+    for (const id of way.nodeIds) {
+      const n = nodeById.get(id);
+      if (n) consider(way.name, n.lat, n.lng);
+    }
   }
-  return [...best.entries()].sort((a, b) => a[1] - b[1]).slice(0, limit).map(([name]) => name);
+  for (const f of areaCache.osm.features) {
+    if (!f.name) continue;
+    for (const p of f.points) consider(f.name, p.lat, p.lng);
+  }
+  return [...best.values()].sort((a, b) => a.d - b.d).slice(0, limit).map(({ name, lat, lng }) => ({ name, lat, lng }));
 }
 
 // Sends the report to the proxy and puts the answer into a form for the person to check.
@@ -824,7 +834,7 @@ async function readReport() {
 
   let draft;
   try {
-    draft = await report.parseReport(text, { lastSeen: state.lastSeen, streetNames: nearbyStreetNames() }, i18n.getLanguage());
+    draft = await report.parseReport(text, { lastSeen: state.lastSeen, places: nearbyPlaces() }, i18n.getLanguage());
   } catch (err) {
     // Whatever went wrong, the manual form is always the way out.
     if (err.message === 'offline') els.reportStatus.textContent = t('reportOffline');

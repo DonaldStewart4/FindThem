@@ -1,5 +1,5 @@
 # Cloudflare Worker settings for the FindThem LLM proxy.
-# NO SECRETS HERE. The DeepSeek key is set with: wrangler secret put DEEPSEEK_API_KEY
+# NO SECRETS HERE. The Jev (TypeSafe) key is set with: wrangler secret put TYPESAFE_API_KEY
 name = "findthem-proxy"
 main = "worker.js"
 compatibility_date = "2024-11-01"

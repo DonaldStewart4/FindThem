@@ -3,3 +3,6 @@
 
 # Personal Claude Code settings (permissions); shared settings in .claude/ can be committed
 .claude/settings.local.json
+
+# Python cache files
+__pycache__/

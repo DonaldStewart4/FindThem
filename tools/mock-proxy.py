@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-# tools/mock-proxy.py — a fake LLM proxy for testing the report box without DeepSeek.
+# tools/mock-proxy.py — a fake proxy for testing the report box without a Jev (TypeSafe) key.
 #
 # It answers like proxy/worker.js (a ReportDraft JSON), but with simple keyword rules
-# instead of an AI, so you can test the screen for free and offline:
+# instead of Jev, so you can test the screen for free and offline:
 #   "saw", "seen", "vi", "vu", "看到", "見"     → kind "sighting" (otherwise "message")
 #   "searched", "checked", "nobody"             → kind "searched"
 #   a number before "min"                       → minutesSince
 #   north / east / ... (English only)           → direction
 #   maybe / think / sure ...                    → reliability 0.3 / 0.6 / 0.9
+#   a nearby place name from context.places     → lat/lng of that place (like Jev's place choice)
 #   the word "here"                             → lat/lng = the last-seen point (tests the "pinned" path)
 #
 # Run:   python3 tools/mock-proxy.py        (listens on http://localhost:9100)
@@ -38,14 +39,20 @@ def draft_for(text, context):
     else:
         reliability = 0.6
     lat = lng = None
-    if 'here' in low and context.get('lastSeen'):
+    place_text = ''
+    for p in context.get('places') or []:
+        name = str(p.get('name', ''))
+        if name and name.lower() in low:
+            lat, lng, place_text = p.get('lat'), p.get('lng'), name
+            break
+    if lat is None and 'here' in low and context.get('lastSeen'):
         lat, lng = context['lastSeen']['lat'], context['lastSeen']['lng']
     coat = re.search(r'(\w+ (coat|jacket|shirt|hat|sweater))', low)
     note = coat.group(1) if coat else ''
     if kind == 'message':
         note = text
     return {
-        'kind': kind, 'placeText': text[:80], 'lat': lat, 'lng': lng, 'direction': direction,
+        'kind': kind, 'placeText': place_text, 'lat': lat, 'lng': lng, 'direction': direction,
         'minutesSince': int(m.group(1)) if m else None, 'reliability': reliability, 'note': note,
     }
 

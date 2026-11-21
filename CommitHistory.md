@@ -33,20 +33,20 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 - **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Searchers join by share link and each gets a sector and a walking route. A shared message feed and a voice/text report box keep everyone in touch. Each empty search and each confirmed sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
 - **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. The rules say AI may not build the whole project, each person explains their own code on video, and AI use is disclosed.
-- **Team:**
-  - **BenStew** (repo owner): screen + hosting, with AI help. Also researches the free hosting, the LLM proxy and security.
-  - **Jev:** engine (`engine/`), **hand-written**. AI must not write engine code.
-  - **Nathan:** tests, debugging, speed (`tests/`, `bench/`). AI may help write tests.
-  - `INTERFACES.md` is the contract; changes need all three to agree.
+- **Team (corrected 2026-11-21 afternoon):** two people.
+  - **BenStew** (repo owner): screen + hosting, with AI help, **and the engine (`engine/`), hand-written**. AI must not write engine code.
+  - **Nathan:** tests, debugging, speed (`tests/`, `bench/`) and tuning the Jev questions. AI may help write tests.
+  - **"Jev" is not a person.** It's TypeSafe AI's Jev model, used only in the report box (`proxy/jev.js`).
+  - `INTERFACES.md` is the contract; changes need both to agree.
 - **Tech:**
   - plain HTML/CSS/vanilla JS, no frameworks, no build step
   - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
   - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback
-  - a tiny serverless proxy (Cloudflare Workers is the leading option) holding the DeepSeek key for the report box
+  - a Cloudflare Worker holding the Jev (TypeSafe) key for the report box; no FastAPI or other server
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
-- **Report box rules:** never called a "chatbot" in the UI. The LLM turns text or voice into a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
+- **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
 - **Required, after the core works: the benchmark.** Simulated wanderers; uncoordinated volunteers vs. coordinated ring sweep vs. FindThem allocation; a results table in the README.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
@@ -58,6 +58,49 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Jev is TypeSafe's AI model, not a teammate: report box switches from DeepSeek to Jev; BenStew hand-writes the engine
+
+- **Date:** 2026-11-21
+- **Stage:** Decision change + report box
+- **What changed:**
+  - `proxy/jev.js` (new): `buildJevRequest()` sends one request with five questions:
+    - `kind` choice: sighting / searched / message
+    - `direction` choice: N…NW / unknown
+    - `minutes` choice: 0/5/10/15/30/60/unknown
+    - `sure` score: 3 levels → reliability 0.3/0.6/0.9
+    - `place` choice: nearby place names + none
+    The state holds the report, its language and the place names; coordinates are not sent to Jev.
+  - `proxy/jev.js` also has `jevToDraft()`, which maps the answers to a `ReportDraft`:
+    - **any answer below `MIN_CONFIDENCE` (0.5) is left empty for the person to fill in**
+    - an unsure `kind` becomes a sighting with only the note filled
+    - `note` is the report text itself, since Jev can't write text
+    - the chosen place's coordinates become `lat`/`lng`
+    `cleanPlaces()` dedupes and caps at 60.
+  - `proxy/worker.js`: the DeepSeek call is replaced by `askJev()` (`POST https://api.typesafe.ai/v1/systemone`, `Bearer env.TYPESAFE_API_KEY`, model `jev-latest`, one retry on 429/529). The request/response contract, origin check, rate limit and `validateDraft` are unchanged.
+  - `proxy/wrangler.toml`, `proxy/README.md`: the TypeSafe key secret, deploy steps, privacy (TypeSafe, a US company; coordinates not sent), and a multilingual curl test.
+  - `report.js`: context is now `places: [{name, lat, lng}]` (≤ 60) instead of `streetNames`.
+  - `app.js`: `nearbyStreetNames()` → `nearbyPlaces()`, which returns named streets **and** named creeks, parks and lakes, nearest to the last-seen point first.
+  - `tools/mock-proxy.py`: matches place names from `context.places` → lat/lng; the wording no longer mentions DeepSeek.
+  - `sw.js`: `CACHE_VERSION` → v5. `.gitignore`: ignores `__pycache__/`.
+  - `tests/jev.test.js` (new, 8 tests): place cleaning, request shape (no coordinates sent), confident → full draft, low confidence → empty fields, unsure kind, unknown/none, the worker calling Jev with the key and retrying once on 529, and no key → 500 / wrong origin → 403. `fetch` is faked.
+  - `CLAUDE.md`, `PLAN.md`, `ShortPlan.md`, `INTERFACES.md`, `README.md`, `config.js`: the team is now BenStew + Nathan; BenStew owns the hand-written engine; the report box uses Jev; DeepSeek is removed; no FastAPI.
+  - This file: "Project context" team and tech bullets updated; this entry.
+- **Why:** BenStew clarified that "Jev" in the team doc is an AI model (TypeSafe AI, Wikipedia "Jev (AI model)"), not a person. Every doc had assigned the engine to "Jev".
+- **Decisions:**
+  - **Jev goes in the report box**, its natural fit (typed multiple-choice answers with calibrated confidence), not in the engine. The map math stays hand-written and the LLM never sets probabilities, which keeps the "non-LLM core" and the benchmark story.
+  - **BenStew hand-writes the engine**, with Claude only explaining, suggesting tests and reviewing. This follows the EvoHacks rule that AI may not build the whole project.
+  - **No FastAPI.** The engine stays JavaScript on the phone so offline works; Jev is called from the existing Cloudflare Worker.
+  - The confidence gate is the "knows when not to act" behavior the game plan recommends.
+- **How it was verified:**
+  - `node --test`: 22/22 pass (8 new Jev tests).
+  - In the browser with the mock proxy, the Demo report "I think I saw her on Ralston Common 10 min ago heading east" sent 60 nearby places, nearest first (Plumas Way, Placer Way, Tehama Avenue…), including creeks and parks; the draft pinned to Ralston Common with 10 minutes.
+- **Known issues / not done:**
+  - **Not tested against the real Jev API:** it needs a TypeSafe key (paid, no free tier listed).
+  - Jev's language support isn't documented, so check non-English reports with the curl test after deploying.
+  - Question wording and `MIN_CONFIDENCE` are first guesses for Nathan to tune.
+  - The engine isn't started.
+- **Next:** BenStew starts `engine/graph.js` by hand, with Claude explaining; get a TypeSafe key and deploy the Worker; create Firebase.
 
 ### Rewrite README for the app as built; add ROADMAP.md
 

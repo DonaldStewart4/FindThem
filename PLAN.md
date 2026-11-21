@@ -5,6 +5,8 @@ This merges three sources:
 - the EvoHacks II game plan: Bayesian search theory, sectors, a shared live record of what's been searched, sightings, a police hand-off, and evidence
 - the team's planning doc ("Components of What We're Going to Build"): engine vs. screen, routes for searchers, messaging, a voice/text report box, Firebase
 
+> **Update (Nov 21, afternoon):** "Jev" in the team doc is **not a teammate**. It's TypeSafe AI's Jev model, now used in the report box instead of DeepSeek. The team is BenStew + Nathan, and **BenStew hand-writes the engine**. Sections below are updated to match.
+
 EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**, with freeze at 9:30 am.
 
 ## The user and the moment
@@ -14,8 +16,8 @@ A family member or neighbor in the first hour after a person with dementia goes 
 | Who | Part | AI use |
 |---|---|---|
 | **BenStew** (repo owner) | **Screen + hosting**: UI, map, data fetching, sync, messaging, report box, PWA, picking the free hosting and LLM provider, security | AI helps build |
-| **Jev** | **Engine**: prior, detection, allocation (routes), updates | **Written by hand.** AI may explain and review only |
-| **Nathan** | **Optimization**: tests, debugging, speed and reliability | AI may help write tests; Nathan reviews them and can explain them |
+| **BenStew** | **Engine**: prior, detection, allocation (routes), updates | **Written by hand.** AI may explain and review only |
+| **Nathan** | **Optimization**: tests, debugging, speed and reliability; tuning the Jev questions | AI may help write tests; Nathan reviews them and can explain them |
 
 The rules say AI may not build the whole project and each person explains their own code on video.
 
@@ -25,10 +27,10 @@ The rules say AI may not build the whole project and each person explains their 
 - **Live data:** Firebase Realtime Database through its REST API (`fetch` + `EventSource`), no SDK. Supabase is the fallback if Firebase doesn't work out.
 - **Report box, not a "chatbot":** the word "chatbot" never appears in the UI, because people who are panicking don't want one.
   - The searcher types or speaks a report ("saw him by the creek on Paseo Padre ten minutes ago").
-  - An LLM (DeepSeek) turns it into structured data.
+  - **Jev** (TypeSafe AI) answers five multiple-choice questions about it: kind, direction, minutes ago, how sure, and which nearby named place. Each answer comes with a confidence, and anything below `MIN_CONFIDENCE` is left empty for the person to fill in.
   - The person confirms it, and only then does it go to the engine as an event.
   - The LLM never sets probabilities. The manual sighting form is always there as a fallback, and is the only option when offline.
-- **LLM key safety:** the DeepSeek key must never be in the website's code. A tiny free serverless proxy holds it (BenStew's hosting research). Cloudflare Workers is the leading option, since Firebase Cloud Functions needs a paid plan.
+- **AI key safety:** the Jev (TypeSafe) key must never be in the website's code. A free Cloudflare Worker holds it as a secret (Firebase Cloud Functions would need a paid plan). There is no FastAPI or other server.
 - **Hosting:** BenStew researches free providers and security. GitHub Pages is the default for the static site; the repo must go public before deploying there.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (about 37.553, −121.970). The team knows the area. Within 1 mile there are 3,408 walkable ways and 85 trap features (Laguna Creek, Mission Creek, Irvington Creek, drainage channels, parks). The app still works anywhere.
 - **AI disclosure:** the README and Devpost text name the AI tools and say who wrote what by hand.
@@ -73,13 +75,13 @@ The rules say AI may not build the whole project and each person explains their 
 
 "This is a guide to help focus the search, not a guarantee" shows under the results.
 
-## The engine (Jev, by hand)
+## The engine (BenStew, by hand)
 - **Prior: the hard part.** A "smart map" built from several reliable public sources:
   - Koester's lost-person statistics for dementia (distance from the last-seen point, distance from roads, where people were found)
   - OSM streets, paths and trap features
   - familiar places
   - walking time
-  - Jev picks and documents each source. Walkers carry it onto the real street graph.
+  - BenStew picks and documents each source. Walkers carry it onto the real street graph.
 - **Walkers.**
   - 5,000 per run from a seeded random number generator.
   - Each one starts at the nearest node. The first edge is weighted by the heading, if one was given.
@@ -106,10 +108,10 @@ The rules say AI may not build the whole project and each person explains their 
 | `data.js` | BenStew | Overpass fetch + IndexedDB cache + Nominatim; returns raw OSM ways, nodes and features |
 | `sync.js` | BenStew | Firebase REST + EventSource: case, events, messages; offline write queue |
 | `report.js` | BenStew | voice (Web Speech API) or text → LLM proxy → structured draft for the person to confirm |
-| `proxy/` | BenStew | tiny serverless function that holds the DeepSeek key and returns JSON only |
+| `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
 | `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 + Leaflet.heat 0.2.0 |
-| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js` | Jev | graph, walkers, grid math, routes |
+| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (by hand) | graph, walkers, grid math, routes |
 | `tests/*.test.js`, `bench/` | Nathan | `node --test`, speed checks, later the benchmark |
 | `INTERFACES.md` | all | exact function signatures and data shapes; change only by agreement |
 | `engine/fake.js` | BenStew | dev-only fake engine with the same interface; deleted at integration |
@@ -134,9 +136,9 @@ Chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, a
 3. **Screen B:** heatmap, colored streets, rings, top spots, sectors and routes UI, 911 script + house checklist, sighting form.
 4. **Screen C:** Firebase sync (two phones share one map), share and join links, message feed, hand-off sheet.
 5. **Screen D:** report box (voice/text → proxy → confirm → event), with the manual form as fallback.
-6. **Integration with Jev's engine** (target: evening of Nov 21): swap `fake.js` for the real engine; Nathan's tests pass. *Pause for a check.*
+6. **Integration with BenStew's hand-written engine** (target: evening of Nov 21): swap `fake.js` for the real engine; Nathan's tests pass. *Pause for a check.*
 7. **Screen E:** offline PWA, Save my home area, GPS dot, Demo button. Nathan does a speed and reliability pass.
-8. **Benchmark** (required, after the core works; Nathan + Jev): uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README.
+8. **Benchmark** (required, after the core works; Nathan + BenStew): uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README.
 9. **Freeze at 9:30 am Nov 22.** Deploy, 3-minute video, Devpost text. Submit by 11:00.
 
 **If time runs short, cut from the end of this list:** engine + tests → shared coverage → sightings → share link → routes → messaging → report box → hand-off → demo → benchmark → offline → languages beyond en/es.
@@ -159,4 +161,4 @@ Chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, a
 - Untrained volunteers should not enter water or dense brush.
 - Browser GPS only works while the page is open.
 - Anyone with a search link can see and edit that search.
-- **Reports sent to the LLM leave the phone.** DeepSeek is a third-party service, so the report box warns before sending and doesn't send names or medical details on purpose.
+- **Reports sent to Jev leave the phone.** TypeSafe is a third-party service, so the report box warns before sending. Language support isn't documented; test Spanish, French, Chinese and Japanese reports, and fall back to the manual form if needed.

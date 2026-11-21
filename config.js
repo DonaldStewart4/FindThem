@@ -11,7 +11,7 @@ export const FIREBASE_DB_URL = '';
 // Example: 'https://findthem-12345-default-rtdb.firebaseio.com'
 
 // PROXY_URL: the address of the deployed LLM proxy (proxy/README.md), used by the report
-// box. Also not a secret: the DeepSeek key lives only inside the proxy.
+// box. Also not a secret: the Jev (TypeSafe) key lives only inside the proxy.
 export const PROXY_URL = '';
 // Example: 'https://findthem-proxy.yourname.workers.dev'
 
