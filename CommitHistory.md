@@ -2,7 +2,7 @@
 
 A detailed log of every commit, for people and AI agents who don't have the chat history behind this project. `git log` gives one-line titles; this file explains what changed, why, what was decided, and what's left.
 
-**Read this file first** if you're picking up the project cold. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built).
+**Read this file and `PLAN.md` first** if you're picking up the project cold. Then read `README.md` (what the app is) and `ROADMAP.md` (what's deliberately not built, once written).
 
 ## How to add an entry
 
@@ -29,24 +29,55 @@ Template:
 
 ## Project context
 
-Decisions made before any code was written (planning session, 2026-11-21). These override the original build prompt where they differ.
+Current decisions. Updated 2026-11-21 after merging the EvoHacks II game plan into the original build prompt. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
 
-- **What it is:** FindThem, a phone-first PWA that predicts where a person with dementia who wandered off is likely to be. The user drops a last-seen pin; 5,000 simulated walkers move on the real OpenStreetMap street graph using search-and-rescue behavior patterns; results show as a heatmap, colored streets, distance rings and a top-8 "Check these first" list.
-- **Original spec:** a build prompt kept outside the repo. Its contents are summarized across `README.md` (features), `ROADMAP.md` (future plans) and this section (changes to it).
-- **Tech:** plain HTML/CSS/vanilla JS, no frameworks, no build step, no backend. Leaflet 1.9.4 + Leaflet.heat 0.2.0 stored in `/lib` (not loaded from a CDN). OSM tiles, Overpass API for street and terrain data, IndexedDB cache, service worker for offline use.
-- **The user is new to HTML/CSS/JS.** Keep the code simple and well commented.
-- **Build order:** Stage 1 map + inputs → Stage 2 data → Stage 3 simulation → Stage 4 results → Stage 5 offline + sharing → stretch goals → testing and docs. Pause for the user's OK after Stage 1 and Stage 4; the other stages run straight through. One local commit per stage, never pushed unless the user asks.
-- **Changes from the original spec:**
-  - **Languages are built now**, not left for the roadmap: English, Spanish, French, Simplified Chinese, Japanese. Starts in the phone's language, with a picker. All text lives in `i18n.js` (a file not in the original file list).
-  - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; everywhere else → km/m), with a mi/km toggle. Distance rings are always 0.5/1/1.5 miles on the ground and are labeled 0.8/1.6/2.4 km in metric.
-  - **Emergency banner:** shows the local emergency number from a country table (911, 112, 999, 000, …), defaulting to 911, as a tap-to-call link. It can't be dismissed.
-  - **Save my home area:** the point can come from an address search (Nominatim), a map tap, or the current GPS location.
-- **Stretch goals to build:** mark streets as searched (`localStorage`), and copy a plain-text summary for police.
-- **Demo location:** a US suburb with streets, woods and a creek. The first candidate is near Shoal Creek, Austin TX; it gets checked against real Overpass data in Stage 2. It's the `DEMO_LOCATION` constant at the top of `app.js`.
-- **Deploy target:** GitHub Pages.
-- **Do not build** anything listed in `ROADMAP.md`, and don't add placeholder code or fake buttons for it.
+- **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Volunteers get sectors by link. Each empty search and each sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
+- **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. The rules say AI may not build the whole project, each person explains their own code on video, and AI use is disclosed.
+- **Team:**
+  - The repo owner builds the **screen** (UI, map, data fetching, sync, PWA) with AI help.
+  - A teammate writes the **engine** (`engine/`, `tests/`) **by hand**. AI must not write engine code.
+  - `INTERFACES.md` is the contract between the two halves.
+- **Tech:**
+  - plain HTML/CSS/vanilla JS, no frameworks, no build step
+  - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
+  - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
+  - Firebase Realtime Database through its REST API (no SDK), for live sync only; the prediction runs on the phone
+  - engine tests with `node --test`
+- **Must-haves:** engine + tests, map + inputs, shared searched-sectors sync, sightings, Demo button, all 5 languages (en/es/fr/zh/ja), offline PWA, police hand-off sheet.
+- **Required, after the core works: the benchmark.** Simulated wanderers; uncoordinated volunteers vs. coordinated ring sweep vs. FindThem allocation; a results table in the README.
+- **Kept from the first planning round:**
+  - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
+  - **Emergency banner:** the local number from a country table (default 911), tap-to-call, can't be dismissed.
+  - **Save my home area:** from an address search (Nominatim), a map tap, or GPS.
+  - **Demo location:** near Shoal Creek, Austin TX, to be checked against Overpass. It's `DEMO_LOCATION` at the top of `app.js`.
+  - **Deploy:** GitHub Pages. The repo is private now and must go public before deploying.
+- **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
+- **Do not build** chatbots, camera integration, trackers, GPS-trail coverage, drill mode, accounts, messaging or photos, or anything else on the roadmap.
 
 ## Log
+
+### Merge EvoHacks II game plan; commit CLAUDE.md and PLAN.md
+
+- **Date:** 2026-11-21
+- **Stage:** Planning (before Stage 1)
+- **What changed:**
+  - `PLAN.md` (new): the merged build plan. It combines the original build prompt with the EvoHacks II game plan ("FirstHour": Bayesian search, sectors, shared coverage, sightings, hand-off, benchmark).
+  - `CLAUDE.md` (now committed): rules for AI agents. Team split, "AI must not write engine code", the required benchmark, the commit-log rules, code rules, how to run.
+  - `CommitHistory.md`: "Project context" rewritten for the merged plan; this entry.
+  - `.gitignore`: also ignores `.claude/settings.local.json` (personal permissions).
+- **Why:** the repo owner received the game plan and asked for it to be merged with the original prompt. Their teammate needs `CLAUDE.md` and the plan through `git pull`.
+- **Decisions:**
+  - **Name:** FindThem, not FirstHour.
+  - **Model:** walkers feed the grid, not grid-only or walkers-only. Walkers capture real streets, dead ends and creeks; the grid does detection, updates and allocation.
+  - **Sync:** Firebase RTDB through REST, not Supabase (needs a ~100 KB library) or our own server (more to build).
+  - **Benchmark:** required but built after the core, because the Nov 22 deadline leaves about a day and a half.
+  - **AI disclosure:** AI use is disclosed in the repo, which reverses the previous entry's "AI tool files stay out of git" decision. Commits still carry no attribution lines.
+  - **Ignore rule:** the repo owner's global git ignore (`~/.config/git/ignore`) lists `CLAUDE.md`, so it was force-added once. It's tracked normally from now on.
+- **How it was verified:** docs only. `git status` checked before committing.
+- **Known issues / not done:**
+  - `README.md` still describes the pre-merge app (no sectors, sync or sightings; median 0.88 km) and doesn't yet disclose AI use. Update it with Stage 1.
+  - `ROADMAP.md` and `INTERFACES.md` aren't written. The Firebase project isn't created.
+- **Next:** setup. Write `INTERFACES.md` with the teammate, add skeleton files and `/lib`, create the Firebase project, update the README, then Screen A (map + inputs + i18n + `data.js` + fake engine).
 
 ### Add project docs and gitignore
 
