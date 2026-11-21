@@ -36,7 +36,20 @@
     <!-- Shown while the next map tap places something ("Tap the map where they were last seen"). -->
     <div id="tap-banner" hidden>
       <p id="tap-banner-text" role="status" aria-live="polite"></p>
+      <button id="tap-banner-search" type="button" data-i18n-aria="searchMap"><svg class="icon-search" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
       <button id="tap-banner-cancel" type="button" data-i18n="cancel"></button>
+    </div>
+
+    <!-- Map search (the magnifying glass): find an address or place by name. -->
+    <div id="search-box" hidden>
+      <form id="search-form" role="search">
+        <input id="search-input" type="search" enterkeyhint="search" autocomplete="off"
+               data-i18n-placeholder="searchPlaceholder" data-i18n-aria="searchMap">
+        <button id="search-go" type="submit" data-i18n-aria="searchMap"><svg class="icon-search" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
+        <button id="search-close" type="button" data-i18n-aria="close">✕</button>
+      </form>
+      <p id="search-msg" role="status" aria-live="polite" hidden></p>
+      <ul id="search-results"></ul>
     </div>
 
     <!-- Loading bar while streets download and the engine runs. -->

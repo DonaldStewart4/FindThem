@@ -257,14 +257,36 @@ export async function findSavedAreaNear(lat, lng, maxM) {
 // Their rules: at most 1 request per second, so this is only called on a button tap.
 // Returns { lat, lng, label } or null if nothing was found. Needs signal.
 export async function geocode(query) {
-  const params = new URLSearchParams({ format: 'jsonv2', limit: '1', q: query });
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-    headers: { Accept: 'application/json' },
-  });
+  const results = await searchPlaces(query, { limit: 1 });
+  return results[0] || null;
+}
+
+// Address / place search for the map's magnifying glass. Returns up to `limit` results
+// [{ lat, lng, label }]. `near` = { south, west, north, east } prefers places in that box
+// (the part of the map on screen) without excluding others. `lang` asks for names in that
+// language. Nominatim's rules: one search at a time, only when the person asks (no search-as-you-type).
+export async function searchPlaces(query, { limit = 5, near = null, lang = '' } = {}) {
+  const params = new URLSearchParams({ format: 'jsonv2', limit: String(limit), q: query });
+  if (near) params.set('viewbox', [near.west, near.north, near.east, near.south].join(','));
+  const headers = { Accept: 'application/json' };
+  if (lang) headers['Accept-Language'] = lang;
+  let res;
+  try {
+    res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers });
+  } catch (err) {
+    throw offlineError(err);
+  }
   if (!res.ok) throw new Error(`Nominatim ${res.status}`);
   const results = await res.json();
-  if (!results.length) return null;
-  return { lat: Number(results[0].lat), lng: Number(results[0].lon), label: results[0].display_name };
+  return results.map((r) => ({ lat: Number(r.lat), lng: Number(r.lon), label: r.display_name }));
+}
+
+// Marks an error as "no connection" (fetch itself failed), so the screen can say
+// "no internet" instead of "the server is busy".
+export function offlineError(err) {
+  const e = new Error('offline: ' + (err && err.message));
+  e.offline = true;
+  return e;
 }
 
 // ---- The one function app.js calls ----------------------------------------------

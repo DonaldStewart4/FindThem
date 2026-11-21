@@ -72,6 +72,7 @@ const state = {
   lastSpots: [],
   selectedArea: null,      // sector id the user opened in "Next areas"
   sightingDraft: null,     // { lat, lng } while a sighting is being reported
+  searchPin: null,         // { lat, lng, label } the last map-search result, when nothing was being placed
   // Sharing (Screen C)
   searchId: null,          // id of the shared search in Firebase, or null if not shared
   remoteEvents: [],        // events from Firebase (with their push ids)
@@ -172,6 +173,14 @@ const els = {
   tapBanner: $('tap-banner'),
   tapBannerText: $('tap-banner-text'),
   tapBannerCancel: $('tap-banner-cancel'),
+  tapBannerSearch: $('tap-banner-search'),
+  searchBox: $('search-box'),
+  searchForm: $('search-form'),
+  searchInput: $('search-input'),
+  searchGo: $('search-go'),
+  searchClose: $('search-close'),
+  searchMsg: $('search-msg'),
+  searchResults: $('search-results'),
   progress: $('progress'),
   progressText: $('progress-text'),
   progressFill: $('progress-fill'),
@@ -239,6 +248,11 @@ function drawPins() {
   });
   if (state.sightingDraft) {
     L.marker(state.sightingDraft, { icon: labelIcon('!', 'map-sighting'), keyboard: false }).addTo(layers.pins);
+  }
+  if (state.searchPin) {
+    L.marker(state.searchPin, { icon: labelIcon('⌕', 'map-found'), keyboard: false })
+      .bindTooltip(state.searchPin.label, { permanent: true, direction: 'top', offset: [0, -14] })
+      .addTo(layers.pins);
   }
   const home = state.homeDraft || state.home;
   if (home) {
@@ -360,8 +374,12 @@ function drawDirectionArrow() {
 }
 
 // What a tap on the map does depends on the current mode.
-map.on('click', (e) => {
-  const point = { lat: e.latlng.lat, lng: e.latlng.lng };
+map.on('click', (e) => placeAt({ lat: e.latlng.lat, lng: e.latlng.lng }));
+
+// Puts the point the current mode is waiting for at `point`. Used by map taps and by the
+// map search (then `label` is the place's name, e.g. for a familiar place).
+function placeAt(point, label = '') {
+  if (state.mode) state.searchPin = null; // the search pin has served its purpose
   if (state.mode === 'lastSeen') {
     state.lastSeen = point;
     state.seed = newSeed();   // a new case gets a new seed...
@@ -370,7 +388,7 @@ map.on('click', (e) => {
     setMode(null);
   } else if (state.mode === 'familiar') {
     if (state.familiarPlaces.length < MAX_FAMILIAR) {
-      state.familiarPlaces.push({ ...point, label: '' });
+      state.familiarPlaces.push({ ...point, label });
       renderFamiliarList();
     }
     setMode(null);
@@ -379,23 +397,24 @@ map.on('click', (e) => {
     els.sightingWhere.textContent = t('sightingPlaced');
     renderModeUI(); // the blue bar now says "placed, tap again to move it"
   } else if (state.mode === 'home') {
-    setHomeDraft(point, `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
+    setHomeDraft(point, label || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
     setMode(null);
   }
   drawPins();
-});
+}
 
 // Switches what the next map tap does, and makes that obvious on screen:
-//   - a blue bar across the top of the map says what to tap, with a Cancel button
+//   - a blue bar at the bottom of the map says what to tap, with search 🔍 and Cancel buttons
 //   - the map gets a blue frame and a crosshair cursor
-//   - the button that started it says "Now tap the map (tap here to cancel)" and pulses
+//   - the button that started it says e.g. "Tap the map where they were last seen, or
+//     search 🔍" and pulses (tapping it again cancels)
 function setMode(mode) {
   state.mode = mode;
   renderModeUI();
 }
 
 // The text each mode shows in the blue bar.
-const MODE_PROMPTS = { lastSeen: 'tapLastSeen', familiar: 'tapFamiliar', sighting: 'tapSighting', home: 'homeTapPrompt' };
+const MODE_PROMPTS = { lastSeen: 'tapLastSeenOrSearch', familiar: 'tapFamiliarOrSearch', sighting: 'tapSighting', home: 'homeTapPrompt' };
 
 function renderModeUI() {
   const mode = state.mode;
@@ -405,9 +424,10 @@ function renderModeUI() {
   els.homeTap.setAttribute('aria-pressed', String(mode === 'home'));
 
   // Button labels change with the state, so it's clear what pressing them does.
-  els.setLastSeen.textContent = mode === 'lastSeen' ? t('tapMapCancel')
+  // While waiting: "Tap the map where they were last seen, or search 🔍" (tap again to cancel).
+  els.setLastSeen.textContent = mode === 'lastSeen' ? t('tapLastSeenOrSearch')
     : state.lastSeen ? t('moveLastSeen') : t('setLastSeen');
-  els.addFamiliar.textContent = mode === 'familiar' ? t('tapMapCancel') : t('addFamiliar');
+  els.addFamiliar.textContent = mode === 'familiar' ? t('tapFamiliarOrSearch') : t('addFamiliar');
   els.lastSeenDone.hidden = !state.lastSeen || mode === 'lastSeen';
 
   els.tapBanner.hidden = !mode;
@@ -1186,6 +1206,96 @@ const LocateControl = L.Control.extend({
   },
 });
 
+
+// ---- Map search (the magnifying glass) ---------------------------------------------------
+// Finds an address or place by name with Nominatim (OpenStreetMap's search). If the map is
+// waiting for a tap (last-seen point, familiar place, sighting, home), the chosen result is
+// placed exactly as a tap there would be. Otherwise the map just goes there and shows a pin.
+
+const SEARCH_ICON = '<svg class="icon-search" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">'
+  + '<circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/>'
+  + '<line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+
+const SearchControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const box = L.DomUtil.create('div', 'leaflet-bar');
+    const button = L.DomUtil.create('button', 'locate-button search-button', box);
+    button.type = 'button';
+    button.innerHTML = SEARCH_ICON;
+    L.DomEvent.disableClickPropagation(box); // a tap on the button isn't a tap on the map
+    L.DomEvent.on(button, 'click', openMapSearch);
+    els.searchButton = button;
+    return box;
+  },
+});
+
+function openMapSearch() {
+  els.searchBox.hidden = false;
+  els.searchResults.innerHTML = '';
+  els.searchMsg.hidden = true;
+  els.searchInput.focus();
+  els.searchInput.select();
+}
+function closeMapSearch() {
+  els.searchBox.hidden = true;
+}
+function searchMessage(text) {
+  els.searchMsg.textContent = text;
+  els.searchMsg.hidden = !text;
+}
+
+async function runMapSearch(e) {
+  e.preventDefault(); // the form would otherwise reload the page
+  const query = els.searchInput.value.trim();
+  if (!query) return;
+  if (navigator.onLine === false) { searchMessage(t('searchOffline')); return; }
+  els.searchResults.innerHTML = '';
+  searchMessage(t('searching'));
+  els.searchGo.disabled = true;
+  try {
+    const b = map.getBounds();
+    const results = await data.searchPlaces(query, {
+      near: { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() },
+      lang: i18n.getLanguage(),
+    });
+    if (!results.length) { searchMessage(t('searchNone')); return; }
+    searchMessage('');
+    for (const r of results) {
+      const parts = r.label.split(',').map((x) => x.trim());
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      const name = document.createElement('strong');
+      name.textContent = parts[0];
+      const rest = document.createElement('span');
+      rest.textContent = parts.slice(1, 4).join(', ');
+      button.append(name, rest);
+      button.addEventListener('click', () => chooseSearchResult(r, parts.slice(0, 2).join(', ')));
+      li.append(button);
+      els.searchResults.append(li);
+    }
+  } catch (err) {
+    console.warn('Search failed', err);
+    searchMessage(err.offline ? t('searchOffline') : t('searchFailed'));
+  } finally {
+    els.searchGo.disabled = false;
+  }
+}
+
+function chooseSearchResult(result, shortName) {
+  closeMapSearch();
+  const point = { lat: result.lat, lng: result.lng };
+  map.flyTo([point.lat, point.lng], 16);
+  if (state.mode) {
+    state.searchPin = null;
+    placeAt(point, shortName); // same as tapping the map there
+  } else {
+    state.searchPin = { ...point, label: shortName };
+    drawPins();
+  }
+}
+
 function toggleMyLocation() {
   if (state.gpsWatch !== null) {
     navigator.geolocation.clearWatch(state.gpsWatch);
@@ -1615,6 +1725,10 @@ function applyLanguage(code) {
     els.locateButton.setAttribute('aria-label', t('myLocation'));
     els.locateButton.title = t('myLocation');
   }
+  if (els.searchButton) {
+    els.searchButton.setAttribute('aria-label', t('searchMap'));
+    els.searchButton.title = t('searchMap');
+  }
   showHomeSaved();
   drawResults();
   drawPins();
@@ -1632,6 +1746,7 @@ function applyUnits(units) {
 function start() {
   registerServiceWorker();
   new LocateControl().addTo(map);
+  new SearchControl().addTo(map);
   const region = i18n.detectRegion();
   state.emergencyNumber = i18n.emergencyNumber(region);
   els.callLink.href = 'tel:' + state.emergencyNumber;
@@ -1644,6 +1759,10 @@ function start() {
 
   els.setLastSeen.addEventListener('click', () => setMode(state.mode === 'lastSeen' ? null : 'lastSeen'));
   els.tapBannerCancel.addEventListener('click', cancelMode);
+  els.tapBannerSearch.addEventListener('click', openMapSearch);
+  els.searchForm.addEventListener('submit', runMapSearch);
+  els.searchClose.addEventListener('click', closeMapSearch);
+  els.searchBox.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMapSearch(); });
   els.directionUnknown.addEventListener('click', () => setDirection(''));
   els.addFamiliar.addEventListener('click', () => {
     if (state.familiarPlaces.length >= MAX_FAMILIAR) { showStatus(t('maxFamiliar')); return; }

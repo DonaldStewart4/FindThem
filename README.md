@@ -18,7 +18,7 @@ Built for EvoHacks II (theme: social good).
 
 0. **Call 911 first.** The red banner is always on screen and is a tap-to-call link with your country's emergency number. "First steps" also has a script of what to tell the dispatcher.
 1. **Check the house and yard.** A 2-minute checklist: closets, under beds, bathrooms, garage, parked cars, shed, neighbors' yards. In search-and-rescue data, many are found close to home or even inside it.
-2. **Enter what you know.** Tap the map where they were last seen (a blue bar on the map says when it is waiting for your tap), then add minutes since, the direction they were heading (turn the red arrow on the map), how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
+2. **Enter what you know.** Tap the map where they were last seen, or search for the address or place with the magnifying glass (a blue bar on the map says when it is waiting for your tap), then add minutes since, the direction they were heading (turn the red arrow on the map), how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
 3. **See the map.**
    - the likely areas: **red** is the smallest area with a 1-in-4 chance they're inside, **orange** brings it to 1 in 2, **yellow** to 4 in 5. Search red first. (A plain heatmap made the whole area one blue blur that told nobody where to go.)
    - the streets most simulated walkers took, in purple

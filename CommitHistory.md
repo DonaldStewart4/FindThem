@@ -59,6 +59,24 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Map search (magnifying glass); tap-mode buttons say "or search"
+
+- **Date:** 2026-11-21
+- **Stage:** Screen (BenStew)
+- **What changed:**
+  - **Map search** (`app.js` `SearchControl`, `openMapSearch`, `runMapSearch`, `chooseSearchResult`; `index.html` `#search-box`; `style.css`): a magnifying-glass button under the GPS button on the map, and another in the blue "tap the map" bar. It opens a search box at the top of the map; results (up to 5) come from Nominatim, preferring the part of the map on screen, with names in the app's language.
+    - If the map is waiting for a tap (last-seen point, familiar place, sighting, home), picking a result places the point there exactly as a tap would. A familiar place gets the result's name as its label (e.g. "Fremont Main Library, Civic Center Drive").
+    - Otherwise the map flies there and shows a blue pin with the name.
+    - Search runs only when the person submits (Nominatim's rules: no search-as-you-type). With no internet it says so instead of trying.
+  - The map-tap code moved into `placeAt(point, label)`, shared by taps and search.
+  - While waiting for a tap, "Set last-seen point" reads **"Tap the map where they were last seen, or search 🔍"** and "Add a familiar place" reads **"Tap the map on a familiar place, or search 🔍"** (BenStew's wording). The blue bar shows the same text.
+  - `data.js`: `searchPlaces(query, { limit, near, lang })`; `geocode()` now uses it. A failed fetch throws an error marked `offline: true` (`offlineError`), so the screen can say "no internet" rather than "failed".
+  - `i18n.js`: 8 new strings in 5 languages; `tapMapCancel`, `tapLastSeen`, `tapFamiliar` removed (unused).
+  - `sw.js` v11. README step 2 mentions search.
+- **Why:** BenStew asked for the button text and a search on the map ("just a magnifying glass is good").
+- **How it was verified:** `node --test` 48/48. Built-in browser at 375×812: banner and button text; search "Lake Elizabeth, Fremont" from the banner while placing the last-seen point → one result → the point and the direction arrow moved there; "Add a familiar place" → search "Fremont Main Library" → the familiar place was added with that name and the mode ended.
+- **Known issues / not done:** not checked on a real phone yet.
+
 ### Phone feedback: likely areas instead of blue, clear tap mode, direction arrow, loading bar
 
 - **Date:** 2026-11-21

@@ -690,3 +690,73 @@ button.small {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 .dir-arrow .pill.unknown { background: #fff; }
+
+/* ---- Map search (magnifying glass) ---- */
+.search-button { display: flex; align-items: center; justify-content: center; }
+#tap-banner-search { display: flex; align-items: center; justify-content: center; min-width: 44px; padding: 0 8px; }
+#search-box {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1003;
+  width: min(94%, 560px);
+  padding: 8px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+#search-box[hidden] { display: none; }
+#search-form { display: flex; gap: 6px; }
+#search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+#search-form button {
+  flex: none;
+  width: 48px;
+  min-height: 48px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#search-form #search-go { background: var(--blue); border-color: var(--blue); color: #fff; }
+#search-msg { margin: 8px 4px 2px; color: var(--muted); }
+#search-results { list-style: none; margin: 6px 0 0; padding: 0; max-height: 45vh; overflow-y: auto; }
+#search-results button {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+#search-results button strong { display: block; }
+#search-results button span { display: block; color: var(--muted); font-size: 14px; }
+.map-found {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #0b57d0;
+  color: #fff;
+  font: 800 18px/24px system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
