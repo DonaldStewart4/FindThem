@@ -59,6 +59,63 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Screen C: live sharing via Firebase REST, share/join links, names, messages, police hand-off sheet
+
+- **Date:** 2026-11-21
+- **Stage:** Screen C (BenStew)
+- **What changed:**
+  - `sync.js`: Firebase Realtime Database through plain REST, with no SDK.
+    - `setDbUrl`, `isConfigured`, `newSearchId` (128-bit hex)
+    - `createSearch` (PUT the case, adding `createdAt`)
+    - `addEvent` (POST; queues in `localStorage` with no signal or no DB, and sends the queue first, in order)
+    - `flushQueue`, `pendingCount`, `queuedEvents`
+    - `applyChange` (pure put/patch mirror), `sortedEvents` (by `at`, then id)
+    - `loadSearch`, and `subscribe` (EventSource live stream: `put`/`patch`/`cancel`, flushes on `open` and `online`)
+    - No DOM or UI text, so it runs in Node.
+  - `config.js`: `FIREBASE_DB_URL` (empty for now). On localhost only, `?db=` overrides it for testing.
+  - `app.js`:
+    - **Share this search:** creates the search in Firebase, moves this phone's events into it, then uses the Web Share API, falling back to the clipboard, then to a read-only link field.
+    - **The link:** `#s=<id>&c=<case>&a=<demo|live>`. The case is packed into the link (base64url JSON), so it shows the same starting map even without the database.
+    - **Opening a link** fills in the case (the database copy wins), joins the live stream and runs the map.
+    - **Events:** `recordEvent()` gives every event a `cid` (its id on this phone), `by` (the name) and `at`. When shared, events show immediately ("optimistic") until Firebase echoes them back, and queued ones show too.
+    - The engine re-runs only when `searched`/`sighting` events change, not for messages.
+    - **Your name** is saved in `localStorage`.
+    - **Message feed:** text only via `textContent`, never HTML, since messages come from other people.
+    - **Hand-off sheet:** plain text in a `<dialog>` with Copy / Print / Close. It covers last seen (coords + time), mobility, heading, familiar places, a timeline of searches/sightings/messages, the top 8 places with coords and %, the live link and the disclaimer. A non-English sheet gets an English copy below it. Printing shows only the sheet.
+    - A new last-seen point or Demo leaves the shared search.
+  - `index.html`, `style.css`: share box (name, Share button, live status, fallback link field), message feed and input, hand-off button and dialog, print styles.
+  - `i18n.js`: 41 new strings in all 5 languages, plus `tIn(lang, key)` and `formatTime`. `missingKeys()` is `{}`.
+  - `firebase-rules.json`:
+    - no listing of searches
+    - read only with a 32-hex id
+    - the case can be written once
+    - events can only be added, with type whitelisted and text/note ≤ 300 characters
+  - `tools/mock-firebase.py`: an in-memory stand-in for the Firebase REST API and live stream (port 9000) for testing with no account.
+  - `README.md`: a "Set up live sharing (Firebase)" section.
+  - `ShortPlan.md`: ticked "Share link" and "Police hand-off sheet".
+  - `tests/sync.test.js`: tests for the sync API (from a parallel session, see below).
+- **Why:** Screen C in `PLAN.md`. Sharing is "a big one" in the team doc.
+- **Decisions:**
+  - **Parallel session:** while Screen C started, another session or agent wrote `sync.js`, `report.js`, `sw.js`, `manifest.json`, `icons/`, `proxy/`, `tests/sync.test.js`, `tests/report.test.js` and `tools/make-icons.py` into this folder without committing. This session overwrote that `sync.js` by mistake; it wasn't in git, so it couldn't be recovered. `sync.js` was rebuilt to the API those tests expect (all 14 tests pass), plus the live stream. The other files are kept as they were, except two changes to `sw.js`: `config.js` added to its offline file list and `CACHE_VERSION` bumped to v2. They are **not committed here**; their owner should commit them (they're Screens D/E work).
+  - **Every phone computes the map itself:** only the case and append-only events are in Firebase.
+  - **The link carries the case** as well as the search id, so a link still shows the starting map when the database is down, blocked or not set up.
+  - **Area source is shared** (`area: 'demo'|'live'` in the case and `a=` in the link), so joiners use the same street data as the starter.
+  - **`nextFrame` uses `setTimeout(30)`, not `requestAnimationFrame`.** Testing found rAF never fires in a background tab, so a joining tab hung on "Loading streets…". The same would happen to a phone with the app in the background.
+- **How it was verified:**
+  - `node --test`: 14/14 pass.
+  - Two browser tabs with `tools/mock-firebase.py`. Tab A ran Demo and shared ("Shared live…"). Tab B opened the link and got the same inputs, top spots and areas. B marked Area A searched and sent a message; A re-ranked the areas the same way and showed "Ben 1:00 PM: I have the park, heading north" within ~1 s. Reloading B rejoined with the demo data even from a link that said `a=live`, because the database case says `demo`.
+  - The hand-off sheet in Spanish, with its English copy, has every section.
+  - With no database: "Live sharing isn't set up…", and the link has `#c=` only.
+  - No console errors. In the test browser the clipboard is blocked, so the fallback link field appeared as intended.
+- **Known issues / not done:**
+  - **Firebase isn't created yet:** BenStew has to make the project and paste the URL into `config.js` (README steps). Until then only the mock has been tested, not real Firebase.
+  - Anyone with a link can read and add to that search (no accounts).
+  - The hand-off English copy still formats dates and numbers in the current language.
+  - The live link contains `?db=` when testing on localhost.
+  - Hand-off numbers come from the fake engine.
+  - The report-box UI (Screen D) isn't wired yet, though `report.js` and `proxy/` exist. `sw.js` isn't registered yet (Screen E).
+- **Next:** create the Firebase project; commit the parallel session's files; Screen D (report box UI with `report.js` + proxy deploy); Screen E (register `sw.js`, Save my home area, GPS dot).
+
 ### Screen B: first steps, rings, colored streets, next areas with routes, sightings
 
 - **Date:** 2026-11-21

@@ -1,0 +1,21 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "searches": {
+      "$searchId": {
+        ".read": "$searchId.matches(/^[0-9a-f]{32}$/)",
+        "case": {
+          ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && !data.exists()",
+          ".validate": "newData.hasChildren(['lastSeen', 'minutes', 'mobility', 'seed', 'createdAt'])"
+        },
+        "events": {
+          "$eventId": {
+            ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && !data.exists() && newData.exists()",
+            ".validate": "newData.hasChildren(['type', 'at']) && newData.child('type').isString() && newData.child('type').val().matches(/^(searched|sighting|assigned|message)$/) && (!newData.child('text').exists() || newData.child('text').val().length <= 300) && (!newData.child('note').exists() || newData.child('note').val().length <= 300)"
+          }
+        }
+      }
+    }
+  }
+}

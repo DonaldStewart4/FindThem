@@ -10,10 +10,16 @@
 //   4–6. "Next areas to search" gives each searcher an area and a walking route. Marking an
 //        area searched, or reporting a sighting, adds an EVENT and the map is recomputed.
 //
-// Every phone recomputes the same map from the same case + events (Screen C will share the
-// events between phones). All on-screen words come from i18n.js (t('key')).
+//   7.   "Share this search" puts the case in Firebase and gives a link. Everyone who opens
+//        it sees the same live map, messages, searched areas and sightings (sync.js).
+//   8.   "Hand-off sheet for police": a plain-text summary to copy, share or print.
+//
+// Every phone recomputes the same map from the same case + events.
+// All on-screen words come from i18n.js (t('key')).
 
 import * as data from './data.js';
+import * as sync from './sync.js';
+import { databaseUrl } from './config.js';
 import * as i18n from './i18n.js';
 import { t } from './i18n.js';
 // The FAKE engine, until Jev's real one is ready. At integration change this one line to:
@@ -61,6 +67,16 @@ const state = {
   lastSpots: [],
   selectedArea: null,      // sector id the user opened in "Next areas"
   sightingDraft: null,     // { lat, lng } while a sighting is being reported
+  // Sharing (Screen C)
+  searchId: null,          // id of the shared search in Firebase, or null if not shared
+  remoteEvents: [],        // events from Firebase (with their push ids)
+  optimistic: [],          // events this phone sent that haven't come back from Firebase yet
+  liveStatus: null,        // 'live' | 'reconnecting' | 'denied'
+  unsubscribe: null,       // stops the live stream
+  caseStartedAt: null,     // when this search started (ms), for the police sheet
+  areaSource: 'live',      // 'demo' if the bundled Fremont data is used (shared with joiners)
+  myName: '',
+  engineEventsKey: '',     // lets us skip re-running the engine when only messages changed
 };
 
 // A random whole number for the engine's random-number generator.
@@ -110,6 +126,19 @@ const els = {
   sightingSave: $('sighting-save'),
   sightingCancel: $('sighting-cancel'),
   areas: $('areas'),
+  myName: $('my-name'),
+  share: $('share'),
+  liveStatus: $('live-status'),
+  shareLink: $('share-link'),
+  messages: $('messages'),
+  messageText: $('message-text'),
+  messageSend: $('message-send'),
+  handoff: $('handoff'),
+  handoffDialog: $('handoff-dialog'),
+  handoffText: $('handoff-text'),
+  handoffCopy: $('handoff-copy'),
+  handoffPrint: $('handoff-print'),
+  handoffClose: $('handoff-close'),
   setLastSeen: $('set-last-seen'),
   lastSeenHelp: $('last-seen-help'),
   minutes: $('minutes'),
@@ -182,6 +211,7 @@ map.on('click', (e) => {
     state.lastSeen = point;
     state.seed = newSeed();   // a new case gets a new seed...
     state.events = [];        // ...and starts with no searches or sightings
+    leaveSharedSearch();      // ...and is not the shared search any more
     setMode(null);
     showStatus(t('lastSeenSet'));
   } else if (state.mode === 'familiar') {
@@ -299,8 +329,9 @@ function setBusy(busy) {
   els.demo.disabled = busy;
 }
 
-// Lets the browser repaint (show "Working…") before heavy work starts.
-const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+// Lets the browser repaint (show "Working…") before heavy work starts. A short timer, not
+// requestAnimationFrame: that one never fires while the tab or app is in the background.
+const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 async function runPrediction({ useDemoData = false } = {}) {
   if (!state.lastSeen) { showStatus(t('needLastSeen'), { error: true }); setMode('lastSeen'); return; }
@@ -328,6 +359,8 @@ async function runPrediction({ useDemoData = false } = {}) {
       areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm };
       drawStreets(loaded.osm);
     }
+    state.areaSource = useDemoData ? 'demo' : 'live';
+    if (!state.caseStartedAt) state.caseStartedAt = Date.now();
 
     // 2. The engine works out where they may be, and we draw it.
     showStatus(t('calculating'), { sticky: true });
@@ -346,9 +379,45 @@ async function runPrediction({ useDemoData = false } = {}) {
 // Called after a run, after "searched", and after a sighting.
 function recompute() {
   const caseInput = readCase();
-  state.prediction = engine.replay(areaCache.area, caseInput, state.events);
+  state.prediction = engine.replay(areaCache.area, caseInput, currentEvents());
   state.lastSpots = engine.topSpots(areaCache.area, state.prediction, SPOTS_MAX);
+  state.engineEventsKey = engineEventsKey();
   drawResults();
+}
+
+// All events for this search: from Firebase, plus ones this phone sent that haven't
+// come back yet (or are waiting for signal). Not shared: just this phone's events.
+function currentEvents() {
+  if (!state.searchId) return state.events;
+  const seen = new Set(state.remoteEvents.map((e) => e.cid)); // cid = this event's id on its phone
+  const waiting = [];
+  for (const e of [...state.optimistic, ...sync.queuedEvents(state.searchId)]) {
+    if (seen.has(e.cid)) continue; // already came back from Firebase (or listed twice)
+    seen.add(e.cid);
+    waiting.push({ ...e, id: 'z-' + e.cid }); // 'z-' sorts after real ids made at the same time
+  }
+  return [...state.remoteEvents, ...waiting];
+}
+
+// A short fingerprint of the events the engine uses (not messages).
+function engineEventsKey() {
+  return currentEvents()
+    .filter((e) => e.type === 'searched' || e.type === 'sighting')
+    .map((e) => e.cid || e.id)
+    .join(',');
+}
+
+// Records a new event: on this phone, and in Firebase if the search is shared.
+function recordEvent(event) {
+  const ev = { ...event, cid: newEventId(), by: state.myName, at: Date.now() };
+  if (state.searchId) {
+    state.optimistic.push(ev);
+    sync.addEvent(state.searchId, ev).then(renderLiveStatus);
+  } else {
+    state.events.push(ev);
+  }
+  if (ev.type === 'message') renderMessages();
+  else recompute();
 }
 
 // Redraws everything that depends on the prediction (also used when language/units change).
@@ -362,6 +431,8 @@ function drawResults() {
   drawSightings();
   renderSpots();
   renderAreas();
+  renderMessages();
+  renderLiveStatus();
 }
 
 // ---- Drawing results ---------------------------------------------------------------
@@ -598,9 +669,8 @@ function renderAreas() {
 // Adds a "searched, nobody found" event and recomputes the map.
 function markSearched(sectorId, minutes) {
   if (!(minutes > 0)) return;
-  state.events.push({ id: newEventId(), type: 'searched', sectorId, minutes, by: '', at: Date.now() });
   state.selectedArea = null;
-  recompute();
+  recordEvent({ type: 'searched', sectorId, minutes });
   showStatus(t('searchedDone'));
 }
 
@@ -626,8 +696,7 @@ function closeSightingForm() {
 
 function saveSighting() {
   if (!state.sightingDraft) { showStatus(t('needSightingPlace'), { error: true }); return; }
-  state.events.push({
-    id: newEventId(),
+  const sighting = {
     type: 'sighting',
     lat: state.sightingDraft.lat,
     lng: state.sightingDraft.lng,
@@ -635,10 +704,9 @@ function saveSighting() {
     minutesSince: Math.max(0, Number(els.sightingMinutes.value) || 0),
     reliability: Number(document.querySelector('input[name="sure"]:checked').value),
     note: els.sightingNote.value.trim(),
-    at: Date.now(),
-  });
+  };
   closeSightingForm();
-  recompute();
+  recordEvent(sighting);
   showStatus(t('sightingAdded'));
 }
 
@@ -649,6 +717,8 @@ async function runDemo() {
   state.familiarPlaces = DEMO_CASE.familiarPlaces.map((p) => ({ ...p }));
   state.seed = DEMO_CASE.seed;
   state.events = [];
+  state.caseStartedAt = null;
+  leaveSharedSearch();
   els.minutes.value = DEMO_CASE.minutes;
   els.direction.value = DEMO_CASE.direction;
   setMobility(DEMO_CASE.mobility);
@@ -659,6 +729,300 @@ async function runDemo() {
   drawPins();
   map.setView(DEMO_CASE.lastSeen, 15);
   await runPrediction({ useDemoData: true });
+}
+
+// ---- Sharing: create, join, live updates --------------------------------------------------
+
+// The case packed into the link itself, so a link shows the same map even if the live
+// database can't be reached. Short keys keep the link short.
+function encodeCase(c) {
+  const packed = {
+    la: +c.lastSeen.lat.toFixed(6), ln: +c.lastSeen.lng.toFixed(6), m: c.minutes, d: c.direction,
+    mo: c.mobility, s: c.seed, f: c.familiarPlaces.map((p) => [+p.lat.toFixed(6), +p.lng.toFixed(6), p.label]),
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(packed));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decodeCase(text) {
+  const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const p = JSON.parse(new TextDecoder().decode(bytes));
+  return {
+    lastSeen: { lat: p.la, lng: p.ln }, minutes: p.m, direction: p.d || null, mobility: p.mo || 'normal',
+    seed: p.s >>> 0, familiarPlaces: (p.f || []).map(([lat, lng, label]) => ({ lat, lng, label: label || '' })),
+  };
+}
+
+// The link to share: this page + #s=<search id>&c=<case>&a=<demo|live>.
+// (On your own computer, ?db=... is kept so tabs use the same test database.)
+function shareLink() {
+  const params = new URLSearchParams();
+  if (state.searchId) params.set('s', state.searchId);
+  params.set('c', encodeCase(readCase()));
+  params.set('a', state.areaSource);
+  return `${location.origin}${location.pathname}${location.search}#${params}`;
+}
+
+// Fills the inputs from a case (when opening a shared link).
+function applyCase(c) {
+  state.lastSeen = { ...c.lastSeen };
+  state.seed = c.seed;
+  state.familiarPlaces = (c.familiarPlaces || []).map((p) => ({ lat: p.lat, lng: p.lng, label: p.label || '' }));
+  els.minutes.value = c.minutes;
+  els.direction.value = c.direction || '';
+  setMobility(c.mobility || 'normal');
+  renderFamiliarList();
+  drawPins();
+  map.setView(state.lastSeen, 15);
+}
+
+async function shareSearch() {
+  if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
+  saveName();
+
+  // First share: create the shared search and move this phone's events into it.
+  if (!state.searchId && sync.isConfigured()) {
+    const id = sync.newSearchId();
+    const caseDoc = { ...readCase(), area: state.areaSource, startedBy: state.myName, startedAt: state.caseStartedAt };
+    const result = await sync.createSearch(id, caseDoc);
+    if (result.ok) {
+      const local = state.events;
+      state.events = [];
+      startLive(id);
+      for (const ev of local) {
+        state.optimistic.push(ev);
+        await sync.addEvent(id, ev);
+      }
+    } else {
+      showStatus(t('liveDenied'), { error: true });
+    }
+  }
+
+  const link = shareLink();
+  els.shareLink.hidden = true;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'FindThem', text: t('shareText'), url: link });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return; // the person closed the share sheet
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    showStatus(t('linkCopied'));
+  } catch {
+    // Couldn't copy by itself: show the link so the person can copy it.
+    els.shareLink.value = link;
+    els.shareLink.hidden = false;
+    els.shareLink.select();
+    showStatus(t('copyThisLink'));
+  }
+  renderLiveStatus();
+}
+
+// Starts listening to a shared search. Every change re-draws the map (if needed).
+function startLive(searchId) {
+  if (state.unsubscribe) state.unsubscribe();
+  state.searchId = searchId;
+  state.remoteEvents = [];
+  history.replaceState(null, '', shareLinkPathWithHash());
+  state.unsubscribe = sync.subscribe(
+    searchId,
+    (caseDoc, events) => {
+      state.remoteEvents = events;
+      const back = new Set(events.map((e) => e.cid));
+      state.optimistic = state.optimistic.filter((e) => !back.has(e.cid));
+      if (caseDoc && caseDoc.startedAt && !state.caseStartedAt) state.caseStartedAt = caseDoc.startedAt;
+      if (state.prediction && engineEventsKey() !== state.engineEventsKey) recompute();
+      else { renderMessages(); renderLiveStatus(); }
+    },
+    (status) => { state.liveStatus = status; renderLiveStatus(); },
+  );
+  renderLiveStatus();
+}
+
+function shareLinkPathWithHash() {
+  return state.lastSeen ? shareLink().replace(location.origin, '') : location.pathname + location.search;
+}
+
+function leaveSharedSearch() {
+  if (state.unsubscribe) state.unsubscribe();
+  state.unsubscribe = null;
+  state.searchId = null;
+  state.remoteEvents = [];
+  state.optimistic = [];
+  state.liveStatus = null;
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  renderLiveStatus();
+}
+
+// Opening a shared link: fill in the case, run the map, and join the live search.
+async function joinFromLink() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const searchId = params.get('s');
+  const packedCase = params.get('c');
+  if (!searchId && !packedCase) return false;
+
+  let caseInput = null;
+  if (packedCase) {
+    try { caseInput = decodeCase(packedCase); } catch (err) { console.warn('Bad case in link', err); }
+  }
+  // The database copy of the case wins, if we can reach it.
+  if (searchId && sync.isConfigured()) {
+    try {
+      const { caseDoc } = await sync.loadSearch(searchId);
+      if (caseDoc) {
+        caseInput = caseDoc;
+        if (caseDoc.startedAt) state.caseStartedAt = caseDoc.startedAt;
+        if (caseDoc.area) params.set('a', caseDoc.area);
+      }
+    } catch {
+      showStatus(t('joinFailed'));
+    }
+  }
+  if (!caseInput) return false;
+
+  applyCase(caseInput);
+  state.events = [];
+  state.areaSource = params.get('a') === 'demo' ? 'demo' : 'live'; // before startLive saves the link
+  if (searchId && sync.isConfigured()) startLive(searchId);
+  els.firstSteps.open = false;
+  await runPrediction({ useDemoData: params.get('a') === 'demo' });
+  if (state.searchId) showStatus(t('joinedSearch'));
+  return true;
+}
+
+function renderLiveStatus() {
+  let text;
+  if (!state.searchId) text = sync.isConfigured() ? t('localOnly') : t('syncNotSetUp');
+  else if (state.liveStatus === 'denied') text = t('liveDenied');
+  else if (state.liveStatus === 'reconnecting') text = t('liveReconnecting');
+  else text = t('liveOn');
+  const waiting = state.searchId ? sync.queuedEvents(state.searchId).length : 0;
+  if (waiting) text += ' ' + t('queued', { n: waiting });
+  els.liveStatus.textContent = text;
+}
+
+function saveName() {
+  state.myName = els.myName.value.trim().slice(0, 40);
+  remember('name', state.myName);
+}
+
+// ---- Messages -------------------------------------------------------------------------------
+
+function renderMessages() {
+  const messages = currentEvents().filter((e) => e.type === 'message').sort((a, b) => a.at - b.at);
+  els.messages.innerHTML = '';
+  if (!messages.length) {
+    const li = document.createElement('li');
+    li.className = 'help';
+    li.textContent = t('noMessages');
+    els.messages.append(li);
+    return;
+  }
+  for (const m of messages) {
+    const li = document.createElement('li');
+    if (m.by && m.by === state.myName) li.classList.add('mine');
+    const who = document.createElement('span');
+    who.className = 'msg-who';
+    who.textContent = m.by || t('someone');
+    const when = document.createElement('span');
+    when.className = 'msg-time';
+    when.textContent = i18n.formatTime(m.at);
+    const text = document.createElement('div');
+    text.textContent = m.text; // textContent, never innerHTML: messages come from other people
+    li.append(who, when, text);
+    els.messages.append(li);
+  }
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function sendMessage() {
+  const text = els.messageText.value.trim();
+  if (!text) return;
+  saveName();
+  recordEvent({ type: 'message', text: text.slice(0, 300) });
+  els.messageText.value = '';
+}
+
+// ---- Police hand-off sheet -----------------------------------------------------------------
+
+const coords = (p) => `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+
+// The sheet as plain text, in one language.
+function handoffText(lang) {
+  const tr = (key, vars) => i18n.tIn(lang, key, vars);
+  const c = readCase();
+  const started = state.caseStartedAt || Date.now();
+  const lines = [];
+  lines.push(tr('handoffTitle'), '='.repeat(30));
+  lines.push(tr('handoffMade', { time: i18n.formatDateTime(new Date().toISOString()) }), '');
+  lines.push(tr('handoffLastSeen', { coords: coords(c.lastSeen), time: i18n.formatTime(started - c.minutes * 60000), min: c.minutes }));
+  lines.push(tr('handoffWalks', { mobility: tr('mob_' + c.mobility) }));
+  lines.push(tr('handoffHeading', { direction: c.direction ? tr('dir_' + c.direction) : tr('dirUnknown') }));
+  if (c.familiarPlaces.length) {
+    lines.push(tr('handoffFamiliar', { list: c.familiarPlaces.map((p) => `${p.label} (${coords(p)})`).join('; ') }));
+  }
+
+  lines.push('', tr('handoffTimeline'), '-'.repeat(30));
+  const events = currentEvents().slice().sort((a, b) => a.at - b.at);
+  const sure = { 0.3: 'sure_low', 0.6: 'sure_mid', 0.9: 'sure_high' };
+  if (!events.some((e) => e.type === 'searched' || e.type === 'sighting')) lines.push(tr('handoffNothing'));
+  for (const ev of events) {
+    const time = i18n.formatTime(ev.at);
+    const by = ev.by || tr('someone');
+    if (ev.type === 'searched') {
+      const sector = state.prediction.grid.sectors.find((s) => s.id === ev.sectorId);
+      lines.push(tr('handoffSearched', {
+        time, by, coords: sector ? coords(sector.center) : ev.sectorId, min: ev.minutes,
+        pod: i18n.formatPercent(sector ? sector.pod : 0),
+      }));
+    } else if (ev.type === 'sighting') {
+      lines.push(tr('handoffSighting', {
+        time, by, coords: coords(ev), min: ev.minutesSince, sure: tr(sure[ev.reliability] || 'sure_mid'), note: ev.note || '',
+      }).trim());
+    } else if (ev.type === 'message') {
+      lines.push(tr('handoffMessage', { time, by, text: ev.text }));
+    }
+  }
+
+  lines.push('', tr('handoffTop'), '-'.repeat(30));
+  state.lastSpots.forEach((spot, i) => {
+    lines.push(tr('handoffSpot', { n: i + 1, title: spotTitleIn(lang, spot), coords: coords(spot), pct: i18n.formatPercent(spot.probability) }));
+  });
+
+  lines.push('', tr('handoffLink', { url: shareLink() }), '', tr('handoffNote'));
+  return lines.join('\n');
+}
+
+// spotTitle() in a given language (for the English copy).
+function spotTitleIn(lang, spot) {
+  const saved = i18n.getLanguage();
+  i18n.setLanguage(lang);
+  try { return spotTitle(spot); } finally { i18n.setLanguage(saved); }
+}
+
+function openHandoff() {
+  if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
+  const lang = i18n.getLanguage();
+  let text = handoffText(lang);
+  if (lang !== 'en') text += `\n\n\n— ${t('handoffEnglish')} —\n\n` + handoffText('en');
+  els.handoffText.textContent = text;
+  els.handoffDialog.showModal();
+}
+
+async function copyHandoff() {
+  try {
+    await navigator.clipboard.writeText(els.handoffText.textContent);
+    showStatus(t('copied'));
+  } catch {
+    // Select the text so the person can copy it by hand.
+    const range = document.createRange();
+    range.selectNodeContents(els.handoffText);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  }
 }
 
 // ---- Language, units, emergency number ------------------------------------------------
@@ -718,7 +1082,22 @@ function start() {
     setTimeout(() => map.invalidateSize(), 0); // the map got bigger or smaller
   });
 
+  // Sharing
+  sync.setDbUrl(databaseUrl());
+  state.myName = recall('name') || '';
+  els.myName.value = state.myName;
+  els.myName.addEventListener('change', saveName);
+  els.share.addEventListener('click', shareSearch);
+  els.messageSend.addEventListener('click', sendMessage);
+  els.messageText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+  els.handoff.addEventListener('click', openHandoff);
+  els.handoffCopy.addEventListener('click', copyHandoff);
+  els.handoffPrint.addEventListener('click', () => window.print());
+  els.handoffClose.addEventListener('click', () => els.handoffDialog.close());
+  renderLiveStatus();
+
   setMode('lastSeen');
+  joinFromLink().then((joined) => { if (joined) setMode(null); });
 }
 
 // After a demo, re-running with a last-seen point still inside the demo area reuses the

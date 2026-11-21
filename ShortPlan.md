@@ -51,8 +51,8 @@
 - [ ] Sightings update the map
 - [ ] Messaging between searchers
 - [ ] Voice/text report box
-- [ ] Share link
-- [ ] Police hand-off sheet
+- [x] Share link
+- [x] Police hand-off sheet
 - [ ] Works offline after the first visit
 - [ ] English, Spanish, French, Chinese, Japanese
 - [ ] One-tap Demo button

@@ -66,6 +66,16 @@
         <button id="more-spots" class="link-button" type="button" hidden></button>
         <p class="note" data-i18n="guideNote"></p>
 
+        <!-- Sharing: one link puts every searcher on the same live map. -->
+        <div id="share-box" class="sub-form">
+          <label for="my-name" data-i18n="yourName"></label>
+          <input id="my-name" type="text" maxlength="40" autocomplete="given-name">
+          <p class="help" data-i18n="yourNameHint"></p>
+          <button id="share" class="big primary" type="button" data-i18n="shareSearch"></button>
+          <p id="live-status" class="note" role="status"></p>
+          <input id="share-link" type="text" readonly hidden data-i18n-aria="copyThisLink">
+        </div>
+
         <!-- Sighting: tap the map, fill in the form, and the map updates. -->
         <button id="report-sighting" class="big" type="button" aria-pressed="false" data-i18n="sightingStart"></button>
         <div id="sighting-form" class="sub-form" hidden>
@@ -90,6 +100,16 @@
         <h2 data-i18n="nextAreasTitle"></h2>
         <p class="help" data-i18n="nextAreasHint"></p>
         <ol id="areas"></ol>
+
+        <!-- Messages between everyone on the search (an event of type 'message'). -->
+        <h2 data-i18n="messagesTitle"></h2>
+        <ol id="messages"></ol>
+        <div class="row message-row">
+          <input id="message-text" type="text" maxlength="300" data-i18n-placeholder="messagePlaceholder" data-i18n-aria="messagesTitle">
+          <button id="message-send" class="big" type="button" data-i18n="send"></button>
+        </div>
+
+        <button id="handoff" class="big" type="button" data-i18n="handoffButton"></button>
       </div>
 
       <h2 data-i18n="lastSeenTitle"></h2>
@@ -125,6 +145,16 @@
       </div>
     </div>
   </section>
+
+  <!-- The police hand-off sheet: plain text to copy, share or print. -->
+  <dialog id="handoff-dialog">
+    <pre id="handoff-text"></pre>
+    <div class="row">
+      <button id="handoff-copy" class="big" type="button" data-i18n="copy"></button>
+      <button id="handoff-print" class="big" type="button" data-i18n="print"></button>
+      <button id="handoff-close" class="big" type="button" data-i18n="close"></button>
+    </div>
+  </dialog>
 
   <!-- Libraries (stored in /lib, not loaded from the internet), then our code. -->
   <script src="lib/leaflet.js"></script>

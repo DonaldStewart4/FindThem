@@ -86,6 +86,28 @@ Service workers (the offline part) only work on `localhost` or over HTTPS. Openi
 
 To test offline mode: load the app once, run a prediction, then stop the server (Ctrl+C) and reload the page. You should see "You're offline – using saved data".
 
+## Set up live sharing (Firebase)
+
+Live sharing (one map for every searcher, messages, searched areas) needs a free Firebase Realtime Database. Without it the app still works: searches stay on one phone, and share links carry the starting map in the link itself.
+
+1. Go to https://console.firebase.google.com, sign in, and click **Create a project**. Analytics isn't needed.
+2. In the project, open **Build → Realtime Database → Create database**. Pick a US location and start in **locked mode**.
+3. Open the **Rules** tab, replace everything with the contents of `firebase-rules.json`, and click **Publish**. The rules make sure that:
+   - nobody can list searches; you need the 32-character id from a link
+   - a search's case can be written once
+   - events can only be added, never changed or deleted
+4. Copy the database URL shown at the top of the **Data** tab (like `https://findthem-12345-default-rtdb.firebaseio.com`) into `FIREBASE_DB_URL` in `config.js`, then commit.
+
+The URL isn't a secret, so it's fine in the repo. No API key is needed.
+
+**Testing without Firebase:** run the mock database and open two tabs with `?db=`:
+
+```bash
+python3 tools/mock-firebase.py
+```
+
+Then open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo in one, tap **Share this search**, and open the link in the other.
+
 ## Deploy for free with GitHub Pages
 
 GitHub Pages gives you a free HTTPS address, which the offline features need.
