@@ -522,14 +522,14 @@ h3 {
    that the next tap on the map places something. */
 #tap-banner {
   position: absolute;
-  bottom: 26px;               /* above the map credits; the zoom buttons stay free at the top */
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 26px;               /* above the map credits */
+  left: 62px;                 /* right of the zoom / GPS / search buttons, so they stay usable */
+  right: 8px;
+  max-width: 560px;
   z-index: 1001;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: min(94%, 560px);
+  gap: 8px;
   padding: 8px 8px 8px 14px;
   border-radius: 12px;
   background: var(--blue);
@@ -538,7 +538,7 @@ h3 {
 }
 #tap-banner[hidden] { display: none; }
 #map-wrap.picking #status { bottom: 104px; } /* messages sit above the bar */
-#tap-banner p { flex: 1; margin: 0; font-size: 17px; font-weight: 700; }
+#tap-banner p { flex: 1; margin: 0; font-size: 16px; font-weight: 700; }
 #tap-banner button {
   flex: none;
   min-height: 44px;

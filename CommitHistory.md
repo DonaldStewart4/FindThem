@@ -59,6 +59,26 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Offline: say "no internet" instead of "server busy", Demo works offline, tested
+
+- **Date:** 2026-11-21
+- **Stage:** Screen (BenStew) — offline testing
+- **What changed:**
+  - **"Map server busy" with no internet** (BenStew's report). `data.js` `fetchOverpass` now tells two failures apart: the server answered with an error (`busy`) vs. fetch itself failed (`offline`). It stops at once when the phone says it's offline (also if the phone goes offline during a retry wait), and stops after **2 failed connections in a row** (Wi-Fi with no internet, which `navigator.onLine` can't see), instead of 5 tries over ~45 s. Errors carry `offline: true`.
+    - The loading bar says "Can't reach the map server. Check your internet. Trying again in 3 s (2 of 5)" for connection failures and keeps "Map server busy…" only for real server errors.
+    - When nothing is saved nearby: "No internet, and no streets saved near here. Connect once, or save your home area ahead of time. You can still call 911 and check the house." `dataError` (servers failed) now says the servers didn't answer.
+    - Saving the home area offline says "No internet…" (`homeSaveOffline`).
+    - `firstDelayMs` option (default 3000) so tests don't wait.
+  - **Sharing offline** said "denied". Now it says live sharing can't start without internet but the link still shows the same map (the link carries the case); the note stays visible after the share sheet or the copy.
+  - **Voice offline:** the speech service's `network` error now says "Voice needs internet right now. Type it instead, or use the form." (was "Couldn't use the microphone").
+  - **Demo offline:** `tests/fixtures/demo-area.json` (3 MB) is now in the service worker's precache, so the Demo works offline even if it was never pressed online.
+  - **Updates:** when a new app version takes over an open page, the page reloads once so old and new files aren't mixed, but only if no last-seen point or shared search exists yet (never lose someone's work). Found in testing: after an update the first load used the new `app.js` with the old `style.css`.
+  - **Blue tap bar** now starts right of the map buttons (it covered the search button on short phone maps) and drops the trailing 🔍 (the bar has its own search button).
+  - `tests/data.test.js` (new, 6 tests): connection failure → `offline`; 504 → `busy`; phone offline → no fetch at all; a working download reports bytes; search failure → `offline`; two connection failures stop the retries.
+  - `i18n.js`: 6 new strings, `dataError` reworded, in 5 languages. `sw.js` v12. README: a "With no signal" paragraph and the simpler offline test steps.
+- **How it was verified:** `node --test` 54/54. Built-in browser, app server stopped (`preview_stop`) and the page's internet cut (offline flag + every outside request failing): the app opened from the offline copy with the yellow offline line; map search → "No internet, so search can't work"; Demo in 0.3 s with the usual top spots; report box → "No signal right now" and the form opened; share → link shown; a message stayed on the phone; a new last-seen point 20 km away + Find → the no-internet message on screen (0.1 s, no retries). With the phone "online" but requests failing: one "Can't reach the map server" retry, then the message after ~3 s.
+- **Known issues / not done:** real airplane-mode test on a phone still to do. Messages sent while a *shared* search is offline were tested in an earlier commit (queue), not again here.
+
 ### Map search (magnifying glass); tap-mode buttons say "or search"
 
 - **Date:** 2026-11-21

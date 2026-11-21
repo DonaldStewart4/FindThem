@@ -117,19 +117,28 @@ export function parseOverpass(json, center, radiusM = DEFAULT_RADIUS_M) {
 
 // ---- Downloading ---------------------------------------------------------------
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Overpass servers are often busy ("at capacity"). So we take turns between the
 // servers, and wait a little longer after each failure: 3 s, 6 s, 12 s, ...
 // `extraHeaders` lets the Node fixture script send a User-Agent (browsers send their own).
-export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {} } = {}) {
+// Downloads the area from Overpass, trying the mirrors in turn with growing waits.
+// Two kinds of failure, told apart so the screen says the right thing:
+//   - the server answered with an error (429 "too many requests", 504 "too busy"): 'busy'
+//   - fetch itself failed (no internet, or the connection dropped):          'offline'
+// If the phone says it's offline, we stop at once instead of waiting through retries, and
+// after MAX_CONNECTION_FAILURES failed connections in a row we stop too (e.g. Wi-Fi with no
+// internet, which the phone can't detect). The error then has `offline: true`.
+export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {}, firstDelayMs = 3000 } = {}) {
   const body = 'data=' + encodeURIComponent(buildQuery(lat, lng, radiusM));
   let lastError;
-  let delayMs = 3000;
+  let delayMs = firstDelayMs; // doubles after each failed try (tests pass a tiny one)
+  let connectionFailures = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    if (isOffline()) throw offlineError(lastError);
     const url = OVERPASS_URLS[attempt % OVERPASS_URLS.length];
+    let reason;
     try {
-      // 'waiting': the server is collecting the streets (often 5–20 s before any data arrives).
+      // 'waiting': the server is collecting the streets (often 5–40 s before any data arrives).
       onProgress({ stage: 'waiting', attempt: attempt + 1, attempts });
       const res = await fetch(url, {
         method: 'POST',
@@ -138,16 +147,43 @@ export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { atte
       });
       if (res.ok) return await readJsonWithProgress(res, onProgress);
       lastError = new Error(`Overpass ${res.status} from ${url}`);
+      reason = 'busy';
+      connectionFailures = 0;
     } catch (err) {
-      lastError = err; // no signal, or the server dropped the connection
+      lastError = offlineError(err); // no internet, or the server dropped the connection
+      reason = 'offline';
+      connectionFailures += 1;
     }
+    if (isOffline() || connectionFailures >= MAX_CONNECTION_FAILURES) throw offlineError(lastError);
     if (attempt < attempts - 1) {
-      onProgress({ stage: 'retry', attempt: attempt + 2, attempts, waitMs: delayMs });
-      await wait(delayMs);
+      onProgress({ stage: 'retry', reason, attempt: attempt + 2, attempts, waitMs: delayMs });
+      await waitUnlessOffline(delayMs);
       delayMs *= 2;
     }
   }
   throw lastError;
+}
+
+const MAX_CONNECTION_FAILURES = 2;
+
+// True when the browser knows there's no connection (airplane mode, Wi-Fi off).
+// (It can't tell "connected to Wi-Fi that has no internet"; fetch failing tells us that.)
+function isOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+// Waits `ms`, but stops early if the phone goes offline, so we don't sit through a retry
+// countdown that can't work.
+function waitUnlessOffline(ms) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      if (typeof window !== 'undefined') window.removeEventListener('offline', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    if (typeof window !== 'undefined') window.addEventListener('offline', done);
+  });
 }
 
 // Reads a response's JSON piece by piece, reporting how many bytes have arrived so far
@@ -316,11 +352,11 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgres
 
   let json;
   try {
-    json = await fetchOverpass(lat, lng, radiusM, { attempts: navigator.onLine === false ? 1 : 5, onProgress });
+    json = await fetchOverpass(lat, lng, radiusM, { onProgress });
   } catch (err) {
     const fallback = await findSavedAreaNear(lat, lng, NEAR_OFFLINE_M).catch(() => null);
     if (fallback) return { osm: fallback.osm, fromCache: true, savedAt: fallback.savedAt };
-    throw err;
+    throw err; // err.offline is true when there was no connection
   }
   const osm = parseOverpass(json, { lat, lng }, radiusM);
   const savedAt = new Date().toISOString();

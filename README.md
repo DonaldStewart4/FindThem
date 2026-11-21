@@ -38,6 +38,8 @@ Built for EvoHacks II (theme: social good).
 
 **Before an emergency:** "Save my home area" stores the streets around home on the phone (find it by address, map tap or GPS), so the app works there even with no signal.
 
+**With no signal** (tested with the server stopped and every web request failing): the app opens, the Demo runs, saved areas work, searches and sightings stay on the phone and are sent when signal returns. What needs internet says so plainly instead of failing quietly: new streets ("No internet, and no streets saved near here…"), address search, sharing live (the link still works and shows the same map), and the report box (the normal form opens). Wi-Fi that has no internet is noticed after two failed tries (about 3 s) instead of minutes of "server busy" retries.
+
 **Anytime:** the ◎ button shows your own position as a blue dot (GPS works without cell signal). **Demo** runs a sample case in Fremont, CA in one tap.
 
 ## How the prediction works
@@ -141,7 +143,7 @@ Run the tests:
 node --test
 ```
 
-To test offline mode: load the app twice (the second load is the first one the offline worker controls), run the Demo, then stop the server (Ctrl+C) and reload. The app still opens and the Demo still runs. The yellow "You're offline – using saved data" line appears when the phone itself has no signal.
+To test offline mode: load the app once, then stop the server (Ctrl+C) and reload. The app still opens and the Demo still runs (its Fremont streets are saved with the app). The yellow "You're offline – using saved data" line appears when the phone itself has no signal.
 
 **While developing:** the offline worker serves saved copies first, so after you edit a file, reload twice to see the change. Bump `CACHE_VERSION` at the top of `sw.js` whenever app files change, so phones pick up the new version.
 

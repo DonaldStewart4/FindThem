@@ -433,7 +433,9 @@ function renderModeUI() {
   els.tapBanner.hidden = !mode;
   els.mapWrap.classList.toggle('picking', Boolean(mode));
   if (mode) {
-    els.tapBannerText.textContent = mode === 'sighting' && state.sightingDraft ? t('sightingPlaced') : t(MODE_PROMPTS[mode]);
+    // The bar has its own 🔍 button, so the emoji at the end of the prompt is dropped here.
+    const prompt = mode === 'sighting' && state.sightingDraft ? t('sightingPlaced') : t(MODE_PROMPTS[mode]);
+    els.tapBannerText.textContent = prompt.replace(/\s*🔍$/u, '');
     hideStatus(); // the bar replaces the old "tap the map" message
   }
   renderDirection();
@@ -567,7 +569,9 @@ function onDownloadProgress(info) {
     const size = (info.bytes / 1e6).toFixed(1) + ' MB';
     showProgress(60 + 20 * Math.min(1, info.bytes / EXPECTED_DOWNLOAD_BYTES), t('progressDownloading', { size }));
   } else if (info.stage === 'retry') {
-    showProgress(5, t('progressRetry', { s: Math.round(info.waitMs / 1000), n: info.attempt, of: info.attempts }));
+    // 'offline' = we couldn't reach the server at all; 'busy' = it answered "too busy".
+    const key = info.reason === 'offline' ? 'progressNoConnection' : 'progressRetry';
+    showProgress(5, t(key, { s: Math.round(info.waitMs / 1000), n: info.attempt, of: info.attempts }));
   }
 }
 
@@ -600,7 +604,8 @@ async function runPrediction({ useDemoData = false } = {}) {
       } catch (err) {
         console.error(err);
         hideProgress();
-        showStatus(t('dataError'), { error: true });
+        // No internet and nothing saved nearby, or the map servers failed every try.
+        showStatus(err.offline ? t('dataOffline') : t('dataError'), { error: true });
         return;
       }
       clearInterval(progressTimer);
@@ -1084,6 +1089,9 @@ function toggleReportBox() {
   else stopListening();
 }
 
+// What to tell the person for each voice-input problem.
+const VOICE_ERRORS = { no_speech: 'voiceNoSpeech', voice_offline: 'voiceOffline', mic_denied: 'voiceDenied' };
+
 function toggleVoice() {
   if (state.stopVoice) { stopListening(); return; }
   els.reportStatus.textContent = '';
@@ -1092,7 +1100,7 @@ function toggleVoice() {
   state.stopVoice = report.startVoice(
     i18n.getLanguage(),
     (text) => { els.reportText.value = text; },             // words appear as they're heard
-    (code) => { els.reportStatus.textContent = code === 'no_speech' ? t('voiceNoSpeech') : t('voiceDenied'); },
+    (code) => { els.reportStatus.textContent = t(VOICE_ERRORS[code] || 'voiceDenied'); },
     resetVoiceButton,                                         // listening stopped
   );
 }
@@ -1179,6 +1187,16 @@ async function readReport() {
 // The service worker (sw.js) keeps the app on the phone so it opens with no signal.
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return; // very old browsers: the app still works online
+  // A new version of the app takes over while this page is open ("controllerchange"). The
+  // page may then be a mix of old and new files, so reload once, but only if nothing has
+  // been entered yet: never throw away a search someone is in the middle of.
+  const hadController = Boolean(navigator.serviceWorker.controller); // false on the very first visit
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded || state.lastSeen || state.searchId) return;
+    reloaded = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Offline mode unavailable', err));
 }
 
@@ -1379,7 +1397,7 @@ async function saveHomeArea() {
     drawPins();
   } catch (err) {
     console.error(err);
-    els.homeStatus.textContent = t('homeSaveFailed');
+    els.homeStatus.textContent = err.offline ? t('homeSaveOffline') : t('homeSaveFailed');
   } finally {
     hideProgress();
     els.homeSave.disabled = false;
@@ -1463,6 +1481,7 @@ async function shareSearch() {
   saveName();
 
   // First share: create the shared search and move this phone's events into it.
+  let offlineNote = false; // true when there was no signal, so the link isn't live yet
   if (!state.searchId && sync.isConfigured()) {
     const id = sync.newSearchId();
     const caseDoc = { ...readCase(), area: state.areaSource, startedBy: state.myName, startedAt: state.caseStartedAt };
@@ -1475,6 +1494,10 @@ async function shareSearch() {
         state.optimistic.push(ev);
         await sync.addEvent(id, ev);
       }
+    } else if (result.error === 'offline') {
+      // No signal: the link still carries the case, so others get the same map; live
+      // updates start when this phone shares again with signal.
+      offlineNote = true;
     } else {
       showStatus(t('liveDenied'), { error: true });
     }
@@ -1482,6 +1505,7 @@ async function shareSearch() {
 
   const link = shareLink();
   els.shareLink.hidden = true;
+  if (offlineNote) showStatus(t('shareOffline'), { sticky: true }); // still visible after the share sheet
   if (navigator.share) {
     try {
       await navigator.share({ title: 'FindThem', text: t('shareText'), url: link });
@@ -1492,13 +1516,13 @@ async function shareSearch() {
   }
   try {
     await navigator.clipboard.writeText(link);
-    showStatus(t('linkCopied'));
+    showStatus(offlineNote ? `${t('linkCopied')} ${t('shareOffline')}` : t('linkCopied'), { sticky: offlineNote });
   } catch {
     // Couldn't copy by itself: show the link so the person can copy it.
     els.shareLink.value = link;
     els.shareLink.hidden = false;
     els.shareLink.select();
-    showStatus(t('copyThisLink'));
+    showStatus(offlineNote ? `${t('copyThisLink')} ${t('shareOffline')}` : t('copyThisLink'), { sticky: offlineNote });
   }
   renderLiveStatus();
 }

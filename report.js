@@ -73,6 +73,8 @@ export function startVoice(lang, onText, onError, onEnd = () => {}) {
     // 'not-allowed' = the person said no to the microphone.
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') onError('mic_denied');
     else if (e.error === 'no-speech') onError('no_speech');
+    // 'network' = the phone's speech service needs internet and there isn't any.
+    else if (e.error === 'network') onError('voice_offline');
     else if (e.error !== 'aborted') onError('voice_error');
   };
   rec.onend = () => onEnd();
