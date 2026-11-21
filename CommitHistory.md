@@ -43,7 +43,7 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
   - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback. **Live at `https://findthem-f4e5c-default-rtdb.firebaseio.com` since 2026-11-21**, with the rules from `firebase-rules.json` published.
-  - a Cloudflare Worker holding the API keys as Worker secrets: Jev (TypeSafe) for the report box, and since 2026-11-21 evening, optional Deepgram (speech → text) and ElevenLabs (read-back) keys for the voice bot, which falls back to the phone's own voice input without them; no FastAPI or other server
+  - a Cloudflare Worker holding the API keys as Worker secrets: Jev (TypeSafe) for the report box, and since 2026-11-21 evening, optional Deepgram (speech → text) and ElevenLabs (read-back, **English only** since the next commit) keys for the voice bot, which falls back to the phone's own voice input without them; no FastAPI or other server
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
@@ -58,6 +58,20 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### ElevenLabs read-back is English only
+
+- **Date:** 2026-11-21
+- **Stage:** Screen + proxy (BenStew)
+- **Decision change:** BenStew: "Make sure 11 Labs is only working if it's in English." The voice bot's spoken read-back now happens only when the app is in English. Deepgram voice input still works in all 5 languages.
+- **What changed:**
+  - `report.js`: `SPEAK_LANGS = ['en']`, `canSpeak(lang)`; `speak()` returns without any request outside English.
+  - `app.js`: the read-back and the iPhone audio unlock only run when `canSpeak(i18n.getLanguage())`.
+  - `proxy/voice.js` + `proxy/worker.js`: `POST /speak` refuses any `lang` other than `en` with `400 unsupported_language` **before** calling ElevenLabs (no cost even if something else calls it). `language_code` is only ever `en`.
+  - `tests/voice.test.js`: the ElevenLabs request test now uses English; new tests: es/fr/zh/ja/empty/missing `lang` → 400 with ElevenLabs never called; the app's `speak()` makes no request in Spanish or Japanese.
+  - The non-English read-back sentences stay in `i18n.js` (unused for now) so every language keeps the same keys.
+  - Docs: README, `proxy/README.md`, `INTERFACES.md` §5, `CLAUDE.md`, this file's Project context. `sw.js` v15.
+- **How it was verified:** `node --test` 64/64.
 
 ### Phone map space: bigger map while placing, foldable legend
 

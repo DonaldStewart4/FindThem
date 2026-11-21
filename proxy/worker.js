@@ -9,7 +9,7 @@
 //   POST /         { text, lang, context: { lastSeen, places: [{name,lat,lng}] } } → ReportDraft JSON
 //   GET  /voice    → { listen, speak }: which optional voice services have keys (proxy/voice.js)
 //   POST /listen?lang=en   body = a recording (audio/webm or audio/mp4) → { text } (Deepgram)
-//   POST /speak    { text, lang } → MP3 audio (ElevenLabs)
+//   POST /speak    { text, lang: 'en' } → MP3 audio (ElevenLabs; English only, others → 400)
 // Errors: { error: 'code' } with a 4xx/5xx status.
 
 // Shared checker, so the browser and the proxy clean drafts the same way.
@@ -18,7 +18,7 @@ import { validateDraft, MAX_TEXT } from '../report.js';
 import { JEV_URL, buildJevRequest, jevToDraft, cleanPlaces } from './jev.js';
 import {
   voiceCapabilities, buildDeepgramRequest, deepgramText, buildElevenLabsRequest,
-  MAX_AUDIO_BYTES, MAX_SPEAK_CHARS,
+  MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
 } from './voice.js';
 
 const RATE_LIMIT = 20;          // requests per IP ...
@@ -157,7 +157,9 @@ async function speak(request, env) {
   }
   const text = typeof body.text === 'string' ? body.text.slice(0, MAX_SPEAK_CHARS).trim() : '';
   if (!text) return reply(env, 400, { error: 'no_text' });
-  const lang = typeof body.lang === 'string' ? body.lang.slice(0, 5) : 'en';
+  const lang = typeof body.lang === 'string' ? body.lang.slice(0, 5) : '';
+  // English only: anything else is refused before ElevenLabs is called (no cost, no speech).
+  if (!SPEAK_LANGS.includes(lang)) return reply(env, 400, { error: 'unsupported_language' });
 
   const { url, init } = buildElevenLabsRequest(env, text, lang);
   let res;

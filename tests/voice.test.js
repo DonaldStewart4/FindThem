@@ -4,7 +4,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../proxy/worker.js';
-import { setProxyUrl, getVoiceCaps } from '../report.js';
+import { setProxyUrl, getVoiceCaps, speak, canSpeak } from '../report.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; setProxyUrl(''); });
@@ -66,7 +66,7 @@ test('POST /speak asks ElevenLabs Flash v2.5 and returns MP3 audio', async () =>
   };
   const res = await worker.fetch(req('/speak', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: 'J\'ai rempli un signalement.', lang: 'fr' }),
+    body: JSON.stringify({ text: 'I filled in a sighting.', lang: 'en' }),
   }), KEYS);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Type'), 'audio/mpeg');
@@ -74,7 +74,32 @@ test('POST /speak asks ElevenLabs Flash v2.5 and returns MP3 audio', async () =>
   assert.match(call.url, /^https:\/\/api\.elevenlabs\.io\/v1\/text-to-speech\/JBFqnCBsd6RMkjVDRZzb\?output_format=mp3_22050_32$/);
   assert.equal(call.init.headers['xi-api-key'], 'el-key');
   assert.equal(call.body.model_id, 'eleven_flash_v2_5');
-  assert.equal(call.body.language_code, 'fr');
+  assert.equal(call.body.language_code, 'en');
+});
+
+test('POST /speak is English only: other languages are refused before ElevenLabs is called', async () => {
+  let called = 0;
+  globalThis.fetch = async () => { called += 1; return new Response(new Uint8Array([1])); };
+  for (const lang of ['es', 'fr', 'zh', 'ja', '', undefined]) {
+    const res = await worker.fetch(req('/speak', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hola', lang }),
+    }), KEYS);
+    assert.equal(res.status, 400, `lang ${lang}`);
+    assert.equal((await res.json()).error, 'unsupported_language');
+  }
+  assert.equal(called, 0);
+});
+
+test('app: speak() does nothing outside English (no request at all)', async () => {
+  assert.equal(canSpeak('en'), true);
+  assert.equal(canSpeak('ja'), false);
+  setProxyUrl('https://proxy.example');
+  let called = 0;
+  globalThis.fetch = async () => { called += 1; return new Response('x'); };
+  await speak('Rellené un avistamiento.', 'es');
+  await speak('目撃情報を入力しました。', 'ja');
+  assert.equal(called, 0);
 });
 
 test('POST /speak without an ElevenLabs key → 503; ElevenLabs failing → 502', async () => {

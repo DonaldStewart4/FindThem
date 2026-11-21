@@ -1101,7 +1101,8 @@ function toggleVoice() {
   if (state.stopVoice) { stopListening(); return; }
   els.reportStatus.textContent = '';
   report.stopSpeaking();
-  if (state.voiceCaps.speak) report.unlockAudio(); // lets the read-back play later on iPhones
+  // Lets the read-back play later on iPhones. The read-back is English only.
+  if (state.voiceCaps.speak && report.canSpeak(i18n.getLanguage())) report.unlockAudio();
   // The voice bot (Deepgram) if the proxy has its key; otherwise the phone's own voice input.
   if (state.voiceCaps.listen && report.canRecord() && navigator.onLine !== false) startRecordingReport();
   else startPhoneVoice();
@@ -1237,8 +1238,10 @@ async function readReport() {
   }
 
   els.reportStatus.textContent = '';
-  // The voice bot reads back what it filled in, if ElevenLabs is set up and the report was spoken.
-  if (state.voiceCaps.speak && state.reportByVoice) report.speak(readBackText(draft), i18n.getLanguage());
+  // The voice bot reads back what it filled in, if ElevenLabs is set up, the report was spoken,
+  // and the app is in English (the read-back is English only; other languages just see the form).
+  const lang = i18n.getLanguage();
+  if (state.voiceCaps.speak && state.reportByVoice && report.canSpeak(lang)) report.speak(readBackText(draft), lang);
   state.reportByVoice = false;
   if (draft.kind === 'sighting') {
     els.reportText.value = '';

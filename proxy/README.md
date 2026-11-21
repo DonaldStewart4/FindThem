@@ -22,7 +22,7 @@ Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in
 |---|---|---|
 | `GET /voice` | none | Tells the app which keys are set: `{ "listen": true/false, "speak": true/false }` (never the keys) |
 | `POST /listen?lang=en` | **Deepgram** nova-3 | The person's recording → `{ "text": "..." }`. The app then sends that text to `POST /` as usual |
-| `POST /speak` | **ElevenLabs** Flash v2.5 | `{ "text", "lang" }` → MP3. The app reads back what it filled in and what it wasn't sure about |
+| `POST /speak` | **ElevenLabs** Flash v2.5 | `{ "text", "lang": "en" }` → MP3. The app reads back what it filled in and what it wasn't sure about. **English only:** any other `lang` gets `400 unsupported_language` without calling ElevenLabs, and the app doesn't even ask outside English |
 
 **No keys, no change:** if `DEEPGRAM_API_KEY` is missing, the app uses the phone's own speech recognition, as before. If `ELEVENLABS_API_KEY` is missing, it doesn't speak. If Deepgram fails during use, the app switches to the phone's speech recognition.
 

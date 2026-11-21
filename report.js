@@ -149,9 +149,13 @@ export function unlockAudio() {
 
 // Says `text` out loud with the proxy's ElevenLabs voice. Resolves when it has finished
 // (or right away if it can't play); never throws, because speaking is a nice extra.
+// English only: in any other language this does nothing (ElevenLabs is never called).
+export const SPEAK_LANGS = ['en'];
+export function canSpeak(lang) { return SPEAK_LANGS.includes(lang); }
+
 export async function speak(text, lang = 'en') {
   stopSpeaking();
-  if (!proxyUrl || !text || typeof Audio === 'undefined') return;
+  if (!proxyUrl || !text || !canSpeak(lang) || typeof Audio === 'undefined') return;
   try {
     const res = await fetch(`${proxyUrl}/speak`, {
       method: 'POST',

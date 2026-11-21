@@ -1,7 +1,7 @@
 // proxy/voice.js: the optional "voice bot" parts of the proxy.
 //
 //   Deepgram   (speech → text): the person's recording becomes the report text.
-//   ElevenLabs (text → speech): the app reads back what it filled in.
+//   ElevenLabs (text → speech): the app reads back what it filled in. ENGLISH ONLY.
 //
 // Both are OPTIONAL. Their keys are environment variables of the Worker (secrets, never in
 // the website or the repo):
@@ -14,7 +14,7 @@
 export const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen';
 export const DEEPGRAM_MODEL = 'nova-3'; // covers en, es, fr, zh, ja
 export const ELEVENLABS_URL = 'https://api.elevenlabs.io/v1/text-to-speech/';
-export const ELEVENLABS_MODEL = 'eleven_flash_v2_5'; // fast and cheap; speaks all 5 app languages
+export const ELEVENLABS_MODEL = 'eleven_flash_v2_5'; // fast and cheap (used for English only, see SPEAK_LANGS)
 export const DEFAULT_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'; // a premade voice from ElevenLabs' docs
 export const ELEVENLABS_FORMAT = 'mp3_22050_32'; // small MP3: fine for speech, quick on cell data
 
@@ -23,8 +23,9 @@ export const MAX_SPEAK_CHARS = 500;             // the read-back is a few short 
 
 // App language → Deepgram language code.
 const DEEPGRAM_LANGS = { en: 'en', es: 'es', fr: 'fr', zh: 'zh-CN', ja: 'ja' };
-// App language → ElevenLabs language code (ISO 639-1).
-const ELEVENLABS_LANGS = { en: 'en', es: 'es', fr: 'fr', zh: 'zh', ja: 'ja' };
+// The read-back is English only (BenStew's decision): other languages get no ElevenLabs
+// speech at all, and the app just shows the filled-in form, as it does without a key.
+export const SPEAK_LANGS = ['en'];
 
 // What the app can use, without revealing the keys: { listen: bool, speak: bool }.
 export function voiceCapabilities(env) {
@@ -63,7 +64,7 @@ export function buildElevenLabsRequest(env, text, lang) {
     model_id: ELEVENLABS_MODEL,
     apply_text_normalization: 'on', // say "10" as "ten" (Flash doesn't do it by default)
   };
-  if (ELEVENLABS_LANGS[lang]) body.language_code = ELEVENLABS_LANGS[lang];
+  if (SPEAK_LANGS.includes(lang)) body.language_code = lang;
   return {
     url: `${ELEVENLABS_URL}${encodeURIComponent(voice)}?output_format=${ELEVENLABS_FORMAT}`,
     init: {

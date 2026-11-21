@@ -230,7 +230,7 @@ The screen shows the draft as a filled-in form. Only after the person taps **Con
 **Optional voice bot** (same proxy, only if its keys are set; see `proxy/voice.js`):
 - `GET /voice` → `{ listen: bool, speak: bool }`. Both false → the app uses the phone's own speech recognition and doesn't speak (the behavior before the voice bot).
 - `POST /listen?lang=xx` with a recording (`audio/webm` or `audio/mp4`) → `{ text }` (Deepgram nova-3). The text then goes through `POST /` like typed text.
-- `POST /speak` `{ text, lang }` → MP3 (ElevenLabs Flash v2.5). The app reads back what it filled in and what it wasn't sure about. Speech never changes the form; the person still checks it and taps the button.
+- `POST /speak` `{ text, lang: 'en' }` → MP3 (ElevenLabs Flash v2.5). **English only**: other languages → `400 unsupported_language`, and the app never asks outside English. The app reads back what it filled in and what it wasn't sure about. Speech never changes the form; the person still checks it and taps the button.
 
 ## 6. Firebase shape (screen-only, here for reference)
 
