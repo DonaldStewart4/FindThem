@@ -1,12 +1,17 @@
 // app.js — runs the page: the map, the inputs, and drawing the results.
 //
 // The flow:
-//   1. Tap the map to set where the person was last seen (and any familiar places).
-//   2. Fill in minutes, direction and mobility.
-//   3. "Run search prediction": data.js loads the streets and creeks, the engine works
-//      out where the person probably is, and we draw a heatmap and a "Check these first" list.
+//   0–1. "First steps": call emergency services, then check the house (a checklist).
+//   2.   Tap the map to set where the person was last seen (and any familiar places),
+//        then fill in minutes, direction and mobility.
+//   3.   "Run search prediction": data.js loads the streets and creeks, the engine works
+//        out where the person probably is, and we draw a heatmap, colored streets,
+//        distance rings and a "Check these first" list.
+//   4–6. "Next areas to search" gives each searcher an area and a walking route. Marking an
+//        area searched, or reporting a sighting, adds an EVENT and the map is recomputed.
 //
-// All on-screen words come from i18n.js (t('key')). Don't type user-facing text here.
+// Every phone recomputes the same map from the same case + events (Screen C will share the
+// events between phones). All on-screen words come from i18n.js (t('key')).
 
 import * as data from './data.js';
 import * as i18n from './i18n.js';
@@ -32,20 +37,30 @@ const DEMO_CASE = {
 };
 
 const MAX_FAMILIAR = 3;
-const SPOTS_SHOWN_FIRST = 3; // the list shows 3, "Show more" reveals up to 8
+const SPOTS_SHOWN_FIRST = 3;          // the list shows 3, "Show more" reveals up to 8
 const SPOTS_MAX = 8;
-const HEAT_MAX_POINTS = 4000; // the most likely grid cells we draw in the heatmap
+const HEAT_MAX_POINTS = 4000;         // the most likely grid cells we draw in the heatmap
+const NEXT_AREAS = 3;                 // how many "next areas to search" we suggest
+const DEFAULT_SEARCH_MINUTES = 20;    // effort per searcher when ranking areas
+const RING_METERS = [804.672, 1609.344, 2414.016]; // 0.5, 1 and 1.5 miles
+// Streets used by more walkers get darker and thicker (5 steps, light to dark purple).
+const STREET_COLORS = ['#d9ccf0', '#b39ddb', '#8e6cc6', '#6a3fb0', '#3f1d8a'];
+const AREA_LETTERS = 'ABCDEFGH';
 
 // ---- What the user has entered ---------------------------------------------------
 
 const state = {
   lastSeen: null,          // { lat, lng }
   familiarPlaces: [],      // [{ lat, lng, label }]
-  mode: 'lastSeen',        // what the next map tap does: 'lastSeen', 'familiar', or null
+  mode: 'lastSeen',        // what the next map tap does: 'lastSeen', 'familiar', 'sighting', or null
   seed: newSeed(),         // a new random seed for each new search
+  events: [],              // 'searched' and 'sighting' events (see INTERFACES.md)
+  prediction: null,        // the engine's latest answer
   units: 'imperial',
   showAllSpots: false,
   lastSpots: [],
+  selectedArea: null,      // sector id the user opened in "Next areas"
+  sightingDraft: null,     // { lat, lng } while a sighting is being reported
 };
 
 // A random whole number for the engine's random-number generator.
@@ -53,6 +68,13 @@ function newSeed() {
   const a = new Uint32Array(1);
   crypto.getRandomValues(a);
   return a[0];
+}
+
+// A unique id for an event made on this phone. (In Screen C, Firebase gives the ids.)
+let eventCounter = 0;
+function newEventId() {
+  eventCounter += 1;
+  return `local-${Date.now()}-${eventCounter}`;
 }
 
 // Small helpers for remembering settings (language, units) on this phone.
@@ -70,6 +92,8 @@ const $ = (id) => document.getElementById(id);
 const els = {
   callLink: $('call-link'),
   callText: $('call-text'),
+  callButton: $('call-button'),
+  firstSteps: $('first-steps'),
   status: $('status'),
   panel: $('panel'),
   panelToggle: $('panel-toggle'),
@@ -77,6 +101,15 @@ const els = {
   fakeNote: $('fake-note'),
   spots: $('spots'),
   moreSpots: $('more-spots'),
+  reportSighting: $('report-sighting'),
+  sightingForm: $('sighting-form'),
+  sightingWhere: $('sighting-where'),
+  sightingMinutes: $('sighting-minutes'),
+  sightingDirection: $('sighting-direction'),
+  sightingNote: $('sighting-note'),
+  sightingSave: $('sighting-save'),
+  sightingCancel: $('sighting-cancel'),
+  areas: $('areas'),
   setLastSeen: $('set-last-seen'),
   lastSeenHelp: $('last-seen-help'),
   minutes: $('minutes'),
@@ -100,25 +133,31 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
-// Layers we draw on top of the tiles.
+// Layers we draw on top of the tiles (bottom to top).
 const layers = {
-  streets: L.layerGroup().addTo(map),   // thin street lines, so the map works without tiles
+  streets: L.layerGroup().addTo(map),   // thin grey street lines, so the map works without tiles
+  used: L.layerGroup().addTo(map),      // streets colored by how many walkers used them
   heat: null,                            // the heatmap (made after a run)
+  rings: L.layerGroup().addTo(map),     // dashed 0.5 / 1 / 1.5 mile rings
+  searched: L.layerGroup().addTo(map),  // grey squares over areas already searched
+  areas: L.layerGroup().addTo(map),     // blue squares for the next areas to search
+  route: L.layerGroup().addTo(map),     // the walking route of the selected area
   spots: L.layerGroup().addTo(map),     // numbered "check these first" markers
-  pins: L.layerGroup().addTo(map),      // last-seen point and familiar places
+  sightings: L.layerGroup().addTo(map), // reported sightings
+  pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft
 };
 
-// A numbered round marker (used for spots and familiar places).
-function numberIcon(text, extraClass = '') {
+// A small square or round marker with text in it.
+function labelIcon(text, className) {
   return L.divIcon({
     className: '',
-    html: `<div class="map-num ${extraClass}">${text}</div>`,
+    html: `<div class="${className}">${text}</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   });
 }
 
-// Redraws the last-seen pin and familiar places.
+// Redraws the last-seen pin, familiar places and the sighting being reported.
 function drawPins() {
   layers.pins.clearLayers();
   if (state.lastSeen) {
@@ -127,10 +166,13 @@ function drawPins() {
       .addTo(layers.pins);
   }
   state.familiarPlaces.forEach((place, i) => {
-    L.marker(place, { icon: numberIcon('★' + (i + 1), 'familiar'), keyboard: false })
+    L.marker(place, { icon: labelIcon('★' + (i + 1), 'map-num familiar'), keyboard: false })
       .bindTooltip(place.label || t('familiarDefault', { n: i + 1 }))
       .addTo(layers.pins);
   });
+  if (state.sightingDraft) {
+    L.marker(state.sightingDraft, { icon: labelIcon('!', 'map-sighting'), keyboard: false }).addTo(layers.pins);
+  }
 }
 
 // What a tap on the map does depends on the current mode.
@@ -138,7 +180,8 @@ map.on('click', (e) => {
   const point = { lat: e.latlng.lat, lng: e.latlng.lng };
   if (state.mode === 'lastSeen') {
     state.lastSeen = point;
-    state.seed = newSeed(); // a new case gets a new seed
+    state.seed = newSeed();   // a new case gets a new seed...
+    state.events = [];        // ...and starts with no searches or sightings
     setMode(null);
     showStatus(t('lastSeenSet'));
   } else if (state.mode === 'familiar') {
@@ -147,6 +190,10 @@ map.on('click', (e) => {
       renderFamiliarList();
     }
     setMode(null);
+  } else if (state.mode === 'sighting') {
+    state.sightingDraft = point;
+    els.sightingWhere.textContent = t('sightingPlaced');
+    showStatus(t('sightingPlaced'));
   }
   drawPins();
 });
@@ -155,9 +202,11 @@ function setMode(mode) {
   state.mode = mode;
   els.setLastSeen.setAttribute('aria-pressed', String(mode === 'lastSeen'));
   els.addFamiliar.setAttribute('aria-pressed', String(mode === 'familiar'));
+  els.reportSighting.setAttribute('aria-pressed', String(mode === 'sighting'));
   els.lastSeenHelp.hidden = mode !== 'lastSeen';
   if (mode === 'familiar') showStatus(t('tapFamiliar'));
   if (mode === 'lastSeen') showStatus(t('tapLastSeen'));
+  if (mode === 'sighting') showStatus(t('tapSighting'));
 }
 
 // ---- Status messages -------------------------------------------------------------
@@ -180,12 +229,13 @@ function hideStatus() {
 
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
-function buildDirectionOptions() {
-  const current = els.direction.value;
-  els.direction.innerHTML = '';
-  els.direction.append(new Option(t('dirUnknown'), ''));
-  for (const d of DIRECTIONS) els.direction.append(new Option(t('dir_' + d), d));
-  els.direction.value = current;
+// Fills a direction dropdown ("Unknown" + 8 compass directions) in the current language.
+function buildDirectionOptions(select) {
+  const current = select.value;
+  select.innerHTML = '';
+  select.append(new Option(t('dirUnknown'), ''));
+  for (const d of DIRECTIONS) select.append(new Option(t('dir_' + d), d));
+  select.value = current;
 }
 
 function buildLanguageOptions() {
@@ -279,20 +329,39 @@ async function runPrediction({ useDemoData = false } = {}) {
       drawStreets(loaded.osm);
     }
 
-    // 2. The engine works out where they may be.
+    // 2. The engine works out where they may be, and we draw it.
     showStatus(t('calculating'), { sticky: true });
     await nextFrame();
-    const prediction = engine.replay(areaCache.area, caseInput, []);
-
-    // 3. Draw it.
-    drawHeat(areaCache.area, prediction);
-    state.lastSpots = engine.topSpots(areaCache.area, prediction, SPOTS_MAX);
     state.showAllSpots = false;
-    renderSpots();
+    state.selectedArea = null;
+    recompute();
+    els.firstSteps.open = false; // first steps are done once a search is running
     hideStatus();
   } finally {
     setBusy(false);
   }
+}
+
+// Runs the engine on the current case + all events, then redraws every result.
+// Called after a run, after "searched", and after a sighting.
+function recompute() {
+  const caseInput = readCase();
+  state.prediction = engine.replay(areaCache.area, caseInput, state.events);
+  state.lastSpots = engine.topSpots(areaCache.area, state.prediction, SPOTS_MAX);
+  drawResults();
+}
+
+// Redraws everything that depends on the prediction (also used when language/units change).
+function drawResults() {
+  if (!state.prediction) return;
+  const area = areaCache.area;
+  drawUsedStreets(area, state.prediction);
+  drawHeat(area, state.prediction);
+  drawRings(state.lastSeen);
+  drawSearched(state.prediction);
+  drawSightings();
+  renderSpots();
+  renderAreas();
 }
 
 // ---- Drawing results ---------------------------------------------------------------
@@ -307,6 +376,25 @@ function drawStreets(osm) {
   }
 }
 
+// Streets colored light → dark by how many simulated walkers used them.
+// Uses a log scale, so a street with 10× more walkers is a few shades darker, not off the chart.
+function drawUsedStreets(area, prediction) {
+  layers.used.clearLayers();
+  const counts = prediction.sim.edgeCounts;
+  const max = counts.reduce((m, c) => (c > m ? c : m), 0);
+  if (max === 0) return;
+  const { nodes, edges } = area.graph;
+  counts.forEach((count, i) => {
+    if (count === 0) return;
+    const step = Math.min(STREET_COLORS.length - 1, Math.floor((Math.log(count + 1) / Math.log(max + 1)) * STREET_COLORS.length));
+    const a = nodes[edges[i].a];
+    const b = nodes[edges[i].b];
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+      color: STREET_COLORS[step], weight: 2 + step, opacity: 0.9, interactive: false,
+    }).addTo(layers.used);
+  });
+}
+
 // The heatmap: the most likely grid cells, brighter where the probability is higher.
 function drawHeat(area, prediction) {
   const { p } = prediction.grid;
@@ -319,6 +407,39 @@ function drawHeat(area, prediction) {
   if (layers.heat) map.removeLayer(layers.heat);
   // Neighboring points add up, so `max` is set above 1; otherwise everything turns red.
   layers.heat = L.heatLayer(points, { radius: 18, blur: 16, maxZoom: 16, max: 3, minOpacity: 0.2 }).addTo(map);
+}
+
+// Dashed rings at 0.5, 1 and 1.5 miles, each labeled in the chosen units.
+function drawRings(center) {
+  layers.rings.clearLayers();
+  for (const r of RING_METERS) {
+    L.circle(center, { radius: r, color: '#111', weight: 2, dashArray: '6 8', fill: false, interactive: false }).addTo(layers.rings);
+    const top = { lat: center.lat + r / 111320, lng: center.lng }; // the ring's northern edge
+    L.tooltip({ permanent: true, direction: 'center', className: 'ring-label' })
+      .setLatLng(top)
+      .setContent(i18n.formatDistance(r, state.units))
+      .addTo(layers.rings);
+  }
+}
+
+// Grey squares over areas that have been searched.
+function drawSearched(prediction) {
+  layers.searched.clearLayers();
+  for (const s of prediction.grid.sectors) {
+    if (!s.searchedMinutes) continue;
+    L.rectangle(s.bounds, { color: '#555', weight: 1, fillColor: '#777', fillOpacity: 0.35, interactive: false })
+      .addTo(layers.searched);
+  }
+}
+
+// Orange "!" markers for reported sightings.
+function drawSightings() {
+  layers.sightings.clearLayers();
+  for (const ev of state.events) {
+    if (ev.type !== 'sighting') continue;
+    const text = ev.note ? `${t('sightingMarker')}: ${ev.note}` : t('sightingMarker');
+    L.marker([ev.lat, ev.lng], { icon: labelIcon('!', 'map-sighting') }).bindTooltip(text).addTo(layers.sightings);
+  }
 }
 
 // One line of text for a spot, e.g. "Creek 130 ft off Main St".
@@ -370,7 +491,7 @@ function renderSpots() {
     li.append(button);
     els.spots.append(li);
 
-    L.marker([spot.lat, spot.lng], { icon: numberIcon(i + 1) })
+    L.marker([spot.lat, spot.lng], { icon: labelIcon(i + 1, 'map-num') })
       .bindTooltip(spotTitle(spot))
       .addTo(layers.spots);
   });
@@ -380,15 +501,159 @@ function renderSpots() {
   els.moreSpots.textContent = state.showAllSpots ? t('showLess') : t('showMore', { n: hiddenCount });
 }
 
+// ---- Next areas to search -------------------------------------------------------------
+
+// Lists the engine's best areas (A, B, C) with their walking routes. Opening one shows
+// its route on the map and a "Searched, nobody found" button.
+function renderAreas() {
+  const area = areaCache.area;
+  const prediction = state.prediction;
+  const next = engine.nextSectors(prediction, DEFAULT_SEARCH_MINUTES, NEXT_AREAS);
+  if (!next.some((n) => n.sectorId === state.selectedArea)) state.selectedArea = null;
+
+  els.areas.innerHTML = '';
+  layers.areas.clearLayers();
+  layers.route.clearLayers();
+
+  next.forEach((choice, i) => {
+    const letter = AREA_LETTERS[i];
+    const sector = prediction.grid.sectors.find((s) => s.id === choice.sectorId);
+    const route = engine.routeFor(area, prediction, choice.sectorId);
+    const selected = state.selectedArea === choice.sectorId;
+
+    // On the map: a blue square with its letter.
+    L.rectangle(sector.bounds, {
+      color: '#0b57d0', weight: selected ? 4 : 2, dashArray: selected ? null : '4 6', fill: false, interactive: false,
+    }).addTo(layers.areas);
+    L.marker([sector.bounds[1][0], sector.bounds[0][1]], { icon: labelIcon(letter, 'map-letter'), keyboard: false })
+      .addTo(layers.areas);
+    if (selected && route.points.length) {
+      L.polyline(route.points.map((p) => [p.lat, p.lng]), { color: '#0b57d0', weight: 6, opacity: 0.85 }).addTo(layers.route);
+    }
+
+    // In the list.
+    const li = document.createElement('li');
+    li.classList.toggle('selected', selected);
+
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'area-head';
+    head.setAttribute('aria-expanded', String(selected));
+    const badge = document.createElement('span');
+    badge.className = 'area-letter';
+    badge.textContent = letter;
+    const text = document.createElement('span');
+    text.className = 'spot-text';
+    const title = document.createElement('strong');
+    title.textContent = t('areaLabel', { n: letter });
+    const chance = document.createElement('span');
+    chance.className = 'spot-share';
+    chance.textContent = t('areaChance', { pct: i18n.formatPercent(sector.probability) });
+    const routeLine = document.createElement('span');
+    routeLine.className = route.points.length ? 'spot-share' : 'spot-hazard';
+    routeLine.textContent = route.points.length
+      ? ' · ' + t('routeInfo', { dist: i18n.formatDistance(route.lengthM, state.units), min: Math.round(route.minutes) })
+      : t('noRoute');
+    text.append(title, chance, routeLine);
+    if (sector.searchedMinutes) {
+      const done = document.createElement('span');
+      done.className = 'area-searched';
+      done.textContent = t('searchedMinutes', { min: sector.searchedMinutes });
+      text.append(done);
+    }
+    head.append(badge, text);
+    head.addEventListener('click', () => {
+      state.selectedArea = selected ? null : choice.sectorId;
+      renderAreas();
+      if (!selected) map.flyToBounds(sector.bounds, { padding: [30, 30], maxZoom: 17 });
+    });
+    li.append(head);
+
+    if (selected) {
+      const body = document.createElement('div');
+      body.className = 'area-body';
+      const id = `minutes-${choice.sectorId}`;
+      const label = document.createElement('label');
+      label.htmlFor = id;
+      label.textContent = t('minutesSpent');
+      const input = document.createElement('input');
+      input.id = id;
+      input.type = 'number';
+      input.inputMode = 'numeric';
+      input.min = '1';
+      input.value = String(Math.max(1, Math.round(route.minutes || DEFAULT_SEARCH_MINUTES)));
+      const done = document.createElement('button');
+      done.type = 'button';
+      done.className = 'big primary';
+      done.textContent = t('markSearched');
+      done.addEventListener('click', () => markSearched(choice.sectorId, Number(input.value)));
+      body.append(label, input, done);
+      li.append(body);
+    }
+
+    els.areas.append(li);
+  });
+}
+
+// Adds a "searched, nobody found" event and recomputes the map.
+function markSearched(sectorId, minutes) {
+  if (!(minutes > 0)) return;
+  state.events.push({ id: newEventId(), type: 'searched', sectorId, minutes, by: '', at: Date.now() });
+  state.selectedArea = null;
+  recompute();
+  showStatus(t('searchedDone'));
+}
+
+// ---- Sightings --------------------------------------------------------------------------
+
+function openSightingForm() {
+  if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
+  state.sightingDraft = null;
+  els.sightingWhere.textContent = t('tapSighting');
+  els.sightingMinutes.value = '0';
+  els.sightingDirection.value = '';
+  els.sightingNote.value = '';
+  els.sightingForm.hidden = false;
+  setMode('sighting');
+}
+
+function closeSightingForm() {
+  state.sightingDraft = null;
+  els.sightingForm.hidden = true;
+  setMode(null);
+  drawPins();
+}
+
+function saveSighting() {
+  if (!state.sightingDraft) { showStatus(t('needSightingPlace'), { error: true }); return; }
+  state.events.push({
+    id: newEventId(),
+    type: 'sighting',
+    lat: state.sightingDraft.lat,
+    lng: state.sightingDraft.lng,
+    direction: els.sightingDirection.value || null,
+    minutesSince: Math.max(0, Number(els.sightingMinutes.value) || 0),
+    reliability: Number(document.querySelector('input[name="sure"]:checked').value),
+    note: els.sightingNote.value.trim(),
+    at: Date.now(),
+  });
+  closeSightingForm();
+  recompute();
+  showStatus(t('sightingAdded'));
+}
+
 // ---- Demo ---------------------------------------------------------------------------
 
 async function runDemo() {
   state.lastSeen = { ...DEMO_CASE.lastSeen };
   state.familiarPlaces = DEMO_CASE.familiarPlaces.map((p) => ({ ...p }));
   state.seed = DEMO_CASE.seed;
+  state.events = [];
   els.minutes.value = DEMO_CASE.minutes;
   els.direction.value = DEMO_CASE.direction;
   setMobility(DEMO_CASE.mobility);
+  els.sightingForm.hidden = true;
+  state.sightingDraft = null;
   setMode(null);
   renderFamiliarList();
   drawPins();
@@ -402,11 +667,14 @@ function applyLanguage(code) {
   i18n.setLanguage(code);
   remember('lang', code);
   i18n.applyTranslations();
-  buildDirectionOptions();
+  buildDirectionOptions(els.direction);
+  buildDirectionOptions(els.sightingDirection);
   renderFamiliarList();
   els.callText.textContent = t('callFirst', { number: state.emergencyNumber });
+  els.callButton.textContent = t('call911Title', { number: state.emergencyNumber });
   els.panelToggle.textContent = els.panel.classList.contains('collapsed') ? t('showPanel') : t('hidePanel');
-  if (state.lastSpots.length) renderSpots();
+  if (state.sightingDraft) els.sightingWhere.textContent = t('sightingPlaced');
+  drawResults();
   drawPins();
 }
 
@@ -414,7 +682,7 @@ function applyUnits(units) {
   state.units = units;
   remember('units', units);
   els.units.textContent = units === 'imperial' ? 'mi' : 'km';
-  if (state.lastSpots.length) renderSpots();
+  drawResults();
 }
 
 // ---- Start-up -------------------------------------------------------------------------
@@ -423,6 +691,7 @@ function start() {
   const region = i18n.detectRegion();
   state.emergencyNumber = i18n.emergencyNumber(region);
   els.callLink.href = 'tel:' + state.emergencyNumber;
+  els.callButton.href = 'tel:' + state.emergencyNumber;
 
   i18n.setLanguage(recall('lang') || i18n.detectLanguage());
   buildLanguageOptions();
@@ -439,6 +708,9 @@ function start() {
   els.language.addEventListener('change', () => applyLanguage(els.language.value));
   els.units.addEventListener('click', () => applyUnits(state.units === 'imperial' ? 'metric' : 'imperial'));
   els.moreSpots.addEventListener('click', () => { state.showAllSpots = !state.showAllSpots; renderSpots(); });
+  els.reportSighting.addEventListener('click', () => (state.mode === 'sighting' ? closeSightingForm() : openSightingForm()));
+  els.sightingSave.addEventListener('click', saveSighting);
+  els.sightingCancel.addEventListener('click', closeSightingForm);
   els.panelToggle.addEventListener('click', () => {
     const collapsed = els.panel.classList.toggle('collapsed');
     els.panelToggle.setAttribute('aria-expanded', String(!collapsed));

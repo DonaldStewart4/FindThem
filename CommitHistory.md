@@ -59,6 +59,45 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Screen B: first steps, rings, colored streets, next areas with routes, sightings
+
+- **Date:** 2026-11-21
+- **Stage:** Screen B (BenStew)
+- **What changed:**
+  - `index.html`:
+    - **First steps** (`<details>`, open until the first run): a big tap-to-call button with the local number, a 6-point "tell the dispatcher" script, and a 7-item house-and-yard checklist that turns green and strikes through when checked.
+    - In the results: a **Report a sighting** button and form (tap the map; minutes ago; direction; how sure: maybe/probably/sure = 0.3/0.6/0.9; note).
+    - **Next areas to search** list.
+  - `app.js` (rewritten around one `recompute()`):
+    - Every run, "searched" and sighting calls `engine.replay(area, case, state.events)`, then `drawResults()`.
+    - New layers: streets colored by `edgeCounts` (5 purple steps, log scale), dashed rings at 0.5/1/1.5 mi with unit-aware labels, gray squares over searched sectors, orange "!" markers for sightings.
+    - **Next areas:** `nextSectors(…, 20 min, 3)` shown as A/B/C squares on the map and in the list, with chance, route length and minutes from `routeFor`. Opening one draws its route and offers "Searched, nobody found" with minutes (defaults to the route's minutes). That adds a `searched` event.
+    - Events get local ids (`local-<time>-<n>`); Screen C will use Firebase push ids. A new last-seen point or Demo clears the events. First steps collapse after a run.
+  - `engine/fake.js` (still fake):
+    - builds a bare node/edge list from `osm.ways` so colored streets can be drawn and tested
+    - edge counts = walkers that stopped within ~75 m
+    - sightings blend in a 250 m Gaussian blob weighted by reliability
+  - `i18n.js`: 46 new strings in all 5 languages. `missingKeys()` is still `{}`.
+  - `style.css`: styles for the new sections, plus **`pointer-events: none` on the status message**.
+- **Why:** Screen B in `PLAN.md`.
+- **Decisions:**
+  - **Status message lets taps through.** Testing found the bottom-of-map message ("Tap the map where they were seen") swallowed the very tap it asked for. It now has `pointer-events: none`.
+  - **Area letters vs. spot numbers.** Areas use letters on blue squares so they can't be confused with the numbered red "Check these first" spots.
+  - **Search effort:** areas are ranked for 20 searcher-minutes (`DEFAULT_SEARCH_MINUTES`); the minutes typed when marking searched go into the event.
+  - **No names yet:** `searched` events carry `by: ''` until Screen C adds names and sharing.
+  - **Layer order** (bottom → top): streets, colored streets, heatmap, rings, searched, areas, route, spots, sightings, pins.
+- **How it was verified:** built-in browser at 375×812, Demo case.
+  - Demo in 0.88 s: first steps collapse; A/B/C areas with "9% chance they are here · Walking route: 800 m, about 15 min"; rings labeled 800 m / 1.6 km / 2.4 km (metric was on); rings visible when zoomed out.
+  - Opening Area A draws its route. Marking it searched shows "Marked as searched…" and re-ranks the areas: the searched one drops out, the others move up.
+  - Sighting: the tap lands (after the pointer-events fix); saving with "sure" moves the top spots near the sighting, adds the "!" marker with the note, and closes the form.
+  - Chinese strings render. No console errors. Fake `replay` with 2 events on the Fremont data: 34 ms.
+- **Known issues / not done:**
+  - **Everything shown comes from the fake engine:** square routes (always 800 m / 15 min), streets colored only near endpoints, "searched" halves a sector, and the sighting is a blob. Jev's engine replaces all of it.
+  - Events live only in this phone's memory; Screen C syncs them.
+  - The house checklist isn't saved, so a reload clears it.
+  - The live Overpass path is still untested in the browser.
+- **Next:** Screen C: Firebase sync (two phones, one map), share/join links with names, message feed, police hand-off sheet.
+
 ### Screen A: map, inputs, 5 languages, data loading, fake engine, Fremont demo
 
 - **Date:** 2026-11-21

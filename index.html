@@ -32,6 +32,32 @@
     <button id="panel-toggle" class="panel-handle" type="button" aria-expanded="true" data-i18n="hidePanel"></button>
 
     <div id="panel-body">
+      <!-- Step 0 and 1: call emergency services, then check the house. Collapses once a search runs. -->
+      <details id="first-steps" open>
+        <summary data-i18n="firstSteps"></summary>
+        <a id="call-button" class="call-button" href="tel:911"></a>
+        <p data-i18n="call911Tell"></p>
+        <ul class="script">
+          <li data-i18n="script_dementia"></li>
+          <li data-i18n="script_who"></li>
+          <li data-i18n="script_clothes"></li>
+          <li data-i18n="script_lastSeen"></li>
+          <li data-i18n="script_medical"></li>
+          <li data-i18n="script_phone"></li>
+        </ul>
+        <h3 data-i18n="houseTitle"></h3>
+        <p class="help" data-i18n="houseHint"></p>
+        <ul class="checklist">
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_closets"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_beds"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_bathrooms"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_garage"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_cars"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_yard"></span></label></li>
+          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_neighbors"></span></label></li>
+        </ul>
+      </details>
+
       <!-- Results: hidden until the first run. -->
       <div id="results" hidden>
         <h2 data-i18n="checkFirst"></h2>
@@ -39,6 +65,31 @@
         <ol id="spots"></ol>
         <button id="more-spots" class="link-button" type="button" hidden></button>
         <p class="note" data-i18n="guideNote"></p>
+
+        <!-- Sighting: tap the map, fill in the form, and the map updates. -->
+        <button id="report-sighting" class="big" type="button" aria-pressed="false" data-i18n="sightingStart"></button>
+        <div id="sighting-form" class="sub-form" hidden>
+          <p id="sighting-where" class="help" data-i18n="tapSighting"></p>
+          <label for="sighting-minutes" data-i18n="sightingMinutes"></label>
+          <input id="sighting-minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" value="0">
+          <label for="sighting-direction" data-i18n="sightingDirection"></label>
+          <select id="sighting-direction"></select>
+          <fieldset>
+            <legend data-i18n="sightingSure"></legend>
+            <label class="choice"><input type="radio" name="sure" value="0.3"> <span data-i18n="sure_low"></span></label>
+            <label class="choice"><input type="radio" name="sure" value="0.6" checked> <span data-i18n="sure_mid"></span></label>
+            <label class="choice"><input type="radio" name="sure" value="0.9"> <span data-i18n="sure_high"></span></label>
+          </fieldset>
+          <label for="sighting-note" data-i18n="sightingNote"></label>
+          <input id="sighting-note" type="text" maxlength="200">
+          <button id="sighting-save" class="big primary" type="button" data-i18n="sightingSave"></button>
+          <button id="sighting-cancel" class="big" type="button" data-i18n="cancel"></button>
+        </div>
+
+        <!-- Next areas: sectors chosen by the engine, each with a walking route. -->
+        <h2 data-i18n="nextAreasTitle"></h2>
+        <p class="help" data-i18n="nextAreasHint"></p>
+        <ol id="areas"></ol>
       </div>
 
       <h2 data-i18n="lastSeenTitle"></h2>

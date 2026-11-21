@@ -47,8 +47,47 @@ function toLatLng(origin, x, y) {
 // ---- exports (same names as the real engine) ----
 
 export function prepareArea(osm) {
-  // The fake doesn't build a street graph; app.js draws streets straight from osm.ways.
-  return { origin: osm.center, graph: { nodes: [], edges: [] }, traps: osm.features, _osm: osm };
+  // A bare-bones street list so the screen can test drawing colored streets.
+  // (The real graph.js does this properly: bearings, nearest node, trap index...)
+  const origin = osm.center;
+  const indexById = new Map();
+  const nodes = osm.nodes.map((n, i) => {
+    indexById.set(n.id, i);
+    return { id: n.id, lat: n.lat, lng: n.lng, ...toXY(origin, n.lat, n.lng), edges: [] };
+  });
+  const edges = [];
+  for (const w of osm.ways) {
+    for (let k = 1; k < w.nodeIds.length; k++) {
+      const a = indexById.get(w.nodeIds[k - 1]);
+      const b = indexById.get(w.nodeIds[k]);
+      if (a === undefined || b === undefined) continue;
+      const length = Math.hypot(nodes[b].x - nodes[a].x, nodes[b].y - nodes[a].y);
+      nodes[a].edges.push(edges.length);
+      nodes[b].edges.push(edges.length);
+      edges.push({ a, b, length, bearingAB: 0, wayId: w.id, name: w.name });
+    }
+  }
+  // Bucket edge midpoints into 50 m squares, to find streets near a point quickly.
+  const buckets = new Map();
+  edges.forEach((e, i) => {
+    const x = (nodes[e.a].x + nodes[e.b].x) / 2;
+    const y = (nodes[e.a].y + nodes[e.b].y) / 2;
+    const key = `${Math.floor(x / 50)},${Math.floor(y / 50)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(i);
+  });
+  return { origin, graph: { nodes, edges }, traps: osm.features, _osm: osm, _buckets: buckets };
+}
+
+// Edges whose midpoint is within ~75 m of (x, y).
+function edgesNear(area, x, y) {
+  const out = [];
+  const bx = Math.floor(x / 50);
+  const by = Math.floor(y / 50);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) out.push(...(area._buckets.get(`${bx + dx},${by + dy}`) || []));
+  }
+  return out;
 }
 
 export function replay(area, caseInput, events) {
@@ -83,6 +122,23 @@ export function replay(area, caseInput, events) {
   let p = new Float64Array(cols * rows).fill(1e-6);
   for (let i = 0; i < p.length; i++) p[i] += counts[i];
 
+  // Fake sighting update: blend in a blob around each sighting. (The real one reruns walkers.)
+  for (const ev of events || []) {
+    if (ev.type !== 'sighting') continue;
+    const s = toXY(origin, ev.lat, ev.lng);
+    const blob = new Float64Array(cols * rows);
+    let blobTotal = 0;
+    for (let i = 0; i < blob.length; i++) {
+      const cx = (i % cols + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+      const cy = (Math.floor(i / cols) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+      blob[i] = Math.exp(-((cx - s.x) ** 2 + (cy - s.y) ** 2) / (2 * 250 ** 2));
+      blobTotal += blob[i];
+    }
+    const pTotal = p.reduce((sum, v) => sum + v, 0);
+    const r = ev.reliability;
+    for (let i = 0; i < p.length; i++) p[i] = (1 - r) * (p[i] / pTotal) + r * (blob[i] / blobTotal);
+  }
+
   // Fake "searched" update: halve the sector. (The real one uses Bayes + detection.)
   const searchedMinutes = {};
   for (const ev of events || []) {
@@ -115,8 +171,15 @@ export function replay(area, caseInput, events) {
     }
   }
 
+  // Fake edge counts: each walker "used" the streets near where it stopped.
+  const edgeCounts = new Array(area.graph.edges.length).fill(0);
+  for (const e of endpoints) {
+    const { x, y } = toXY(origin, e.lat, e.lng);
+    for (const i of edgesNear(area, x, y)) edgeCounts[i] += 1;
+  }
+
   return {
-    sim: { nWalkers: N_WALKERS, endpoints, edgeCounts: [] },
+    sim: { nWalkers: N_WALKERS, endpoints, edgeCounts },
     grid: { cellSize: CELL_SIZE_M, cols, rows, p, sectors },
   };
 }
