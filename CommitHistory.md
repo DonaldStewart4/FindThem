@@ -59,6 +59,57 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Screen A: map, inputs, 5 languages, data loading, fake engine, Fremont demo
+
+- **Date:** 2026-11-21
+- **Stage:** Screen A (BenStew)
+- **What changed:**
+  - `index.html`, `style.css`: phone-first layout.
+    - Emergency banner: tap-to-call, can't be closed.
+    - Full-height map.
+    - Bottom panel: last-seen button, minutes, direction, mobility (big radio rows), up to 3 named familiar places, Run, Demo, language picker, mi/km button.
+    - "Check these first" results with the "guide, not a guarantee" note.
+    - On wide screens the panel moves to the left.
+  - `app.js`:
+    - map with OSM tiles; tap modes for the last-seen point and familiar places
+    - builds the `CaseInput` from `INTERFACES.md`; loads the area, then `prepareArea` → `replay` → draws gray street lines, a heatmap from `grid.p`, and the top 8 spots (3 shown, "Show more")
+    - tapping a spot flies to it; language and units are remembered in `localStorage`
+    - `DEMO_LOCATION` / `DEMO_CASE` are at the top
+  - `i18n.js`:
+    - every UI string in en/es/fr/zh/ja; `t()`, `applyTranslations()`
+    - region detection → emergency number table (default 911) and units (US/LR/MM imperial)
+    - `formatDistance`, `formatPercent`, `formatDateTime`, `missingKeys()`
+  - `data.js`:
+    - Overpass query (walkable ways + trap features, `out body geom`), `parseOverpass` → `OsmData`
+    - skips `waterway=pressurised` and culverts
+    - retries across 3 Overpass servers with backoff (3 s, 6 s, 12 s…)
+    - IndexedDB cache keyed by the point rounded to 3 decimals; `loadBundledArea` for the demo
+  - `engine/fake.js`: dev-only stand-in with the `INTERFACES.md` exports. Walkers scatter in straight lines and ignore streets; "searched" just halves a sector. It exports `IS_FAKE`, so the UI shows a "practice results" note. **Delete it at integration** and switch the import in `app.js` to `./engine/index.js`.
+  - `tests/fixtures/demo-area.json` (3.0 MB, 0.6 MB gzipped): real Fremont `OsmData`, 3.2 km around 37.5530, −121.9700. It has 33,059 nodes, 7,695 ways and 228 features (83 creeks, 18 water, 6 wetland, 2 river, 4 woods, 2 brush, 84 grass, 29 parks). It serves as both the Demo data and the engine test fixture.
+  - `tools/make-fixture.js`: rebuilds that fixture (download, or from a saved Overpass answer).
+  - `lib/`: Leaflet 1.9.4 (`leaflet.js`, `leaflet.css`) and Leaflet.heat 0.2.0 (`leaflet-heat.js`), from unpkg.
+  - `package.json`: `{"type": "module"}` + `npm test` → `node --test`, with no dependencies.
+- **Why:** Screen A in `PLAN.md`: give the screen something real to show before Jev's engine exists.
+- **Decisions:**
+  - **Demo uses bundled data.** Both public Overpass servers answered "at capacity" (502/504) for about 20 minutes during this build, so the Demo button loads the bundled Fremont file instead of downloading. The demo then works for judges no matter what Overpass is doing.
+  - **Demo case:** last seen on Placer Way / Tehama Avenue (37.5405, −121.9795), a residential street with a drainage creek ~100 m away. 45 min, heading NE, slow walker, familiar place Lake Elizabeth (37.5485, −121.9630), seed 20261121. The map opens at the fixture center near Central Park.
+  - **Streets are drawn from `osm.ways`, not `area.graph`.** The fake engine doesn't build a graph, so it doesn't duplicate Jev's work. Colored-by-use streets (Screen B) will use the real graph's `edgeCounts`.
+  - **Heatmap:** the top 4,000 cells, weight = p / max p, `max: 3`. With `max: 1` it saturated into one red blob; with `max: 6` nothing reached red.
+  - **No separate page code for the fixture:** the fixture lives under `tests/` (the path in `INTERFACES.md`) and the website loads it from there too, rather than keeping two copies.
+  - `.claude/launch.json` (dev server config) is not committed; the repo owner's global git ignore excludes `.claude/`.
+- **How it was verified:**
+  - Built-in browser at 375×812. Banner, tap modes, inputs, adding/removing familiar places, and switching en → es → ja all worked with no console errors. `missingKeys()` returns `{}`.
+  - Demo: results in 0.41 s. Spot text such as "Creek 50 ft off Ralston Common – 9% of walkers" with the hazard line; tapping a spot zooms to it; mi/km switches ("10 m"); "Show 5 more" shows 8.
+  - The fake engine on its own: `replay` 12 ms, `grid.p` sums to 1.
+  - `node --check` on every JS file.
+- **Known issues / not done:**
+  - **The live download path (a last-seen point outside the demo area) wasn't tested in the browser**, because Overpass was at capacity. The same code worked from Node once a server came back (6.3 MB in 49.5 s), so a real search can take close to a minute on a busy day.
+  - Fake-engine spot text can be wrong (e.g., the creek distance is really the spot-to-street distance). The real engine replaces it.
+  - The Overpass query skips relations (multipolygon parks and lakes), so some large parks or lakes may be missing.
+  - The translations are AI-written and unchecked by native speakers.
+  - No service worker yet (Screen E), so nothing works offline.
+- **Next:** pause for BenStew's check. Then Screen B: colored streets, rings, sectors + routes UI, 911 script + house checklist, sighting form.
+
 ### Merge the team's planning doc: team roles, routes, messaging, report box, Fremont
 
 - **Date:** 2026-11-21
