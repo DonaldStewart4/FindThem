@@ -74,8 +74,30 @@ export async function addEvent(searchId, event) {
 }
 
 // Sends everything in the queue, oldest first. Stops at the first failure.
-export async function flushQueue() {
-  if (!isConfigured()) return { queued: pendingCount() > 0, error: 'no-db-url' };
+// Only ONE send runs at a time: if a second event arrives while a send is running, the running
+// one picks it up too. (Two sends at once both sent the first item, so it reached the
+// database twice. Found testing with real Firebase.)
+let flushing = null;
+let flushAgain = false;
+
+export function flushQueue() {
+  if (!isConfigured()) return Promise.resolve({ queued: pendingCount() > 0, error: 'no-db-url' });
+  if (flushing) {
+    flushAgain = true;
+    return flushing;
+  }
+  flushing = (async () => {
+    let result;
+    do {
+      flushAgain = false;
+      result = await flushOnce();
+    } while (flushAgain && result.ok);
+    return result;
+  })().finally(() => { flushing = null; });
+  return flushing;
+}
+
+async function flushOnce() {
   const queue = readQueue();
   while (queue.length) {
     const { searchId, event } = queue[0];
@@ -89,8 +111,12 @@ export async function flushQueue() {
     } catch {
       return { queued: true, error: 'offline' };
     }
-    queue.shift(); // sent or refused: either way it leaves the queue
-    writeQueue(queue);
+    // Remove what we just sent. Re-read first: new events may have been added meanwhile.
+    const now = readQueue();
+    const i = now.findIndex((q) => q.searchId === searchId && JSON.stringify(q.event) === JSON.stringify(event));
+    if (i >= 0) now.splice(i, 1);
+    writeQueue(now);
+    queue.splice(0, queue.length, ...now);
     if (!res.ok) return { ok: false, error: 'rejected', status: res.status };
   }
   return { ok: true };

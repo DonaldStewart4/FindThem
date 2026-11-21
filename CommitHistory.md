@@ -42,7 +42,7 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - plain HTML/CSS/vanilla JS, no frameworks, no build step
   - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
-  - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback
+  - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback. **Live at `https://findthem-f4e5c-default-rtdb.firebaseio.com` since 2026-11-21**, with the rules from `firebase-rules.json` published.
   - a Cloudflare Worker holding the Jev (TypeSafe) key for the report box; no FastAPI or other server
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
@@ -58,6 +58,33 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Live sharing on real Firebase; fix duplicate events and stale offline copies
+
+- **Date:** 2026-11-21
+- **Stage:** Hosting (BenStew) + fixes found testing on real Firebase
+- **What changed:**
+  - `config.js`: `FIREBASE_DB_URL` = `https://findthem-f4e5c-default-rtdb.firebaseio.com`. BenStew created the project (`findthem-f4e5c`, Spark free plan) and a Realtime Database in locked mode, and published `firebase-rules.json`.
+  - **`sync.js`: only one send runs at a time** (`flushQueue` with a lock that loops while new events arrive), and the queue is re-read after each send before removing the sent item.
+    - Bug: Nathan-test marked an area searched and sent a message right after. Two overlapping flushes both POSTed the first queued event, so the "searched" event was stored **twice**, which double-counted the search (the detection estimate went from 66% to 88%).
+  - **`app.js`: `currentEvents()` drops duplicate events with the same `cid`** (keeping the first), so duplicates already in the database, or from two tabs on one phone sharing `localStorage`, can't skew the map or the police sheet.
+  - `app.js`: a `storage` event listener refreshes the "updates waiting for signal" count when another tab changes the queue.
+  - **`sw.js`: install saves files with `{ cache: 'reload' }` and background refresh uses `{ cache: 'no-cache' }`.**
+    - Bug: the new worker (v8) pre-cached a **stale `app.js` from the browser's HTTP cache**, so the fix didn't show up even after reloads. GitHub Pages lets browsers cache files for 10 minutes, so this would also have hit real users after an update. `CACHE_VERSION` → v9.
+  - `tests/sync.test.js`: a new test, "two events sent at the same moment each reach the database exactly once" (slow fake fetch, two overlapping `addEvent`s).
+  - `README.md`: status says live sharing runs on real Firebase.
+  - This file: the "Project context" tech bullet has the live database URL; this entry.
+- **Why:** BenStew finished the Firebase setup and sent the database URL.
+- **How it was verified:**
+  - **Rules check with curl against the live database (8 checks, all as intended):** listing `searches` denied; writing outside `searches` denied; a non-32-hex search id denied; creating a case with a proper id allowed; overwriting that case denied; adding an event allowed; an event with a made-up type denied; reading a search by its id allowed.
+  - **Two tabs in the built-in browser, no `?db=` override:** tab A ran the Demo and shared ("Shared live…"); tab B opened the link, marked Area A searched and sent a message. Tab A showed the same re-ranked areas (23% / 10% / 7%) and "Nathan (test): Test message through real Firebase" within ~2 s.
+  - After the fixes, reloading tab A on the same search: the police sheet lists the search **once** (66%), even though Firebase still holds the duplicate.
+  - `node --test`: **48/48 pass**.
+- **Known issues / not done:**
+  - **Test data in the live database:** two searches (the curl rules check `04c57dda…`, the browser test `1a80f9aa…`), including the duplicate event. The rules don't allow deleting from the app; BenStew can delete them in the Firebase console (Data tab) if wanted.
+  - Not yet tested on two real phones.
+  - The Jev proxy isn't deployed; the repo isn't public; GitHub Pages is off.
+- **Next:** TypeSafe key + Cloudflare deploy for Jev; make the repo public and turn on GitHub Pages; test on two phones; video; Devpost.
 
 ### Benchmark: 1,000 simulated searches, FindThem vs. volunteers on their own vs. ring sweep
 

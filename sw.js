@@ -1,6 +1,6 @@
 // sw.js: the service worker. It lets FindThem open and work with no signal.
 // Bump CACHE_VERSION whenever any app file changes, so phones fetch the new copies.
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v9';
 const SHELL_CACHE = 'findthem-shell-' + CACHE_VERSION;
 const TILE_CACHE = 'findthem-tiles'; // kept across versions; tiles don't change with our code
 const MAX_TILES = 2000;              // oldest tiles are deleted past this many
@@ -17,11 +17,13 @@ const SHELL_FILES = [
 
 // Install: save the shell. Files are added one by one so a missing file
 // (for example one still being written) doesn't stop the rest from caching.
+// { cache: 'reload' } skips the browser's HTTP cache, so a new version never saves stale copies
+// (GitHub Pages lets browsers keep files for 10 minutes).
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) =>
       Promise.all(SHELL_FILES.map((url) =>
-        cache.add(url).catch(() => console.warn('sw: skipped', url))
+        cache.add(new Request(url, { cache: 'reload' })).catch(() => console.warn('sw: skipped', url))
       ))
     ).then(() => self.skipWaiting())
   );
@@ -67,7 +69,7 @@ self.addEventListener('fetch', (event) => {
 async function cacheFirstWithUpdate(event, req) {
   const cache = await caches.open(SHELL_CACHE);
   const cached = await cache.match(req, { ignoreSearch: true });
-  const network = fetch(req).then((res) => {
+  const network = fetch(req, { cache: 'no-cache' }).then((res) => { // ask the server if it changed
     if (res && res.ok) cache.put(req, res.clone());
     return res;
   });

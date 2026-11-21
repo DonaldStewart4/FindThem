@@ -7,7 +7,7 @@
 // Leave it empty and the app still works: searches just stay on one phone, and share links
 // carry the case in the link itself (the same map, but no live updates).
 
-export const FIREBASE_DB_URL = '';
+export const FIREBASE_DB_URL = 'https://findthem-f4e5c-default-rtdb.firebaseio.com';
 // Example: 'https://findthem-12345-default-rtdb.firebaseio.com'
 
 // PROXY_URL: the address of the deployed LLM proxy (proxy/README.md), used by the report

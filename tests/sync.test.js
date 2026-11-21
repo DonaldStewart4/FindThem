@@ -74,3 +74,24 @@ test('createSearch PUTs case with createdAt', async () => {
   assert.equal(calls[0].url, 'https://db.example/searches/s2/case.json');
   assert.ok(JSON.parse(calls[0].opts.body).createdAt > 0);
 });
+
+test('two events sent at the same moment each reach the database exactly once', async () => {
+  const sent = [];
+  const old = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    await new Promise((r) => setTimeout(r, 20)); // a slow network, so the sends overlap
+    sent.push(JSON.parse(opts.body).text);
+    return { ok: true, status: 200, json: async () => ({ name: '-x' }) };
+  };
+  try {
+    sync.setDbUrl('https://db.example');
+    await Promise.all([
+      sync.addEvent('s9', { type: 'searched', text: 'one', at: 1 }),
+      sync.addEvent('s9', { type: 'message', text: 'two', at: 2 }),
+    ]);
+    assert.deepEqual(sent.sort(), ['one', 'two']);
+    assert.equal(sync.pendingCount(), 0);
+  } finally {
+    globalThis.fetch = old;
+  }
+});

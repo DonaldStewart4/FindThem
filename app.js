@@ -422,14 +422,22 @@ function recompute() {
 // come back yet (or are waiting for signal). Not shared: just this phone's events.
 function currentEvents() {
   if (!state.searchId) return state.events;
-  const seen = new Set(state.remoteEvents.map((e) => e.cid)); // cid = this event's id on its phone
+  // cid = the id the sending phone gave the event. If the same event reached the database
+  // twice (two tabs, a retry...), keep only the first copy so a search never counts double.
+  const seen = new Set();
+  const remote = [];
+  for (const e of state.remoteEvents) {
+    if (e.cid && seen.has(e.cid)) continue;
+    if (e.cid) seen.add(e.cid);
+    remote.push(e);
+  }
   const waiting = [];
   for (const e of [...state.optimistic, ...sync.queuedEvents(state.searchId)]) {
     if (seen.has(e.cid)) continue; // already came back from Firebase (or listed twice)
     seen.add(e.cid);
     waiting.push({ ...e, id: 'z-' + e.cid }); // 'z-' sorts after real ids made at the same time
   }
-  return [...state.remoteEvents, ...waiting];
+  return [...remote, ...waiting];
 }
 
 // A short fingerprint of the events the engine uses (not messages).
@@ -1368,6 +1376,8 @@ function start() {
   showOnlineState(navigator.onLine);
   window.addEventListener('online', () => showOnlineState(true));
   window.addEventListener('offline', () => showOnlineState(false));
+  // Another tab on this phone changed the send queue: refresh the "waiting for signal" count.
+  window.addEventListener('storage', (e) => { if (e.key === 'findthem-queue') renderLiveStatus(); });
   try { state.home = JSON.parse(recall('home')); } catch { state.home = null; }
   showHomeSaved();
   drawPins();

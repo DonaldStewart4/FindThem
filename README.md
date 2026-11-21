@@ -10,7 +10,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. Live sharing and the report box work against local test servers; the real Firebase database and Jev proxy still need their accounts set up (steps below). The benchmark is done (below).
+> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. **Live sharing runs on our real Firebase database** (tested with two devices' worth of tabs). The report box works against a local test server; the Jev proxy still needs a TypeSafe key and a Cloudflare deploy (steps below). The benchmark is done (below).
 
 ## What it does
 
