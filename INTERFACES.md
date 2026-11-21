@@ -2,10 +2,11 @@
 
 This is the contract between the two halves of FindThem:
 
-- **Screen** (`app.js`, `data.js`, `sync.js`, …): built by the repo owner with AI help.
-- **Engine** (`engine/`, `tests/`): hand-written by the teammate.
+- **Screen** (`app.js`, `data.js`, `sync.js`, `report.js`, …): BenStew, with AI help.
+- **Engine** (`engine/`): Jev, hand-written.
+- **Tests and speed** (`tests/`, `bench/`): Nathan, with AI help allowed.
 
-If both sides follow this file, the halves plug together at integration. **Change it only when both people agree**, and log the change in `CommitHistory.md`.
+If every side follows this file, the halves plug together at integration. **Change it only when BenStew, Jev and Nathan agree**, and log the change in `CommitHistory.md`. *Status: draft. Not yet reviewed by Jev or Nathan.*
 
 ## Ground rules
 
@@ -54,7 +55,7 @@ OsmData = {
 
 | OSM tags | `type` |
 |---|---|
-| `waterway=stream/ditch/drain/canal` | `creek` |
+| `waterway=stream/ditch/drain/canal` (skip `tunnel=culvert`) | `creek` |
 | `waterway=river` | `river` |
 | `natural=water` | `water` |
 | `natural=wetland` | `wetland` |
@@ -62,6 +63,8 @@ OsmData = {
 | `natural=scrub` | `brush` |
 | `landuse=meadow/grass` | `grass` |
 | `leisure=park` | `park` |
+
+**Skip** every other `waterway` value. In particular, `waterway=pressurised` is an underground pipe: Fremont has several, such as the Bay Division Pipelines, and they must not count as creeks.
 
 `HAZARD_TYPES = ['creek', 'river', 'water', 'wetland']` are flagged "for professionals, not untrained volunteers".
 
@@ -86,9 +89,10 @@ Event =
       reliability: 0.3 | 0.6 | 0.9,   // "maybe" / "probably" / "sure"
       note: 'blue coat', at }
   | { id, type: 'assigned', sectorId, to: 'Ana', at }  // the engine ignores this one
+  | { id, type: 'message', text: 'I have the park', by: 'Ana', at }  // the engine ignores this one
 ```
 
-`id` is the Firebase push id. The engine sorts events by `at`, then by `id`, before using them.
+`id` is the Firebase push id. The engine sorts events by `at`, then by `id`, before using them. **The engine ignores any event type it doesn't use**, so the screen can add types (like `message`) without breaking it.
 
 ## 2. What the engine exports (`engine/index.js`)
 
@@ -146,6 +150,22 @@ The cell's center. The screen uses it to build heatmap points from `grid.p`.
 ### `nextSectors(prediction, searcherMinutes, count) → [ { sectorId, gain, probability } ]`
 Greedy allocation: the `count` best sectors for the next `searcherMinutes` each. `gain` = probability of success that effort would add. Highest gain first; ties broken by sectorId.
 
+### `routeFor(area, prediction, sectorId) → Route`
+Routes for people: an ordered walking route along the real streets and paths inside one sector, highest-probability streets first.
+
+```js
+Route = {
+  sectorId: 'r12c7',
+  points: [ { lat, lng } ],      // in walking order; the screen draws it as a line
+  edgeIndices: [ 14, 15, 92 ],   // the graph edges it walks, in order
+  lengthM: 1150,
+  minutes: 19,                   // at SEARCH_SPEED_MPS
+  probability: 0.043             // probability covered by walking it
+}
+```
+
+When a searcher finishes, the screen sends a `searched` event for that sector with the minutes spent. A route with no streets (a sector that's all water or brush) returns `points: []` and the screen shows "for professionals".
+
 ### `topSpots(area, prediction, count) → [ Spot ]`
 The "Check these first" list: clustered high-probability places, highest first.
 
@@ -179,16 +199,35 @@ SWEEP_WIDTH_M, SEARCH_SPEED_MPS (coverage = speed × minutes × 60 × sweep widt
 PRIOR_FLOOR (small, so no cell is exactly 0)
 ```
 
-## 4. Tests the engine ships (`node --test`)
+## 4. Tests (`node --test`, Nathan)
 
 - Same `caseInput` + seed → identical `replay` output; a different seed → different output.
 - `grid.p` sums to 1 (±1e-9) after the base map, every `searched` event and every `sighting`.
 - A `searched` event lowers that sector's probability and raises every other sector's.
 - POD = 1 − e^(−coverage): 0 for 0 minutes, approaching 1 as minutes grow.
 - `nextSectors` matches brute force on a tiny hand-made grid.
+- `routeFor` only uses edges inside its sector, and the edges connect in order.
 - On the demo fixture: median straight-line walker distance is in the 600–1,100 m range, and `replay` runs in under 2 s in Node.
 
-## 5. Firebase shape (screen-only, here for reference)
+## 5. Report box (screen-only, here for reference)
+
+`report.js` sends the typed or spoken text (plus the last-seen point and the street names in view, for context) to the LLM proxy. It gets back **only** this JSON:
+
+```js
+ReportDraft = {
+  kind: 'sighting' | 'searched' | 'message',
+  placeText: 'the lake by Paseo Padre',
+  lat, lng,                      // or null if the place couldn't be pinned; the user taps the map
+  direction: 'E' | null,
+  minutesSince: 10 | null,
+  reliability: 0.3 | 0.6 | 0.9,  // from wording: "maybe" / "I think" / "definitely"
+  note: 'blue coat'
+}
+```
+
+The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
+
+## 6. Firebase shape (screen-only, here for reference)
 
 ```
 searches/<random 128-bit id>/

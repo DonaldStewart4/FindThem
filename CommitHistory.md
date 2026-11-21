@@ -29,32 +29,74 @@ Template:
 
 ## Project context
 
-Current decisions. Updated 2026-11-21 after merging the EvoHacks II game plan into the original build prompt. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
+Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Components of What We're Going to Build") into `PLAN.md`. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
 
-- **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Volunteers get sectors by link. Each empty search and each sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
+- **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Searchers join by share link and each gets a sector and a walking route. A shared message feed and a voice/text report box keep everyone in touch. Each empty search and each confirmed sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
 - **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. The rules say AI may not build the whole project, each person explains their own code on video, and AI use is disclosed.
 - **Team:**
-  - The repo owner builds the **screen** (UI, map, data fetching, sync, PWA) with AI help.
-  - A teammate writes the **engine** (`engine/`, `tests/`) **by hand**. AI must not write engine code.
-  - `INTERFACES.md` is the contract between the two halves.
+  - **BenStew** (repo owner): screen + hosting, with AI help. Also researches the free hosting, the LLM proxy and security.
+  - **Jev:** engine (`engine/`), **hand-written**. AI must not write engine code.
+  - **Nathan:** tests, debugging, speed (`tests/`, `bench/`). AI may help write tests.
+  - `INTERFACES.md` is the contract; changes need all three to agree.
 - **Tech:**
   - plain HTML/CSS/vanilla JS, no frameworks, no build step
   - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
-  - Firebase Realtime Database through its REST API (no SDK), for live sync only; the prediction runs on the phone
-  - engine tests with `node --test`
-- **Must-haves:** engine + tests, map + inputs, shared searched-sectors sync, sightings, Demo button, all 5 languages (en/es/fr/zh/ja), offline PWA, police hand-off sheet.
+  - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback
+  - a tiny serverless proxy (Cloudflare Workers is the leading option) holding the DeepSeek key for the report box
+  - the prediction runs on the phone; tests use `node --test`
+- **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
+- **Report box rules:** never called a "chatbot" in the UI. The LLM turns text or voice into a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
 - **Required, after the core works: the benchmark.** Simulated wanderers; uncoordinated volunteers vs. coordinated ring sweep vs. FindThem allocation; a results table in the README.
+- **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
   - **Emergency banner:** the local number from a country table (default 911), tap-to-call, can't be dismissed.
   - **Save my home area:** from an address search (Nominatim), a map tap, or GPS.
-  - **Demo location:** near Shoal Creek, Austin TX, to be checked against Overpass. It's `DEMO_LOCATION` at the top of `app.js`.
-  - **Deploy:** GitHub Pages. The repo is private now and must go public before deploying.
-- **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
-- **Do not build** chatbots, camera integration, trackers, GPS-trail coverage, drill mode, accounts, messaging or photos, or anything else on the roadmap.
+  - **Deploy:** GitHub Pages by default, pending BenStew's research. The repo is private now and must go public before deploying there.
+- **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
+- **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Merge the team's planning doc: team roles, routes, messaging, report box, Fremont
+
+- **Date:** 2026-11-21
+- **Stage:** Setup
+- **What changed:**
+  - `PLAN.md`: rewritten to merge the team's planning doc.
+    - team table: BenStew screen + hosting, Jev engine by hand, Nathan tests/debugging/speed
+    - routes for searchers, a message feed and the voice/text report box (DeepSeek through a serverless proxy, confirm before use)
+    - prior from several public sources; Fremont, CA as the demo area
+    - new files `report.js`, `proxy/`, `engine/routes.js`, `bench/`
+    - new schedule, cut order and LLM privacy limit
+  - `ShortPlan.md`: updated "what it does" (routes, messages, report box), the "not a chatbot" wording, the team line, and the must-have list.
+  - `INTERFACES.md`:
+    - team names, and three-way agreement for changes
+    - `message` event type, and "the engine ignores event types it doesn't use"
+    - new `routeFor(area, prediction, sectorId) → Route`
+    - the `ReportDraft` shape for the report box
+    - skip `waterway=pressurised` and culverts when finding creeks
+    - a routes test
+  - `CLAUDE.md`: team section with names and files; the "never call it a chatbot" rule; Fremont; the two online parts (Firebase + LLM proxy); never put an API key in website code.
+  - `CommitHistory.md`: "Project context" rewritten; this entry.
+- **Why:** the team wrote its own planning doc ("Components of What We're Going to Build"). BenStew asked for every document to be updated to match it.
+- **Decisions:**
+  - BenStew is the repo owner and builds screen + hosting. Nathan's tests may be written with AI help; Jev's engine may not.
+  - **Messaging and the report box are must-haves by the deadline**, not after the core. That reverses the earlier "no messaging, no chatbot" decision.
+  - The report box is narrow: LLM output is a draft, the person confirms, and the engine only sees normal events. It isn't called a chatbot, following the team doc's "people don't want to see chatbot when they are panicking".
+  - The DeepSeek key lives in a serverless proxy, not the page. Cloudflare Workers is the leading option, since Firebase Cloud Functions needs a paid plan. Final choice is BenStew's hosting research.
+  - **Demo area: Fremont, CA** instead of Austin. The team doc wants the engine to be "an expert in Fremont", and BenStew asked for the city I'd recommend. Fremont has dense OSM data, several creeks and drainage channels, and parks, and the team can do a field drill there.
+  - Routes come from the engine (`routeFor`), inside the sector chosen by greedy allocation.
+- **How it was verified:**
+  - Overpass query within 1,600 m of 37.5530, −121.9700: 3,408 walkable ways and 85 trap features (Laguna, Mission and Irvington creeks, drains, parks). It also found Bay Division Pipelines tagged `waterway=pressurised`, hence the skip rule.
+  - Docs only otherwise.
+- **Known issues / not done:**
+  - Jev and Nathan haven't reviewed `INTERFACES.md`.
+  - The LLM provider's privacy terms aren't checked; reports leave the phone.
+  - The README body is still pre-merge.
+  - The scope is now large for the time left; `PLAN.md` has the cut order.
+- **Next:** push; all three review `INTERFACES.md`; then the skeleton and Screen A.
 
 ### Add ShortPlan.md: 2-minute read of what FindThem is
 
