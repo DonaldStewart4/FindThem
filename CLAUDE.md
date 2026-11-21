@@ -13,10 +13,17 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's TypeSafe AI's Jev model, used only in the report box (see below).
 - **BenStew** (repo owner, the person in Claude Code sessions here):
   - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
-  - **The engine, written by hand.** Everything in `engine/` (`graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`). EvoHacks rules say AI may not build the whole project and each person explains their own code on video. **AI must not write engine code.** It may explain the math, suggest tests and review BenStew's code.
+  - **The engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), now **built with Claude Code** at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
 - **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
 - `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.
 - `engine/fake.js` is a dev-only stand-in so the screen works before the real engine lands. Delete it at integration.
+
+## Event rules (official EvoHacks 2 rules, posted Nov 21)
+- **Fresh code only:** everything is made between Nov 21 9:00 AM PST and Nov 22 12:00 PM PST. Open-source libraries, frameworks and APIs are fine.
+- **AI is encouraged:** "leverage existing technologies, APIs, and AI".
+- **Submit on Devpost:** a clear project description and setup instructions, a link to the **public** repo, and a **2–3 minute video demo**.
+- **Judging (25% each):** Impact & Utility, Technical Execution (code quality, performance), Creativity, Presentation (video + docs).
+- Teams of up to 4, ages 13+.
 
 ## Must not be forgotten
 - **The benchmark is required**: simulated wanderers, uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README. It gets built **after the core works**, not skipped.

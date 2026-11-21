@@ -32,9 +32,9 @@ Template:
 Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Components of What We're Going to Build") into `PLAN.md`. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
 
 - **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Searchers join by share link and each gets a sector and a walking route. A shared message feed and a voice/text report box keep everyone in touch. Each empty search and each confirmed sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
-- **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. The rules say AI may not build the whole project, each person explains their own code on video, and AI use is disclosed.
+- **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. **Official EvoHacks 2 rules (posted Nov 21): AI use is encouraged**; fresh code only (Nov 21 9:00 AM – Nov 22 12:00 PM PST); submit on Devpost with a description, setup instructions, a public repo and a 2–3 minute video; judged 25% each on impact, technical execution, creativity and presentation. (An earlier "AI may not build the whole project" rule came from the game plan's reading of an older page and is dropped.)
 - **Team (corrected 2026-11-21 afternoon):** two people.
-  - **BenStew** (repo owner): screen + hosting, with AI help, **and the engine (`engine/`), hand-written**. AI must not write engine code.
+  - **BenStew** (repo owner): screen, hosting and the engine (`engine/`), all built with Claude Code (the engine since the official rules were posted).
   - **Nathan:** tests, debugging, speed (`tests/`, `bench/`) and tuning the Jev questions. AI may help write tests.
   - **"Jev" is not a person.** It's TypeSafe AI's Jev model, used only in the report box (`proxy/jev.js`).
   - `INTERFACES.md` is the contract; changes need both to agree.
@@ -58,6 +58,32 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Official rules allow AI: engine built with Claude Code; add engine/graph.js
+
+- **Date:** 2026-11-21
+- **Stage:** Engine step 1 + decision change
+- **What changed:**
+  - `engine/graph.js` (new, written by Claude Code):
+    - `prepareArea(osm)` → `{ origin, graph: { nodes, edges }, traps }` per `INTERFACES.md`.
+      - Nodes carry lat/lng plus local x/y meters and their edge list.
+      - Edges are one per neighboring node pair in each way, with `length` and `bearingAB` (0 = north, clockwise).
+    - Trap index: feature outlines get extra points every 10 m (`TRAP_STEP_M`), bucketed into 50 m squares (`TRAP_CELL_M`), plus area polygons with bounding boxes.
+    - Helpers: `nearestTrap(area, x, y, maxM)` (3×3-square lookup; inside a park or pond counts as distance 0 via a ray-casting test), `nearestNode(area, lat, lng)`, `toXY`, `toLatLng`, `bearing`.
+  - `tests/graph.test.js` (new, 8 tests): a tiny synthetic map (projection, edges, bearings including 180/270, node edge lists, no mutation, `nearestNode`, `nearestTrap` on a sparse two-point creek) and the real Fremont fixture (edge count = neighbor pairs, lengths in (0, 2000) m, bearings in [0, 360), speed).
+  - `CLAUDE.md`: a new **"Event rules"** section summarizing the official rules; the "AI must not write engine code" rule is replaced by "the engine is built with Claude Code; disclose it".
+  - `PLAN.md`, `ShortPlan.md`, `INTERFACES.md`, `README.md`: the engine is built with Claude Code; the README's "Who built what" table and status line are updated.
+  - This file: "Project context" event and team bullets updated; this entry.
+- **Why:** BenStew asked Claude to write `graph.js` and shared the official EvoHacks 2 rules. They *encourage* AI use and say nothing against AI building the whole project or about explaining your own code on video.
+- **Decisions:**
+  - **Drop the hand-written-engine rule**, which was based on the game plan's reading of an older page, and keep honest disclosure in the README and Devpost.
+  - **Densify trap outlines** rather than measuring distance to segments. That's simpler and fast enough: OSM creeks can have points hundreds of meters apart, and the test's creek has two points 350 m apart.
+  - **Inside a polygon = in the trap.** A walker stopping inside a park or wetland is already "in" it.
+- **How it was verified:** `node --test`: 30/30 pass (8 new). `prepareArea` on the Fremont fixture (33,059 nodes, 7,695 ways) takes ~52 ms in Node.
+- **Known issues / not done:**
+  - `sim.js`, `grid.js`, `routes.js` and `index.js` aren't written yet, so the app still imports `engine/fake.js`.
+  - The repo must be made **public** before submitting.
+- **Next:** `engine/sim.js` (walkers), then `grid.js`, `routes.js`, `index.js`, integration (swap the import, delete `fake.js`), then the benchmark.
 
 ### Jev is TypeSafe's AI model, not a teammate: report box switches from DeepSeek to Jev; BenStew hand-writes the engine
 

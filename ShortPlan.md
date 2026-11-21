@@ -40,7 +40,7 @@
 - Doesn't send volunteers into water or dense brush; those are flagged for professionals.
 
 ## Team
-- **BenStew:** screen, hosting, and the engine (hand-written).
+- **BenStew:** screen, hosting and the engine, built with Claude Code.
 - **Nathan:** tests, debugging, speed, and tuning Jev.
 - **Jev** isn't a person: it's TypeSafe's AI model, used only to fill in report forms.
 

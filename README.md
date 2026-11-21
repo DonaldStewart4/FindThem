@@ -10,7 +10,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until BenStew's hand-written engine is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
+> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until the real engine (being built now; `engine/graph.js` is done) is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
 
 ## What it does
 
@@ -64,7 +64,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | Who | Part | AI use |
 |---|---|---|
 | **BenStew** | Screen and hosting: the page, map, inputs, data loading, live sharing, messages, report box, offline mode, translations | Built with Claude Code (Anthropic's AI coding assistant), with BenStew directing and reviewing. Several screen files and the test servers were written by Claude Code sessions. |
-| **BenStew** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | **Written by hand.** AI used only to explain the math, suggest tests and review. |
+| **BenStew** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | Built with Claude Code, with BenStew directing. The official EvoHacks 2 rules encourage AI use. |
 | **Nathan** | Tests, debugging, speed (`tests/`, `bench/`); tuning the Jev questions | AI may help write tests; Nathan reviews and explains them. |
 
 **AI inside the app:** only the report box uses an AI: **Jev**, a model from TypeSafe AI, reached through our own small proxy. Jev doesn't write text; it answers five multiple-choice questions about a report (what kind, which way, how long ago, how sure, which nearby place), each with a confidence. Anything it isn't confident about is left empty for the person to fill in, and nothing is added until the person checks the form and taps the button. It never sets the probabilities, and the word "chatbot" never appears in the app.
@@ -83,7 +83,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `report.js` | Report box logic: voice input, sending to the proxy, checking the answer |
 | `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
 | `config.js` | The Firebase and proxy addresses (not secrets) |
-| `engine/` | The prediction engine (hand-written by BenStew). `engine/fake.js` is the stand-in until it's ready |
+| `engine/` | The prediction engine. `graph.js` is done; `engine/fake.js` is the stand-in until the rest is ready |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map) and Leaflet.heat (heatmap), stored here rather than loaded from the internet |
 | `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |

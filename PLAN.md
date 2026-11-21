@@ -5,6 +5,8 @@ This merges three sources:
 - the EvoHacks II game plan: Bayesian search theory, sectors, a shared live record of what's been searched, sightings, a police hand-off, and evidence
 - the team's planning doc ("Components of What We're Going to Build"): engine vs. screen, routes for searchers, messaging, a voice/text report box, Firebase
 
+> **Update 2 (Nov 21):** the official EvoHacks 2 rules *encourage* AI use and say nothing against AI building the whole project or about explaining your own code on video (that came from the game plan's reading of an older page). **The engine is now built with Claude Code** at BenStew's request. Submission needs a public repo, setup instructions and a **2–3 minute** video; judging is 25% each for impact, technical execution, creativity and presentation.
+>
 > **Update (Nov 21, afternoon):** "Jev" in the team doc is **not a teammate**. It's TypeSafe AI's Jev model, now used in the report box instead of DeepSeek. The team is BenStew + Nathan, and **BenStew hand-writes the engine**. Sections below are updated to match.
 
 EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**, with freeze at 9:30 am.
@@ -16,10 +18,10 @@ A family member or neighbor in the first hour after a person with dementia goes 
 | Who | Part | AI use |
 |---|---|---|
 | **BenStew** (repo owner) | **Screen + hosting**: UI, map, data fetching, sync, messaging, report box, PWA, picking the free hosting and LLM provider, security | AI helps build |
-| **BenStew** | **Engine**: prior, detection, allocation (routes), updates | **Written by hand.** AI may explain and review only |
+| **BenStew** | **Engine**: prior, detection, allocation (routes), updates | Built with Claude Code (allowed by the official rules) |
 | **Nathan** | **Optimization**: tests, debugging, speed and reliability; tuning the Jev questions | AI may help write tests; Nathan reviews them and can explain them |
 
-The rules say AI may not build the whole project and each person explains their own code on video.
+The official rules encourage AI use; we disclose who and what built each part.
 
 ## Decisions
 - **Name:** FindThem.
@@ -33,7 +35,7 @@ The rules say AI may not build the whole project and each person explains their 
 - **AI key safety:** the Jev (TypeSafe) key must never be in the website's code. A free Cloudflare Worker holds it as a secret (Firebase Cloud Functions would need a paid plan). There is no FastAPI or other server.
 - **Hosting:** BenStew researches free providers and security. GitHub Pages is the default for the static site; the repo must go public before deploying there.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (about 37.553, −121.970). The team knows the area. Within 1 mile there are 3,408 walkable ways and 85 trap features (Laguna Creek, Mission Creek, Irvington Creek, drainage channels, parks). The app still works anywhere.
-- **AI disclosure:** the README and Devpost text name the AI tools and say who wrote what by hand.
+- **AI disclosure:** the README and Devpost text name the AI tools and say what each built.
 - **Must-haves by the deadline:**
   - engine + tests
   - map + inputs
@@ -75,7 +77,7 @@ The rules say AI may not build the whole project and each person explains their 
 
 "This is a guide to help focus the search, not a guarantee" shows under the results.
 
-## The engine (BenStew, by hand)
+## The engine (BenStew, built with Claude Code)
 - **Prior: the hard part.** A "smart map" built from several reliable public sources:
   - Koester's lost-person statistics for dementia (distance from the last-seen point, distance from roads, where people were found)
   - OSM streets, paths and trap features
@@ -111,7 +113,7 @@ The rules say AI may not build the whole project and each person explains their 
 | `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
 | `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 + Leaflet.heat 0.2.0 |
-| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (by hand) | graph, walkers, grid math, routes |
+| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (with Claude Code) | graph, walkers, grid math, routes |
 | `tests/*.test.js`, `bench/` | Nathan | `node --test`, speed checks, later the benchmark |
 | `INTERFACES.md` | all | exact function signatures and data shapes; change only by agreement |
 | `engine/fake.js` | BenStew | dev-only fake engine with the same interface; deleted at integration |
@@ -136,7 +138,7 @@ Chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, a
 3. **Screen B:** heatmap, colored streets, rings, top spots, sectors and routes UI, 911 script + house checklist, sighting form.
 4. **Screen C:** Firebase sync (two phones share one map), share and join links, message feed, hand-off sheet.
 5. **Screen D:** report box (voice/text → proxy → confirm → event), with the manual form as fallback.
-6. **Integration with BenStew's hand-written engine** (target: evening of Nov 21): swap `fake.js` for the real engine; Nathan's tests pass. *Pause for a check.*
+6. **Integration with the real engine** (target: evening of Nov 21): swap `fake.js` for the real engine; Nathan's tests pass. *Pause for a check.*
 7. **Screen E:** offline PWA, Save my home area, GPS dot, Demo button. Nathan does a speed and reliability pass.
 8. **Benchmark** (required, after the core works; Nathan + BenStew): uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README.
 9. **Freeze at 9:30 am Nov 22.** Deploy, 3-minute video, Devpost text. Submit by 11:00.

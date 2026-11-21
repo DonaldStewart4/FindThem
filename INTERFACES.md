@@ -3,7 +3,7 @@
 This is the contract between the two halves of FindThem:
 
 - **Screen** (`app.js`, `data.js`, `sync.js`, `report.js`, …): BenStew, with AI help.
-- **Engine** (`engine/`): BenStew, hand-written.
+- **Engine** (`engine/`): BenStew, built with Claude Code.
 - **Tests and speed** (`tests/`, `bench/`): Nathan, with AI help allowed.
 
 If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: draft. Not yet reviewed by Nathan.* ("Jev" is not a teammate; it's the AI model in the report box.)
