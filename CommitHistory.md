@@ -47,7 +47,7 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
-- **Required, after the core works: the benchmark.** Simulated wanderers; uncoordinated volunteers vs. coordinated ring sweep vs. FindThem allocation; a results table in the README.
+- **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
@@ -58,6 +58,49 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Benchmark: 1,000 simulated searches, FindThem vs. volunteers on their own vs. ring sweep
+
+- **Date:** 2026-11-21
+- **Stage:** Benchmark (required; built with Claude Code)
+- **What changed:**
+  - `bench/benchmark.js` (new):
+    - **Cases:** 5 Fremont start points × direction known/unknown × 100 "true" people = 1,000 cases. Each person is a walker endpoint from `simulate` with **different settings** than the app's (two tunings: give-up 2,000/3,000 m, turn scale 45°/20°, heading scale 120°/60°, dead-end stop 0.45/0.2, trap 0.5/0.7).
+    - **Search:** 6 volunteers search 200 m sectors in 20-minute turns. Detection uses `podForMinutes` from `grid.js`.
+    - **Four strategies:**
+      - on their own: random nearby sectors within 1 mile, weighted e^(−d/800 m), no shared record
+      - ring sweep: nearest first, each once
+      - FindThem: greedy with diminishing returns for a second searcher in the same sector, plus a sector-level Bayes update after each empty turn
+      - FindThem + sighting: after turn 1, one sighting on the way (40–100% along the line to the true spot, ~100 m noise, direction and minutes-since, reliability 0.6), applied through `engine.replay` with the turn-1 searches
+    - **Output:** the share found at 500 / 1,500 / 3,000 searcher-minutes with 95% margins, written to `bench/results.md`.
+    - Seeded throughout, so results are reproducible. `npm run bench`, about 45 s.
+  - `bench/results.md` (new): the latest output.
+  - `engine/sim.js`: `simulate` takes an optional `tuning` override; the app never passes it.
+  - `tests/bench.test.js` (new, 2 tests): a tiny run is in range, never decreases over time, and is reproducible.
+  - `package.json`: a `bench` script.
+  - `README.md`: a Benchmark section with the table, how it works and its limits; status line; file table; limits wording.
+  - `ShortPlan.md`: benchmark ticked. **Every must-have box is now ticked.**
+  - `CLAUDE.md`: "the benchmark is required" becomes "done; re-run if the engine changes".
+  - This file: "Project context" benchmark bullet; this entry.
+- **Why:** required by the plan since the first planning round. It's the evidence judges see for impact and technical execution.
+- **Results (1,000 cases):**
+
+  | Strategy | 500 | 1,500 | 3,000 searcher-min |
+  |---|---|---|---|
+  | On their own | 8% ±2 | 21% ±3 | 34% ±3 |
+  | Ring sweep | 18% ±2 | 29% ±3 | 35% ±3 |
+  | FindThem | 31% ±3 | 54% ±3 | 70% ±3 |
+  | FindThem + sighting | 52% ±3 | 77% ±3 | 87% ±2 |
+
+- **Decisions:**
+  - **Sighting on the way, not at the final spot.** The first version put the sighting ~100 m from where the person ends up and gave 86% at 500 searcher-min, which was too optimistic. Now the sighting happens on the way, with direction and time since.
+  - **The "true" people use different walker settings** so FindThem isn't graded on exactly its own assumptions. It's still the same family of model, and the README says so.
+  - **The ring sweep is a single pass:** each area once. That's why it plateaus near 35% (one 20-minute search spots ~38%). This is stated in the README and results.
+- **How it was verified:** `node --test`: **47/47 pass**. Full run: 1,000 cases in 45 s.
+- **Known issues / not done:**
+  - It's a simulation and not field-tested. Searchers are modeled as perfect at following assignments.
+  - Repo not public yet; Firebase and Jev not set up; video and Devpost not done.
+- **Next:** BenStew's account setups; make the repo public; deploy to GitHub Pages; video (2–3 min); Devpost write-up.
 
 ### Real engine: walkers, Bayesian grid, next areas, routes, top spots; fake engine removed
 

@@ -26,7 +26,7 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
 - Teams of up to 4, ages 13+.
 
 ## Must not be forgotten
-- **The benchmark is required**: simulated wanderers, uncoordinated volunteers vs. ring sweep vs. FindThem allocation, with a results table in the README. It gets built **after the core works**, not skipped.
+- **The benchmark is done** (`bench/benchmark.js`, `npm run bench`; results in the README and `bench/results.md`). Re-run it and update both tables if the engine's numbers change.
 - Must-haves by the deadline: routes for searchers, messaging between searchers, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Never call the report box a "chatbot"** anywhere in the UI. Jev only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine. Jev answers multiple-choice questions with a confidence; answers below `MIN_CONFIDENCE` are left empty for the person to fill in.
 - Demo and tuning area: **Fremont, CA** (Central Park / Lake Elizabeth). Skip `waterway=pressurised` (underground pipes) when finding creeks.

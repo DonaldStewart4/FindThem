@@ -10,7 +10,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. Live sharing and the report box work against local test servers; the real Firebase database and Jev proxy still need their accounts set up (steps below). The benchmark is next.
+> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. Live sharing and the report box work against local test servers; the real Firebase database and Jev proxy still need their accounts set up (steps below). The benchmark is done (below).
 
 ## What it does
 
@@ -53,7 +53,25 @@ The same case and seed always give the same map, so every phone computes the ide
 
 ## Benchmark
 
-*Not run yet: it's built after the real engine works.* It will compare three ways of searching with the same number of volunteers: volunteers searching on their own, a coordinated ring sweep, and FindThem's allocation. A results table goes here, whatever it shows.
+Does FindThem help volunteers find someone sooner? We simulated **1,000 cases** on the Fremont map: 5 start points, direction known or unknown, 100 people each. A team of **6 volunteers** searches 200 m areas in 20-minute turns. A search finds the person, if they're there, with the same detection formula the app uses. The share of cases found:
+
+| Strategy | Found after 500 searcher-min | Found after 1,500 searcher-min | Found after 3,000 searcher-min |
+|---|---|---|---|
+| Volunteers searching on their own | 8% ±2 | 21% ±3 | 34% ±3 |
+| Coordinated ring sweep | 18% ±2 | 29% ±3 | 35% ±3 |
+| **FindThem allocation** | **31% ±3** | **54% ±3** | **70% ±3** |
+| **FindThem + one sighting** | **52% ±3** | **77% ±3** | **87% ±2** |
+
+- **On their own:** each volunteer picks nearby areas at random, with no shared record.
+- **Ring sweep:** coordinated, nearest areas first, each searched once.
+- **FindThem:** the app's plan, the most chance gained per minute, updated after every empty search.
+- **+ sighting:** one neighbor's sighting reported after the first turn, seen on the way about 100 m off, with direction and time, marked "probably".
+
+1,500 searcher-minutes is about 6 volunteers for 4 hours. ± is a 95% margin.
+
+**Limits:** the simulated "real" people come from our own walker model, run with different settings than the app assumes (twistier or straighter walking, giving up sooner or later). Real people and real searches are messier. This shows how much a shared record and the probability map *could* help; it is not field-tested. The ring sweep searches each area only once, which is why it levels off.
+
+Run it yourself: `npm run bench` (about a minute; writes `bench/results.md`).
 
 ## Languages and units
 
@@ -93,6 +111,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
+| `bench/` | `benchmark.js` (the search simulation above) and `results.md` (its latest output) |
 | `tools/` | `make-fixture.js` (rebuild the Fremont data), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
 | `ShortPlan.md`, `PLAN.md`, `INTERFACES.md`, `CommitHistory.md`, `ROADMAP.md` | Plans, the engine contract, the decision log, and future plans |
 
@@ -161,7 +180,7 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 ## Limits
 
 - The search-and-rescue data behind the patterns is small, old and mostly rural (87 Virginia cases in Koester's study).
-- Nothing has been validated on real searches; the benchmark will be a simulation.
+- Nothing has been validated on real searches; the benchmark is a simulation.
 - Untrained volunteers should not go into water or dense brush; the app flags those for professionals.
 - Browser GPS only works while the page is open.
 - Anyone with a search link can see and add to that search. There are no accounts yet.

@@ -52,7 +52,7 @@ export const HIGHWAY_WEIGHT = {
 };
 // At a dead end, a walker stops ("gets stuck") with this probability; otherwise it turns back.
 // Not 1.0, because many OSM dead ends are driveways, parking aisles and cul-de-sacs a person
-// simply walks back out of. Calibrated together with GIVE_UP_MEDIAN_M (see tests/sim.test.js).
+// simply walks back out of. Calibrated together with GIVE_UP_MEDIAN_M (see tests/engine.test.js).
 export const DEAD_END_STOP_PROB = 0.3;
 // Safety limit on steps per walker, so a strange map can never loop forever.
 const MAX_STEPS = 5000;
@@ -108,7 +108,16 @@ function bearingFrom(edge, n) {
 // Runs N_WALKERS walkers. Returns { nWalkers, endpoints, edgeCounts } (see INTERFACES.md):
 //   endpoints[i] = { lat, lng, x, y, edgeIndex, trapType, trapId }
 //   edgeCounts[e] = how many walkers used street piece e
-export function simulate(area, { start, minutes, direction, mobility, familiarPlaces, seed }) {
+// `tuning` (optional) overrides some of the numbers above. The app never uses it; the benchmark
+// does, so its simulated "real" missing people don't behave exactly the way the app assumes.
+export function simulate(area, { start, minutes, direction, mobility, familiarPlaces, seed, tuning = {} }) {
+  const T = {
+    giveUpMedian: tuning.GIVE_UP_MEDIAN_M ?? GIVE_UP_MEDIAN_M,
+    turnScale: tuning.TURN_SCALE_DEG ?? TURN_SCALE_DEG,
+    headingScale: tuning.HEADING_SCALE_DEG ?? HEADING_SCALE_DEG,
+    deadEndStop: tuning.DEAD_END_STOP_PROB ?? DEAD_END_STOP_PROB,
+    trapProb: tuning.TRAP_PROB ?? TRAP_PROB,
+  };
   const { nodes, edges } = area.graph;
   const random = makeRandom(seed);
   const edgeCounts = new Array(edges.length).fill(0);
@@ -122,7 +131,7 @@ export function simulate(area, { start, minutes, direction, mobility, familiarPl
   const startXY = toXY(area.origin, start.lat, start.lng);
 
   for (let w = 0; w < N_WALKERS; w++) {
-    const giveUp = GIVE_UP_MEDIAN_M * Math.exp(GIVE_UP_SIGMA * normal(random));
+    const giveUp = T.giveUpMedian * Math.exp(GIVE_UP_SIGMA * normal(random));
     let budget = Math.min(timeBudget, giveUp);
     let x = startXY.x;
     let y = startXY.y;
@@ -143,7 +152,7 @@ export function simulate(area, { start, minutes, direction, mobility, familiarPl
           // A real dead end may stop them ("they go until they get stuck"); the end of a
           // driveway or parking aisle doesn't: they just walk back out.
           const stuckHere = cameFrom >= 0 && edges[cameFrom].highway !== 'service';
-          if (step > 0 && stuckHere && random() < DEAD_END_STOP_PROB) break;
+          if (step > 0 && stuckHere && random() < T.deadEndStop) break;
           options = nodes[node].edges;
           if (arrivalBearing !== null) arrivalBearing = (arrivalBearing + 180) % 360;
         }
@@ -155,8 +164,8 @@ export function simulate(area, { start, minutes, direction, mobility, familiarPl
           if (arrivalBearing === null) {
             weight = heading === null ? 1 : Math.exp(-angleDiff(out, heading) / FIRST_SCALE_DEG) + 0.02;
           } else {
-            weight = Math.exp(-angleDiff(out, arrivalBearing) / TURN_SCALE_DEG);
-            if (heading !== null) weight *= Math.exp(-angleDiff(out, heading) / HEADING_SCALE_DEG);
+            weight = Math.exp(-angleDiff(out, arrivalBearing) / T.turnScale);
+            if (heading !== null) weight *= Math.exp(-angleDiff(out, heading) / T.headingScale);
           }
           weight *= HIGHWAY_WEIGHT[edges[e].highway] ?? 1;
           if (nearestFamiliar) {
@@ -193,7 +202,7 @@ export function simulate(area, { start, minutes, direction, mobility, familiarPl
     let trapType = null;
     let trapId = null;
     const trap = nearestTrap(area, x, y, TRAP_RADIUS_M);
-    if (trap && (trap.distance === 0 || random() < TRAP_PROB)) {
+    if (trap && (trap.distance === 0 || random() < T.trapProb)) {
       x = trap.x;
       y = trap.y;
       trapType = trap.type;
