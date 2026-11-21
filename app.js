@@ -29,9 +29,8 @@ import * as report from './report.js';
 import { databaseUrl, proxyUrl } from './config.js';
 import * as i18n from './i18n.js';
 import { t } from './i18n.js';
-// The FAKE engine, until Jev's real one is ready. At integration change this one line to:
-//   import * as engine from './engine/index.js';
-import * as engine from './engine/fake.js';
+// The prediction engine (engine/index.js lists what it provides).
+import * as engine from './engine/index.js';
 
 // ---- Settings ---------------------------------------------------------------------
 
@@ -125,7 +124,6 @@ const els = {
   panel: $('panel'),
   panelToggle: $('panel-toggle'),
   results: $('results'),
-  fakeNote: $('fake-note'),
   spots: $('spots'),
   moreSpots: $('more-spots'),
   reportSighting: $('report-sighting'),
@@ -564,7 +562,6 @@ function renderSpots() {
   const shown = state.showAllSpots ? spots : spots.slice(0, SPOTS_SHOWN_FIRST);
 
   els.results.hidden = spots.length === 0;
-  els.fakeNote.hidden = !engine.IS_FAKE;
   els.spots.innerHTML = '';
   layers.spots.clearLayers();
 

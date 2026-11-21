@@ -10,7 +10,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026):** all five screens work. **The numbers still come from a stand-in engine (`engine/fake.js`)** until the real engine (being built now; `engine/graph.js` is done) is plugged in; the app shows a yellow "practice results" note while that's true. Live sharing and the report box work against local test servers. The real Firebase database and AI proxy aren't set up yet (steps below).
+> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. Live sharing and the report box work against local test servers; the real Firebase database and Jev proxy still need their accounts set up (steps below). The benchmark is next.
 
 ## What it does
 
@@ -44,6 +44,10 @@ Built for EvoHacks II (theme: social good).
 2. **A probability map.** Where the walkers stop becomes the starting map on a grid of 25 m squares.
 3. **Updates from the search (Bayesian search theory).** When an area is searched and nobody is found, its chance drops by how likely the searchers were to spot the person there (1 − e^(−coverage), Koopman's formula), and every other area rises. A sighting reruns walkers from where they were seen and blends that in, weighted by how sure the person is.
 4. **What to search next.** Each searcher's next area is the one where their minutes add the most chance of finding the person.
+
+**Calibration check.** The research numbers are straight-line distances, but people walk along winding streets. On the Fremont map, over five different start points with no time limit, the walkers end up a median of about **0.74 km** away in a straight line, with about **89% within 1 mile**. The research says ~0.8 km and 89%. `tests/engine.test.js` re-checks this every time the tests run.
+
+**Speed.** A full prediction takes about 0.1 s on a laptop. After a search or sighting, the update takes a fraction of a second.
 
 The same case and seed always give the same map, so every phone computes the identical map by itself from the shared list of events. All the tuning numbers are named constants at the top of the engine files.
 
@@ -83,7 +87,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `report.js` | Report box logic: voice input, sending to the proxy, checking the answer |
 | `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
 | `config.js` | The Firebase and proxy addresses (not secrets) |
-| `engine/` | The prediction engine. `graph.js` is done; `engine/fake.js` is the stand-in until the rest is ready |
+| `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `sim.js` (walkers), `grid.js` (probability map, Bayes updates, next areas, top spots), `routes.js` (walking routes), `index.js` (what the app imports) |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map) and Leaflet.heat (heatmap), stored here rather than loaded from the internet |
 | `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |

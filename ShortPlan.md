@@ -45,17 +45,17 @@
 - **Jev** isn't a person: it's TypeSafe's AI model, used only to fill in report forms.
 
 ## Must work by the deadline (Sun Nov 22, 12 pm)
-- [ ] Map, inputs and the prediction engine, with tests
-- [ ] Live shared map with searched areas
-- [ ] Routes for each searcher
-- [ ] Sightings update the map
+- [x] Map, inputs and the prediction engine, with tests
+- [x] Live shared map with searched areas
+- [x] Routes for each searcher
+- [x] Sightings update the map
 - [x] Messaging between searchers
 - [x] Voice/text report box
 - [x] Share link
 - [x] Police hand-off sheet
 - [x] Works offline after the first visit
-- [ ] English, Spanish, French, Chinese, Japanese
-- [ ] One-tap Demo button
+- [x] English, Spanish, French, Chinese, Japanese
+- [x] One-tap Demo button
 
 ## After the core works (still required)
 - [ ] Benchmark: FindThem vs. volunteers searching on their own

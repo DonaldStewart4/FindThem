@@ -59,6 +59,61 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Real engine: walkers, Bayesian grid, next areas, routes, top spots; fake engine removed
+
+- **Date:** 2026-11-21
+- **Stage:** Engine + integration (built with Claude Code)
+- **What changed:**
+  - `engine/sim.js` (new): 5,000 seeded walkers (mulberry32 + Box–Muller) per `PLAN.md`.
+    - Start at the nearest node. The time budget is speed × minutes × 60 × 0.6, capped by a lognormal give-up distance.
+    - Turn weight exp(−θ/30°); the first edge is weighted toward the stated heading.
+    - Familiar-place pull ×1.5 within a 45° cone. Trap snap within 30 m with p = 0.6 (a point inside a park or wetland counts as in it).
+    - Each walker is counted once per edge used.
+  - `engine/grid.js` (new):
+    - **Prior:** endpoints on 25 m cells, a 1-2-1 blur, and a 2% floor.
+    - **`replay`:** events sorted by `at` then `id`. A `searched` event multiplies its sector by (1 − POD), POD = 1 − e^(−0.8 m/s × t × 20 m ÷ 40,000 m²), then renormalizes. A `sighting` reruns walkers from the sighting (seed + 7919k, ≥ 5 min), multiplies by earlier searches' miss factors, and blends by reliability. Other event types are ignored.
+    - **Caching:** walker runs are cached per area and inputs.
+    - **`nextSectors`:** greedy P × POD, ties by id.
+    - **`topSpots`:** cells ≥ 150 m apart, probability within 75 m, snapped to a creek or park within 50 m when one is there; nearest named street via a 50 m segment index.
+    - **Helpers:** `cellToLatLng`, `podForMinutes`, `sectorBoundsXY`.
+  - `engine/routes.js` (new): `routeFor` walks the sector's streets (no driveways or parking aisles unless that's all there is), starting on the busiest street and always taking the busiest unwalked one, retracing when stuck so the line stays connected. It drops the final walk back; minutes = length ÷ 0.8 m/s.
+  - `engine/index.js` (new): re-exports `prepareArea`, `replay`, `cellToLatLng`, `nextSectors`, `topSpots`, `routeFor`.
+  - `engine/graph.js`: edges also carry `highway` (the street type).
+  - **Integration:** `app.js` imports `./engine/index.js`; **`engine/fake.js` deleted**, along with its "practice results" note (`index.html`, `app.js`, and the `fakeEngine` strings in `i18n.js`).
+  - `sw.js`: the offline list has the 5 engine files instead of `fake.js`; `CACHE_VERSION` → v6.
+  - `tests/engine.test.js` (new, 15 tests):
+    - walkers: determinism, edge counts, **calibration**, time and mobility, the heading pull, speed
+    - replay: sums to 1 with searches, sightings and messages; independent of event order; Bayes lowers the searched sector and raises all others; POD formula; a sure sighting moves ≥ 30% of the mass near it
+    - nextSectors vs. brute force
+    - topSpots fields and spacing
+    - routes inside their sector, connected, timed
+    - unknown sector ids
+  - `INTERFACES.md`: edges add `highway`; endpoints add `x, y`.
+  - `README.md`: status line, the engine files, and a calibration and speed paragraph.
+  - `ShortPlan.md`: ticked engine + tests, live shared map, routes, sightings, the 5 languages and Demo. Only the benchmark is still open.
+- **Why:** BenStew asked for the rest of the engine. The official rules allow AI.
+- **Decisions (found while calibrating on the Fremont map):**
+  - **Calibrate to straight-line distance.** The research numbers (~0.8 km median, 89% within 1 mile) are straight-line, but Fremont's OSM data is mostly sidewalks (2,162 ways) and service ways (2,384) beside 1,650 residential streets, so walks wind. **`GIVE_UP_MEDIAN_M` = 2,500 m along the streets, σ = 0.6**, gives a median ≈ 0.74 km and ≈ 89% within a mile over 5 start points. The first try (850–1,100 m) gave medians of 74–405 m.
+  - **Dead ends stop a walker only 30% of the time** (`DEAD_END_STOP_PROB`). Otherwise it turns back, and service-way dead ends (driveways, parking aisles) never stop it. With "always stop", walkers starting near parking lots barely moved.
+  - **Street-type weights** (`HIGHWAY_WEIGHT`, service = 0.25): walkers don't follow parking aisles.
+  - **Lasting heading pull** (`HEADING_SCALE_DEG` = 90°): with "NE", walkers used to end up NW as often as NE after a few curvy turns. Now ~3.7k of 5k end N/NE. The game plan found the direction is the biggest single gain.
+- **How it was verified:**
+  - `node --test`: **45/45 pass**.
+  - In Node on the Demo case: prepare 22 ms, replay 79 ms, replay with a search + sighting 23 ms (cached walkers), 3 routes 4 ms, top spots 8 ms.
+  - In the browser at 375×812:
+    - Demo in 2.0 s (mostly loading the 3 MB data and drawing ~7,700 streets).
+    - Areas A/B/C at 29% / 17% / 7% with routes of 1.3 mi / 0.3 mi / 0.5 mi.
+    - Marking Area A searched (45 min) dropped it to 12% and re-ranked the areas (0.6 s with redraw).
+    - A "sure" sighting moved the top spots next to it (0.27 s).
+    - No new console errors; the old ones were the earlier test tab retrying stopped mock servers.
+- **Known issues / not done:**
+  - **The benchmark** (required).
+  - The real Firebase and Jev aren't set up yet.
+  - Routes can be long (a 200 m sector with many sidewalks gave 1.3 mi), and the route only covers the street network connected to its busiest street.
+  - Top-spot reasons often say "Near <street>": few creeks lie close to the Demo's likely area.
+  - The Demo takes ~2 s on a laptop, so a phone may take several seconds.
+- **Next:** the benchmark (`bench/`); make the repo public; Firebase + Jev setup; video.
+
 ### Official rules allow AI: engine built with Claude Code; add engine/graph.js
 
 - **Date:** 2026-11-21

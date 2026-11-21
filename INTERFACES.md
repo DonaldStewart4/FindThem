@@ -106,7 +106,7 @@ Area = {
   origin: { lat, lng },          // = osm.center
   graph: {
     nodes: [ { id, lat, lng, x, y, edges: [ edgeIndex, ... ] } ],
-    edges: [ { a, b, length, bearingAB, wayId, name } ]  // a, b = node indices; bearingAB = a→b
+    edges: [ { a, b, length, bearingAB, wayId, name, highway } ]  // a, b = node indices; bearingAB = a→b; highway = OSM street type
   },
   traps: <anything>              // engine-internal: features + a fast "within 30 m" lookup
 }
@@ -125,7 +125,7 @@ The screen calls it on every change. It must finish in **under 2 s on a phone** 
 Prediction = {
   sim: {
     nWalkers: 5000,
-    endpoints: [ { lat, lng, edgeIndex, trapType: 'creek' | null, trapId: 'w123' | null } ],
+    endpoints: [ { lat, lng, x, y, edgeIndex, trapType: 'creek' | null, trapId: 'w123' | null } ],  // x, y = meters from area.origin
     edgeCounts: [ 0, 12, 3, ... ]   // length = area.graph.edges.length; walkers that used each edge
   },
   grid: {

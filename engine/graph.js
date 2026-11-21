@@ -74,6 +74,7 @@ export function prepareArea(osm) {
         bearingAB: bearing(na.x, na.y, nb.x, nb.y),
         wayId: way.id,
         name: way.name,
+        highway: way.highway, // street type (residential, footway, service...), used by the walkers
       });
       na.edges.push(index); // both ends know about this edge, so walkers can go either way
       nb.edges.push(index);
