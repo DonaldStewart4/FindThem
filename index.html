@@ -32,6 +32,27 @@
     <div id="map" role="application" data-i18n-aria="lastSeenTitle"></div>
     <!-- Short messages ("Loading streets…", errors). Screen readers read them out. -->
     <div id="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- Shown while the next map tap places something ("Tap the map where they were last seen"). -->
+    <div id="tap-banner" hidden>
+      <p id="tap-banner-text" role="status" aria-live="polite"></p>
+      <button id="tap-banner-cancel" type="button" data-i18n="cancel"></button>
+    </div>
+
+    <!-- Loading bar while streets download and the engine runs. -->
+    <div id="progress" hidden>
+      <p id="progress-text" role="status" aria-live="polite"></p>
+      <div class="progress-track"><div id="progress-fill"></div></div>
+    </div>
+
+    <!-- What the colors mean. Shown after a prediction. -->
+    <div id="legend" hidden>
+      <p class="legend-title" data-i18n="legendTitle"></p>
+      <p><span class="swatch red"></span><span data-i18n="legendRed"></span></p>
+      <p><span class="swatch orange"></span><span data-i18n="legendOrange"></span></p>
+      <p><span class="swatch yellow"></span><span data-i18n="legendYellow"></span></p>
+      <p><span class="swatch purple"></span><span data-i18n="legendStreets"></span></p>
+    </div>
   </main>
 
   <section id="panel">
@@ -134,14 +155,20 @@
       </div>
 
       <h2 data-i18n="lastSeenTitle"></h2>
-      <button id="set-last-seen" class="big" type="button" aria-pressed="false" data-i18n="setLastSeen"></button>
-      <p id="last-seen-help" class="help" data-i18n="tapLastSeen"></p>
+      <button id="set-last-seen" class="big" type="button" aria-pressed="false"></button>
+      <p id="last-seen-done" class="done-note" hidden data-i18n="lastSeenDone"></p>
 
       <label for="minutes" data-i18n="minutesLabel"></label>
       <input id="minutes" type="number" inputmode="numeric" min="1" max="1440" step="1">
 
-      <label for="direction" data-i18n="directionLabel"></label>
-      <select id="direction"></select>
+      <!-- Direction: turned with the arrow on the map. The hidden dropdown just holds the value. -->
+      <p class="field-label" data-i18n="directionLabel"></p>
+      <div class="row direction-row">
+        <span id="direction-pill" class="pill"></span>
+        <button id="direction-unknown" class="small" type="button" data-i18n="dirDontKnow"></button>
+      </div>
+      <p id="direction-help" class="help"></p>
+      <select id="direction" hidden></select>
 
       <fieldset id="mobility">
         <legend data-i18n="mobilityLabel"></legend>
@@ -154,7 +181,7 @@
         <legend data-i18n="familiarLabel"></legend>
         <p class="help" data-i18n="familiarHint"></p>
         <ul id="familiar-list"></ul>
-        <button id="add-familiar" class="big" type="button" aria-pressed="false" data-i18n="addFamiliar"></button>
+        <button id="add-familiar" class="big" type="button" aria-pressed="false"></button>
       </fieldset>
 
       <button id="run" class="big primary" type="button" data-i18n="run"></button>
@@ -196,7 +223,6 @@
 
   <!-- Libraries (stored in /lib, not loaded from the internet), then our code. -->
   <script src="lib/leaflet.js"></script>
-  <script src="lib/leaflet-heat.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

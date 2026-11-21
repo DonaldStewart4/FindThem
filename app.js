@@ -5,7 +5,7 @@
 //   2.   Tap the map to set where the person was last seen (and any familiar places),
 //        then fill in minutes, direction and mobility.
 //   3.   "Run search prediction": data.js loads the streets and creeks, the engine works
-//        out where the person probably is, and we draw a heatmap, colored streets,
+//        out where the person probably is, and we draw the likely areas, busy streets,
 //        distance rings and a "Check these first" list.
 //   4–6. "Next areas to search" gives each searcher an area and a walking route. Marking an
 //        area searched, or reporting a sighting, adds an EVENT and the map is recomputed.
@@ -51,7 +51,6 @@ const DEMO_CASE = {
 const MAX_FAMILIAR = 3;
 const SPOTS_SHOWN_FIRST = 3;          // the list shows 3, "Show more" reveals up to 8
 const SPOTS_MAX = 8;
-const HEAT_MAX_POINTS = 4000;         // the most likely grid cells we draw in the heatmap
 const NEXT_AREAS = 3;                 // how many "next areas to search" we suggest
 const DEFAULT_SEARCH_MINUTES = 20;    // effort per searcher when ranking areas
 const RING_METERS = [804.672, 1609.344, 2414.016]; // 0.5, 1 and 1.5 miles
@@ -163,9 +162,20 @@ const els = {
   handoffPrint: $('handoff-print'),
   handoffClose: $('handoff-close'),
   setLastSeen: $('set-last-seen'),
-  lastSeenHelp: $('last-seen-help'),
+  lastSeenDone: $('last-seen-done'),
   minutes: $('minutes'),
   direction: $('direction'),
+  directionPill: $('direction-pill'),
+  directionUnknown: $('direction-unknown'),
+  directionHelp: $('direction-help'),
+  mapWrap: $('map-wrap'),
+  tapBanner: $('tap-banner'),
+  tapBannerText: $('tap-banner-text'),
+  tapBannerCancel: $('tap-banner-cancel'),
+  progress: $('progress'),
+  progressText: $('progress-text'),
+  progressFill: $('progress-fill'),
+  legend: $('legend'),
   familiarList: $('familiar-list'),
   addFamiliar: $('add-familiar'),
   run: $('run'),
@@ -185,11 +195,15 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
+// A map "pane" for the likely-area picture: above the tiles, below the street lines.
+map.createPane('likely');
+map.getPane('likely').style.zIndex = 350;
+
 // Layers we draw on top of the tiles (bottom to top).
 const layers = {
   streets: L.layerGroup().addTo(map),   // thin grey street lines, so the map works without tiles
   used: L.layerGroup().addTo(map),      // streets colored by how many walkers used them
-  heat: null,                            // the heatmap (made after a run)
+  heat: null,                            // red/orange/yellow "likely area" picture (made after a run)
   rings: L.layerGroup().addTo(map),     // dashed 0.5 / 1 / 1.5 mile rings
   searched: L.layerGroup().addTo(map),  // grey squares over areas already searched
   areas: L.layerGroup().addTo(map),     // blue squares for the next areas to search
@@ -230,6 +244,119 @@ function drawPins() {
   if (home) {
     L.marker(home, { icon: labelIcon('⌂', 'map-home'), keyboard: false }).bindTooltip(t('homeMarker')).addTo(layers.pins);
   }
+  renderDirection();
+}
+
+// ---- Direction arrow ---------------------------------------------------------------
+// A red arrow on the last-seen point. Drag its round head to turn it; a pill under the
+// dot shows the direction ("Northeast") as it turns. When let go it snaps to the nearest
+// of the 8 compass directions, which is what the engine uses.
+// The value itself lives in the hidden <select id="direction"> ('' = unknown), so the rest
+// of the app (share links, the police sheet, the Demo) reads it the same way as before.
+
+let dirMarker = null;
+
+// 'NE' → 45 degrees (0 = north = up on the map, clockwise).
+function directionToAngle(dir) {
+  return dir ? DIRECTIONS.indexOf(dir) * 45 : 0;
+}
+// 50 degrees → 'NE' (the nearest of the 8).
+function angleToDirection(angle) {
+  return DIRECTIONS[Math.round((((angle % 360) + 360) % 360) / 45) % 8];
+}
+
+function setDirection(dir) {
+  els.direction.value = dir || '';
+  renderDirection();
+}
+
+// Updates the pill in the panel and redraws the arrow on the map.
+function renderDirection() {
+  const dir = els.direction.value;
+  els.directionPill.textContent = dir ? t('dir_' + dir) : t('dirUnknown');
+  els.directionPill.classList.toggle('unknown', !dir);
+  els.directionUnknown.disabled = !dir;
+  els.directionHelp.textContent = state.lastSeen ? t('dirDragHelp') : t('dirNeedLastSeen');
+  drawDirectionArrow();
+}
+
+function drawDirectionArrow() {
+  if (dirMarker) { dirMarker.remove(); dirMarker = null; }
+  // No arrow before there's a last-seen point, or while one is being placed.
+  if (!state.lastSeen || state.mode === 'lastSeen') return;
+
+  const dir = els.direction.value;
+  dirMarker = L.marker(state.lastSeen, {
+    icon: L.divIcon({
+      className: '',
+      html: `<div class="dir-arrow">
+               <div class="dir-rotor"><div class="dir-shaft"></div>
+                 <div class="dir-head" tabindex="0" role="slider"></div></div>
+               <span class="pill"></span>
+             </div>`,
+      iconSize: [180, 180],
+      iconAnchor: [90, 90],
+    }),
+    interactive: false, // only the arrowhead takes taps (see style.css)
+    keyboard: false,
+    zIndexOffset: 1000,
+  }).addTo(map);
+
+  const box = dirMarker.getElement().querySelector('.dir-arrow');
+  const head = box.querySelector('.dir-head');
+  const pill = box.querySelector('.pill');
+
+  // Draws the arrow at `angle` degrees with `label` in the pill.
+  const look = (angle, label, unknown) => {
+    box.style.setProperty('--angle', angle + 'deg');
+    box.classList.toggle('unknown', unknown);
+    pill.textContent = label;
+    pill.classList.toggle('unknown', unknown);
+    head.setAttribute('aria-valuetext', label);
+  };
+  look(directionToAngle(dir), dir ? t('dir_' + dir) : t('dirPillDrag'), !dir);
+  head.setAttribute('aria-label', t('directionLabel'));
+
+  // Keep taps and drags on the arrowhead away from the map (no map pan, no "place here").
+  L.DomEvent.disableClickPropagation(head);
+
+  // Dragging: the angle is measured from the arrow's center (the last-seen point) to the finger.
+  head.addEventListener('pointerdown', (down) => {
+    down.preventDefault();
+    head.setPointerCapture(down.pointerId);
+    map.dragging.disable();
+    box.classList.add('dragging');
+    let angle = null;
+    const move = (e) => {
+      const r = box.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2);
+      const dy = e.clientY - (r.top + r.height / 2);
+      angle = (Math.atan2(dx, -dy) * 180) / Math.PI; // 0 = up (north), 90 = right (east)
+      look(angle, t('dir_' + angleToDirection(angle)), false);
+    };
+    const end = () => {
+      head.removeEventListener('pointermove', move);
+      head.removeEventListener('pointerup', end);
+      head.removeEventListener('pointercancel', end);
+      map.dragging.enable();
+      // A tap without dragging on an unknown arrow sets it to north; otherwise snap.
+      if (angle !== null) setDirection(angleToDirection(angle));
+      else if (!els.direction.value) setDirection('N');
+    };
+    head.addEventListener('pointermove', move);
+    head.addEventListener('pointerup', end);
+    head.addEventListener('pointercancel', end);
+  });
+
+  // Keyboard: arrow keys turn it by 45 degrees.
+  head.addEventListener('keydown', (e) => {
+    const stepBy = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+    if (!stepBy) return;
+    e.preventDefault();
+    const i = els.direction.value ? DIRECTIONS.indexOf(els.direction.value) : 0;
+    setDirection(DIRECTIONS[(i + stepBy + 8) % 8]);
+    dirMarker.getElement().querySelector('.dir-head').focus();
+  });
 }
 
 // What a tap on the map does depends on the current mode.
@@ -241,7 +368,6 @@ map.on('click', (e) => {
     state.events = [];        // ...and starts with no searches or sightings
     leaveSharedSearch();      // ...and is not the shared search any more
     setMode(null);
-    showStatus(t('lastSeenSet'));
   } else if (state.mode === 'familiar') {
     if (state.familiarPlaces.length < MAX_FAMILIAR) {
       state.familiarPlaces.push({ ...point, label: '' });
@@ -251,7 +377,7 @@ map.on('click', (e) => {
   } else if (state.mode === 'sighting') {
     state.sightingDraft = point;
     els.sightingWhere.textContent = t('sightingPlaced');
-    showStatus(t('sightingPlaced'));
+    renderModeUI(); // the blue bar now says "placed, tap again to move it"
   } else if (state.mode === 'home') {
     setHomeDraft(point, `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
     setMode(null);
@@ -259,17 +385,44 @@ map.on('click', (e) => {
   drawPins();
 });
 
+// Switches what the next map tap does, and makes that obvious on screen:
+//   - a blue bar across the top of the map says what to tap, with a Cancel button
+//   - the map gets a blue frame and a crosshair cursor
+//   - the button that started it says "Now tap the map (tap here to cancel)" and pulses
 function setMode(mode) {
   state.mode = mode;
+  renderModeUI();
+}
+
+// The text each mode shows in the blue bar.
+const MODE_PROMPTS = { lastSeen: 'tapLastSeen', familiar: 'tapFamiliar', sighting: 'tapSighting', home: 'homeTapPrompt' };
+
+function renderModeUI() {
+  const mode = state.mode;
   els.setLastSeen.setAttribute('aria-pressed', String(mode === 'lastSeen'));
   els.addFamiliar.setAttribute('aria-pressed', String(mode === 'familiar'));
   els.reportSighting.setAttribute('aria-pressed', String(mode === 'sighting'));
   els.homeTap.setAttribute('aria-pressed', String(mode === 'home'));
-  els.lastSeenHelp.hidden = mode !== 'lastSeen';
-  if (mode === 'familiar') showStatus(t('tapFamiliar'));
-  if (mode === 'lastSeen') showStatus(t('tapLastSeen'));
-  if (mode === 'sighting') showStatus(t('tapSighting'));
-  if (mode === 'home') showStatus(t('homeTapPrompt'));
+
+  // Button labels change with the state, so it's clear what pressing them does.
+  els.setLastSeen.textContent = mode === 'lastSeen' ? t('tapMapCancel')
+    : state.lastSeen ? t('moveLastSeen') : t('setLastSeen');
+  els.addFamiliar.textContent = mode === 'familiar' ? t('tapMapCancel') : t('addFamiliar');
+  els.lastSeenDone.hidden = !state.lastSeen || mode === 'lastSeen';
+
+  els.tapBanner.hidden = !mode;
+  els.mapWrap.classList.toggle('picking', Boolean(mode));
+  if (mode) {
+    els.tapBannerText.textContent = mode === 'sighting' && state.sightingDraft ? t('sightingPlaced') : t(MODE_PROMPTS[mode]);
+    hideStatus(); // the bar replaces the old "tap the map" message
+  }
+  renderDirection();
+}
+
+// The blue bar's Cancel button: stop waiting for a tap.
+function cancelMode() {
+  if (state.mode === 'sighting') closeSightingForm();
+  else setMode(null);
 }
 
 // ---- Status messages -------------------------------------------------------------
@@ -357,6 +510,47 @@ function readCase() {
 
 let areaCache = { key: null, area: null, osm: null }; // so a re-run on the same area is fast
 
+// ---- Loading bar ---------------------------------------------------------------------
+// Shown while streets download and the engine runs. Overpass doesn't say how big its answer
+// will be, so the bar is an honest estimate:
+//    0–60%  waiting for the server to collect the streets (creeps up, slower and slower).
+//           This is most of the time: in a test, 38 s of waiting, then 12 MB in 1 s.
+//   60–80%  downloading (by bytes received, against a typical size)
+//   85%     reading the streets, 92% simulating the walkers, 100% done
+
+const EXPECTED_DOWNLOAD_BYTES = 8e6; // a 2-mile area is a few MB (downtown San Jose: 12 MB)
+let progressTimer = null;
+
+function showProgress(percent, text) {
+  els.progress.hidden = false;
+  els.progressFill.style.width = Math.max(0, Math.min(100, percent)) + '%';
+  if (text) els.progressText.textContent = text;
+  hideStatus();
+}
+function hideProgress() {
+  clearInterval(progressTimer);
+  els.progress.hidden = true;
+}
+
+// Turns data.loadArea's progress reports into bar movements.
+function onDownloadProgress(info) {
+  clearInterval(progressTimer);
+  if (info.stage === 'waiting') {
+    const startedAt = Date.now();
+    const creep = () => {
+      const seconds = (Date.now() - startedAt) / 1000;
+      showProgress(5 + 55 * (1 - Math.exp(-seconds / 20)), t('progressWaiting'));
+    };
+    creep();
+    progressTimer = setInterval(creep, 500);
+  } else if (info.stage === 'download') {
+    const size = (info.bytes / 1e6).toFixed(1) + ' MB';
+    showProgress(60 + 20 * Math.min(1, info.bytes / EXPECTED_DOWNLOAD_BYTES), t('progressDownloading', { size }));
+  } else if (info.stage === 'retry') {
+    showProgress(5, t('progressRetry', { s: Math.round(info.waitMs / 1000), n: info.attempt, of: info.attempts }));
+  }
+}
+
 function setBusy(busy) {
   els.run.disabled = busy;
   els.demo.disabled = busy;
@@ -372,38 +566,46 @@ async function runPrediction({ useDemoData = false } = {}) {
   if (!(caseInput.minutes > 0)) { showStatus(t('needMinutes'), { error: true }); els.minutes.focus(); return; }
 
   setBusy(true);
+  let savedNotice = null;
   try {
     // 1. Street and creek data (saved copy if we have one).
     const key = useDemoData ? 'demo' : data.areaKey(caseInput.lastSeen.lat, caseInput.lastSeen.lng);
     if (areaCache.key !== key) {
-      showStatus(t('loadingData'), { sticky: true });
+      showProgress(3, t('progressChecking'));
       let loaded;
       try {
         loaded = useDemoData
           ? await data.loadBundledArea()
-          : await data.loadArea(caseInput.lastSeen.lat, caseInput.lastSeen.lng);
+          : await data.loadArea(caseInput.lastSeen.lat, caseInput.lastSeen.lng, { onProgress: onDownloadProgress });
       } catch (err) {
         console.error(err);
+        hideProgress();
         showStatus(t('dataError'), { error: true });
         return;
       }
-      if (loaded.fromCache && loaded.savedAt) showStatus(t('usingSaved', { date: i18n.formatDateTime(loaded.savedAt) }));
+      clearInterval(progressTimer);
+      showProgress(85, t('progressReading'));
       await nextFrame();
       areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm };
       drawStreets(loaded.osm);
+      if (loaded.fromCache && loaded.savedAt) savedNotice = t('usingSaved', { date: i18n.formatDateTime(loaded.savedAt) });
     }
     state.areaSource = useDemoData ? 'demo' : 'live';
     if (!state.caseStartedAt) state.caseStartedAt = Date.now();
 
     // 2. The engine works out where they may be, and we draw it.
-    showStatus(t('calculating'), { sticky: true });
+    showProgress(92, t('progressWalkers'));
     await nextFrame();
     state.showAllSpots = false;
     state.selectedArea = null;
     recompute();
     els.firstSteps.open = false; // first steps are done once a search is running
-    hideStatus();
+    showProgress(100);
+    await new Promise((resolve) => setTimeout(resolve, 300)); // let the full bar show for a moment
+    hideProgress();
+    if (savedNotice) showStatus(savedNotice); // "Using streets saved on …"
   } finally {
+    hideProgress();
     setBusy(false);
   }
 }
@@ -488,8 +690,10 @@ function drawStreets(osm) {
   }
 }
 
-// Streets colored light → dark by how many simulated walkers used them.
+// The streets the most simulated walkers used, in purple (darker = more walkers).
 // Uses a log scale, so a street with 10× more walkers is a few shades darker, not off the chart.
+// Only the two busiest shades are drawn: drawing every street walkers touched filled the
+// whole map with purple and hid the likely areas.
 function drawUsedStreets(area, prediction) {
   layers.used.clearLayers();
   const counts = prediction.sim.edgeCounts;
@@ -499,6 +703,7 @@ function drawUsedStreets(area, prediction) {
   counts.forEach((count, i) => {
     if (count === 0) return;
     const step = Math.min(STREET_COLORS.length - 1, Math.floor((Math.log(count + 1) / Math.log(max + 1)) * STREET_COLORS.length));
+    if (step < STREET_COLORS.length - 2) return; // not one of the busiest streets
     const a = nodes[edges[i].a];
     const b = nodes[edges[i].b];
     L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
@@ -507,18 +712,99 @@ function drawUsedStreets(area, prediction) {
   });
 }
 
-// The heatmap: the most likely grid cells, brighter where the probability is higher.
+// The "where they likely are" layer. A plain heatmap turned the whole area blue, which
+// tells a searcher nothing. Instead we color the SMALLEST area that holds a given share
+// of the chance:
+//   red    = the most likely cells that together hold 25% of the chance
+//   orange = add more cells until they hold 50%
+//   yellow = add more until 80%
+// Everything else is left uncolored. So red means "1 in 4 chance they're in this small
+// patch": search red first.
+// The grid is drawn as one small picture (1 pixel per 25 m cell) laid over the map; the
+// browser smooths it when it's stretched, which gives soft edges.
+// The engine's chance is very "spiky": walkers that reach a creek or pond pile up on the same
+// few 25 m cells, so the red band alone was only ~9 cells (dots too small to see). Before
+// coloring we spread each cell's chance over its neighbors (about 75 m), which is also
+// roughly how far a searcher can see. This is for drawing only; the engine is unchanged.
+const SMOOTH_CELLS = 3; // blur radius in cells, applied twice
+
+const LIKELY_BANDS = [
+  { share: 0.25, color: [213, 0, 0, 150] },    // red
+  { share: 0.50, color: [255, 109, 0, 125] },  // orange
+  { share: 0.80, color: [255, 214, 0, 105] },  // yellow
+];
+
+// A fast blur: each cell becomes the sum of the cells within `r` of it, first along rows,
+// then along columns (a "box blur"). Running it twice gives a smooth, rounded spread.
+function boxBlur(src, cols, rows, r) {
+  const tmp = new Float64Array(src.length);
+  const out = new Float64Array(src.length);
+  for (let y = 0; y < rows; y++) {
+    let acc = 0; // running sum of the window around x
+    for (let x = 0; x <= r && x < cols; x++) acc += src[y * cols + x];
+    for (let x = 0; x < cols; x++) {
+      tmp[y * cols + x] = acc;
+      if (x + r + 1 < cols) acc += src[y * cols + x + r + 1];
+      if (x - r >= 0) acc -= src[y * cols + x - r];
+    }
+  }
+  for (let x = 0; x < cols; x++) {
+    let acc = 0;
+    for (let y = 0; y <= r && y < rows; y++) acc += tmp[y * cols + x];
+    for (let y = 0; y < rows; y++) {
+      out[y * cols + x] = acc;
+      if (y + r + 1 < rows) acc += tmp[(y + r + 1) * cols + x];
+      if (y - r >= 0) acc -= tmp[(y - r) * cols + x];
+    }
+  }
+  return out;
+}
+
 function drawHeat(area, prediction) {
-  const { p } = prediction.grid;
-  const order = [...p.keys()].sort((a, b) => p[b] - p[a]).slice(0, HEAT_MAX_POINTS);
-  const top = p[order[0]] || 1;
-  const points = order.map((i) => {
-    const { lat, lng } = engine.cellToLatLng(area, prediction.grid, i);
-    return [lat, lng, p[i] / top];
-  });
+  const grid = prediction.grid;
+  const { cols, rows } = grid;
+  const p = boxBlur(boxBlur(grid.p, cols, rows, SMOOTH_CELLS), cols, rows, SMOOTH_CELLS);
+  // Cells from most to least likely, then walk down the list adding up the chance.
+  const order = [...p.keys()].sort((a, b) => p[b] - p[a]);
+  let total = 0;
+  for (const v of p) total += v;
+  const band = new Int8Array(p.length).fill(-1); // -1 = not colored
+  let sum = 0;
+  let b = 0;
+  for (const i of order) {
+    if (b >= LIKELY_BANDS.length) break;
+    band[i] = b;
+    sum += p[i];
+    while (b < LIKELY_BANDS.length && sum >= LIKELY_BANDS[b].share * total) b += 1;
+  }
+
+  // Paint one pixel per cell. Grid row 0 is the SOUTH edge; picture row 0 is the TOP.
+  const canvas = document.createElement('canvas');
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(cols, rows);
+  for (let i = 0; i < p.length; i++) {
+    if (band[i] < 0) continue;
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    const o = ((rows - 1 - row) * cols + col) * 4;
+    img.data.set(LIKELY_BANDS[band[i]].color, o);
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // The picture's corners on the map: half a cell beyond the corner cells' centers.
+  const first = engine.cellToLatLng(area, grid, 0);
+  const right = engine.cellToLatLng(area, grid, 1);
+  const up = engine.cellToLatLng(area, grid, cols);
+  const last = engine.cellToLatLng(area, grid, p.length - 1);
+  const halfLat = (up.lat - first.lat) / 2;
+  const halfLng = (right.lng - first.lng) / 2;
+  const bounds = [[first.lat - halfLat, first.lng - halfLng], [last.lat + halfLat, last.lng + halfLng]];
+
   if (layers.heat) map.removeLayer(layers.heat);
-  // Neighboring points add up, so `max` is set above 1; otherwise everything turns red.
-  layers.heat = L.heatLayer(points, { radius: 18, blur: 16, maxZoom: 16, max: 3, minOpacity: 0.2 }).addTo(map);
+  layers.heat = L.imageOverlay(canvas.toDataURL(), bounds, { interactive: false, pane: 'likely' }).addTo(map);
+  els.legend.hidden = false;
 }
 
 // Dashed rings at 0.5, 1 and 1.5 miles, each labeled in the chosen units.
@@ -735,7 +1021,7 @@ function openSightingForm({ draft = null } = {}) {
     // The report named a place we could pin: show it; a tap on the map still moves it.
     state.sightingDraft = { lat: draft.lat, lng: draft.lng };
     els.sightingWhere.textContent = t('sightingPlaced');
-    showStatus(t('sightingPlaced'));
+    renderModeUI();
     drawPins();
     map.flyTo([draft.lat, draft.lng], 17);
   } else if (draft) {
@@ -973,7 +1259,9 @@ async function saveHomeArea() {
   els.homeSave.disabled = true;
   els.homeStatus.textContent = t('homeSaving');
   try {
-    const result = await data.loadArea(point.lat, point.lng); // downloads and stores it (or finds it saved)
+    showProgress(3, t('progressChecking'));
+    // Downloads and stores it (or finds it saved).
+    const result = await data.loadArea(point.lat, point.lng, { onProgress: onDownloadProgress });
     state.home = { lat: point.lat, lng: point.lng, savedAt: result.savedAt };
     state.homeDraft = null;
     remember('home', JSON.stringify(state.home));
@@ -983,6 +1271,7 @@ async function saveHomeArea() {
     console.error(err);
     els.homeStatus.textContent = t('homeSaveFailed');
   } finally {
+    hideProgress();
     els.homeSave.disabled = false;
   }
 }
@@ -1317,6 +1606,7 @@ function applyLanguage(code) {
   buildDirectionOptions(els.direction);
   buildDirectionOptions(els.sightingDirection);
   renderFamiliarList();
+  renderModeUI();
   els.callText.textContent = t('callFirst', { number: state.emergencyNumber });
   els.callButton.textContent = t('call911Title', { number: state.emergencyNumber });
   els.panelToggle.textContent = els.panel.classList.contains('collapsed') ? t('showPanel') : t('hidePanel');
@@ -1353,6 +1643,8 @@ function start() {
   applyUnits(recall('units') || i18n.defaultUnits(region));
 
   els.setLastSeen.addEventListener('click', () => setMode(state.mode === 'lastSeen' ? null : 'lastSeen'));
+  els.tapBannerCancel.addEventListener('click', cancelMode);
+  els.directionUnknown.addEventListener('click', () => setDirection(''));
   els.addFamiliar.addEventListener('click', () => {
     if (state.familiarPlaces.length >= MAX_FAMILIAR) { showStatus(t('maxFamiliar')); return; }
     setMode(state.mode === 'familiar' ? null : 'familiar');

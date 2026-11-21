@@ -18,10 +18,10 @@ Built for EvoHacks II (theme: social good).
 
 0. **Call 911 first.** The red banner is always on screen and is a tap-to-call link with your country's emergency number. "First steps" also has a script of what to tell the dispatcher.
 1. **Check the house and yard.** A 2-minute checklist: closets, under beds, bathrooms, garage, parked cars, shed, neighbors' yards. In search-and-rescue data, many are found close to home or even inside it.
-2. **Enter what you know.** Tap the map where they were last seen, then add minutes since, the direction they were heading, how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
+2. **Enter what you know.** Tap the map where they were last seen (a blue bar on the map says when it is waiting for your tap), then add minutes since, the direction they were heading (turn the red arrow on the map), how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
 3. **See the map.**
-   - a heatmap of where they most likely are
-   - streets colored by how many simulated walkers used them
+   - the likely areas: **red** is the smallest area with a 1-in-4 chance they're inside, **orange** brings it to 1 in 2, **yellow** to 4 in 5. Search red first. (A plain heatmap made the whole area one blue blur that told nobody where to go.)
+   - the streets most simulated walkers took, in purple
    - dashed rings at 0.5, 1 and 1.5 miles
    - **Check these first:** the top 3 places (8 when expanded), each with a reason such as "Creek 130 ft off Main St – 12% of walkers". Water and wetland spots are marked "leave this to professionals".
 4. **Next areas to search.** Areas A, B and C are the best places for the next searcher, each with its chance and a walking route. Open one, search it, and tap **Searched, nobody found** with the minutes spent.
@@ -113,7 +113,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `config.js` | The Firebase and proxy addresses (not secrets) |
 | `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `sim.js` (walkers), `grid.js` (probability map, Bayes updates, next areas, top spots), `routes.js` (walking routes), `index.js` (what the app imports) |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
-| `lib/` | Leaflet (map) and Leaflet.heat (heatmap), stored here rather than loaded from the internet |
+| `lib/` | Leaflet (map), stored here rather than loaded from the internet |
 | `proxy/` | Tiny Cloudflare Worker that holds the Jev (TypeSafe) key, asks Jev about a report (`jev.js`), and returns form data only |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
@@ -202,5 +202,5 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - Map tiles from OpenStreetMap. The app follows the [tile usage policy](https://operations.osmfoundation.org/policies/tiles/): it only saves tiles you have actually looked at and never downloads tiles in bulk.
 - Street and terrain data from the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API).
 - Address search from [Nominatim](https://nominatim.org/), one request at a time.
-- Map library: [Leaflet](https://leafletjs.com/). Heatmap: [Leaflet.heat](https://github.com/Leaflet/Leaflet.heat).
+- Map library: [Leaflet](https://leafletjs.com/).
 - Behavior patterns from published search-and-rescue research on lost persons with dementia, including Robert Koester's lost-person behavior studies. Search theory: B. O. Koopman's detection model and Bayesian search theory.

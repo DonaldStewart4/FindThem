@@ -145,7 +145,7 @@ Prediction = {
 ```
 
 ### `cellToLatLng(area, grid, cellIndex) → { lat, lng }`
-The cell's center. The screen uses it to build heatmap points from `grid.p`.
+The cell's center. The screen uses it to place its red/orange/yellow likely-area picture over `grid.p`.
 
 ### `nextSectors(prediction, searcherMinutes, count) → [ { sectorId, gain, probability } ]`
 Greedy allocation: the `count` best sectors for the next `searcherMinutes` each. `gain` = probability of success that effort would add. Highest gain first; ties broken by sectorId.

@@ -22,6 +22,7 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
 - 48 tests
 - commit emails switched to the GitHub noreply address
+- first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar
 
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
@@ -132,7 +133,7 @@ The official rules encourage AI use; we disclose who and what built each part.
 | `report.js` | BenStew | voice (the browser's speech recognition) or text → Jev proxy → structured draft for the person to confirm |
 | `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
-| `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 + Leaflet.heat 0.2.0 |
+| `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 (Leaflet.heat removed Nov 21 evening: replaced by likely-area bands) |
 | `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (with Claude Code) | graph, walkers, grid math, routes |
 | `tests/*.test.js`, `bench/` | Nathan | `node --test`, speed checks, later the benchmark |
 | `INTERFACES.md` | all | exact function signatures and data shapes; change only by agreement |

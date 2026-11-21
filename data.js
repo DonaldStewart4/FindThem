@@ -122,29 +122,49 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Overpass servers are often busy ("at capacity"). So we take turns between the
 // servers, and wait a little longer after each failure: 3 s, 6 s, 12 s, ...
 // `extraHeaders` lets the Node fixture script send a User-Agent (browsers send their own).
-export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {} } = {}) {
+export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {} } = {}) {
   const body = 'data=' + encodeURIComponent(buildQuery(lat, lng, radiusM));
   let lastError;
   let delayMs = 3000;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const url = OVERPASS_URLS[attempt % OVERPASS_URLS.length];
     try {
+      // 'waiting': the server is collecting the streets (often 5–20 s before any data arrives).
+      onProgress({ stage: 'waiting', attempt: attempt + 1, attempts });
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...extraHeaders },
         body,
       });
-      if (res.ok) return await res.json();
+      if (res.ok) return await readJsonWithProgress(res, onProgress);
       lastError = new Error(`Overpass ${res.status} from ${url}`);
     } catch (err) {
       lastError = err; // no signal, or the server dropped the connection
     }
     if (attempt < attempts - 1) {
+      onProgress({ stage: 'retry', attempt: attempt + 2, attempts, waitMs: delayMs });
       await wait(delayMs);
       delayMs *= 2;
     }
   }
   throw lastError;
+}
+
+// Reads a response's JSON piece by piece, reporting how many bytes have arrived so far
+// ({ stage: 'download', bytes }), so the screen can move its loading bar.
+async function readJsonWithProgress(res, onProgress) {
+  if (!res.body || !res.body.getReader) return res.json(); // very old browsers
+  const reader = res.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    bytes += value.length;
+    onProgress({ stage: 'download', bytes });
+  }
+  return JSON.parse(await new Blob(chunks).text());
 }
 
 // ---- Saving in the browser (IndexedDB) ------------------------------------------
@@ -259,7 +279,8 @@ const NEAR_OFFLINE_M = 2500;  // no signal: accept a looser fit rather than noth
 // → if the download fails (no signal), any saved area that roughly covers the spot.
 // If saving fails (private browsing, full storage) the app still works, it just won't
 // have the area offline next time.
-export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M } = {}) {
+// onProgress gets { stage: 'waiting' | 'download' | 'retry', ... } while downloading (see fetchOverpass).
+export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgress } = {}) {
   const key = areaKey(lat, lng);
 
   try {
@@ -273,7 +294,7 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M } = {}) {
 
   let json;
   try {
-    json = await fetchOverpass(lat, lng, radiusM, { attempts: navigator.onLine === false ? 1 : 5 });
+    json = await fetchOverpass(lat, lng, radiusM, { attempts: navigator.onLine === false ? 1 : 5, onProgress });
   } catch (err) {
     const fallback = await findSavedAreaNear(lat, lng, NEAR_OFFLINE_M).catch(() => null);
     if (fallback) return { osm: fallback.osm, fromCache: true, savedAt: fallback.savedAt };

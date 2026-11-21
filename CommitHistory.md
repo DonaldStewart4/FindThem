@@ -59,6 +59,31 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Phone feedback: likely areas instead of blue, clear tap mode, direction arrow, loading bar
+
+- **Date:** 2026-11-21
+- **Stage:** Screen (BenStew), after the first look on a real phone
+- **What changed:**
+  - **Map colors** (`app.js` `drawHeat`, `style.css`, `index.html` legend):
+    - BenStew's phone screenshot showed the whole area one blue blur and asked "how does the blue help somebody?" It didn't. The cause: the engine's chance is very spiky (walkers that reach a creek or pond pile up on the same few 25 m cells; in the Demo, 25% of the chance sat in **9 cells**), so after scaling to the top cell almost every point was near zero and Leaflet.heat drew it all in its lowest color, blue.
+    - Replaced Leaflet.heat with **likely-area bands**: the smallest set of cells holding 25% of the chance is **red**, up to 50% **orange**, up to 80% **yellow**, the rest uncolored. A legend in the map corner says "Red: 1 in 4 · With orange: 1 in 2 · With yellow: 4 in 5".
+    - Before banding, the grid is blurred for drawing only (box blur, radius 3 cells, twice; about 75 m, roughly how far a searcher can see). Demo: red went from 9 cells to 83 (about 230 m across), 80% from 215 to 651 cells. The engine and its numbers are unchanged.
+    - Drawn as one 256×256 picture (`L.imageOverlay` from a canvas) in its own map pane between the tiles and the street lines.
+    - The purple "used streets" layer now only draws the two busiest shades; drawing every street any walker touched also filled the map.
+    - `lib/leaflet-heat.js` deleted; removed from `index.html` and the `sw.js` shell.
+  - **Tap-the-map mode** (`setMode` → `renderModeUI`): while the next tap places something (last-seen point, familiar place, sighting, home), a **blue bar** at the bottom of the map says what to tap and has a **Cancel** button; the map gets a blue frame and a crosshair; the button that started it reads "Now tap the map (tap here to cancel)" and pulses. "Set last-seen point" becomes "Move the last-seen point" with a green "✓ Last-seen point is on the map" once placed. The bar replaces the old disappearing "Tap the map…" messages. It was first at the top but hid the zoom buttons, so it's at the bottom.
+  - **Direction arrow** (`drawDirectionArrow`, `setDirection`): a red arrow on the last-seen point. Drag its round head to turn it; a pill under the dot shows the direction ("Northeast") live, and on release it snaps to the nearest of the 8 directions the engine uses. Arrow keys turn it by 45° (it's a focusable slider). The panel shows the same pill plus a "Don't know" button. The value still lives in the (now hidden) `<select id="direction">`, so share links, the police sheet and the Demo are unchanged. Only the arrowhead takes taps; dragging it doesn't pan the map or place a pin.
+  - **Loading bar** (`showProgress`, `onDownloadProgress`; `data.js` `fetchOverpass` gets `onProgress`, reads the response in chunks): stages "Checking for saved streets…", "Asking the map server…" (creeps 5→60%), "Downloading… 4.2 MB" (60→80%), "Map server busy. Trying again in 6 s (2 of 5)", "Reading the streets…" (85%), "Simulating 5,000 possible walks…" (92%). Also used when saving the home area. Overpass sends no size, so the bar is an estimate; a real test from San Jose: 38 s of waiting, then 12.5 MB in about 1 s, which is why waiting gets most of the bar.
+  - `i18n.js`: 18 new strings in all 5 languages; `loadingData`, `calculating` and `lastSeenSet` removed (no longer used). `missingKeys()` is still `{}`.
+  - `sw.js` `CACHE_VERSION` v10.
+  - Docs: README ("See the map" explains the colors; the arrow and the blue bar; Leaflet.heat removed from `lib/` and credits), ShortPlan step 4, INTERFACES `cellToLatLng` note, PLAN status and lib row, `engine/index.js` comment.
+- **Why:** BenStew's first test on a real phone: everything blue, unclear whether a button was waiting for a map tap, a dropdown for direction, and no sign of progress while streets load.
+- **How it was verified:**
+  - `node --test`: 48/48 pass.
+  - Built-in browser at 375×812: the blue bar shows on load and after "Add a familiar place", Cancel clears it, and it closes the sighting form in sighting mode; tapping the map places the point and the arrow appears; dragging the arrowhead toward the upper right set "Northeast" in the pill, the panel and the hidden select, without panning; "Don't know" resets it; Japanese labels update. Demo: the bar moved 85 → 92 → 100%; red sits on top spots 1 and 2 with orange and yellow around them; legend shown. Real Overpass download with `onProgress`: waiting → download stages reported. No console errors.
+- **Known issues / not done:** not yet re-checked on a real phone (touch-dragging the arrow especially). The translations of the new strings need a native speaker's check, like the rest. The benchmark is unaffected (drawing only).
+- **Next:** BenStew re-checks on the phone; then the Jev deploy, two-phone test, video, Devpost.
+
 ### Live on GitHub Pages: link in the README, proxy locked to the site
 
 - **Date:** 2026-11-21

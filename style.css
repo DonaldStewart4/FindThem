@@ -516,3 +516,177 @@ h3 {
   text-align: center;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
+
+/* ---- Tap-the-map mode (setting the last-seen point, a familiar place, …) ---- */
+/* A blue bar across the top of the map, a blue frame and a crosshair, so it's obvious
+   that the next tap on the map places something. */
+#tap-banner {
+  position: absolute;
+  bottom: 26px;               /* above the map credits; the zoom buttons stay free at the top */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(94%, 560px);
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+#tap-banner[hidden] { display: none; }
+#map-wrap.picking #status { bottom: 104px; } /* messages sit above the bar */
+#tap-banner p { flex: 1; margin: 0; font-size: 17px; font-weight: 700; }
+#tap-banner button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+}
+#map-wrap.picking #map { cursor: crosshair; }
+#map-wrap.picking::after {        /* the blue frame around the map */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 999;
+  border: 4px solid var(--blue);
+  pointer-events: none;
+}
+/* The button that started the mode pulses gently while the map waits for a tap. */
+button.big[aria-pressed="true"] { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse {
+  50% { box-shadow: 0 0 0 6px rgba(11, 87, 208, 0.35); }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.big[aria-pressed="true"] { animation: none; }
+}
+.done-note { margin: 4px 0 8px; color: #1b5e20; font-weight: 700; }
+
+/* ---- Loading bar ---- */
+#progress {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1002;
+  width: min(94%, 520px);
+  padding: 10px 14px 12px;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+#progress[hidden] { display: none; }
+#progress p { margin: 0 0 8px; font-size: 16px; }
+.progress-track { height: 10px; border-radius: 5px; background: #444; overflow: hidden; }
+#progress-fill { width: 0; height: 100%; border-radius: 5px; background: #4caf50; transition: width 0.3s ease; }
+
+/* ---- Legend: what the colors mean ---- */
+#legend {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 900;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3);
+  max-width: 46%;
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: none;
+}
+@media (min-width: 600px) { #legend { font-size: 14px; max-width: none; } }
+#legend[hidden] { display: none; }
+#legend p { margin: 1px 0; display: flex; align-items: center; gap: 6px; }
+#legend .legend-title { font-weight: 700; }
+.swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.swatch.red { background: rgba(213, 0, 0, 0.75); }
+.swatch.orange { background: rgba(255, 109, 0, 0.7); }
+.swatch.yellow { background: rgba(255, 214, 0, 0.75); }
+.swatch.purple { height: 5px; background: #3f1d8a; }
+
+/* ---- Direction: the arrow on the map and the pill in the panel ---- */
+.field-label { margin: 14px 0 6px; font-weight: 600; }
+.direction-row > .pill { flex: 1; }
+.direction-row > button.small { flex: 0 0 auto; }
+.pill {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+.pill.unknown { background: #fff; color: var(--muted); border: 2px dashed var(--line); }
+button.small {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+}
+/* The arrow marker: a 180 px square centered on the last-seen point. Only the arrowhead
+   takes taps, so the map underneath still works. */
+.dir-arrow { position: relative; width: 180px; height: 180px; pointer-events: none; }
+.dir-rotor { position: absolute; inset: 0; transform: rotate(var(--angle, 0deg)); }
+.dir-shaft {
+  position: absolute;
+  left: 87px;
+  top: 34px;
+  width: 6px;
+  height: 52px;
+  border-radius: 3px;
+  background: #b00020;
+  box-shadow: 0 0 0 2px #fff;
+}
+.dir-head {
+  position: absolute;
+  left: 66px;
+  top: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #b00020;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  touch-action: none;        /* dragging the arrowhead doesn't scroll the page */
+  cursor: grab;
+}
+.dir-head::after {           /* the white triangle inside the knob */
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  transform: translateX(-50%);
+  border: 11px solid transparent;
+  border-bottom: 18px solid #fff;
+  border-top: 0;
+}
+.dir-head:focus-visible { outline: 4px solid var(--blue); outline-offset: 2px; }
+.dir-arrow.unknown .dir-shaft { background: #777; }
+.dir-arrow.unknown .dir-head { background: #777; }
+.dir-arrow.dragging .dir-head { cursor: grabbing; }
+.dir-arrow .pill {
+  position: absolute;
+  left: 50%;
+  top: 104px;                /* just below the last-seen dot */
+  transform: translateX(-50%);
+  font-size: 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.dir-arrow .pill.unknown { background: #fff; }

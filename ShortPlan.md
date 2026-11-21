@@ -16,7 +16,7 @@
 1. **Call 911 first.** The banner is always on screen.
 2. **Check the house and yard.** A 2-minute checklist.
 3. **Enter what you know.** Where and when they were last seen, which way they went, how well they walk, and familiar places.
-4. **See the map.** A heatmap and the top 3 places to check first, e.g. "Creek 130 ft off Main St".
+4. **See the map.** Red / orange / yellow likely areas (1 in 4, 1 in 2, 4 in 5) and the top 3 places to check first.
 5. **Share the link.** Each searcher who joins gets an area and a walking route.
 6. **Talk and report.**
    - A shared message feed.
