@@ -1808,16 +1808,18 @@ async function joinFromLink() {
     try { caseInput = decodeCase(packedCase); } catch (err) { console.warn('Bad case in link', err); }
   }
   // The database copy of the case wins, if we can reach it.
+  let reachedDatabase = false;
   if (searchId && sync.isConfigured()) {
     try {
       const { caseDoc } = await sync.loadSearch(searchId);
+      reachedDatabase = true;
       if (caseDoc) {
         caseInput = caseDoc;
         if (caseDoc.startedAt) state.caseStartedAt = caseDoc.startedAt;
         if (caseDoc.area) params.set('a', caseDoc.area);
       }
     } catch {
-      showStatus(t('joinFailed'));
+      // Shown at the end (below), so "You joined" doesn't cover it up.
     }
   }
   if (!caseInput) return false;
@@ -1830,7 +1832,10 @@ async function joinFromLink() {
   if (searchId && sync.isConfigured()) startLive(searchId);
   els.firstSteps.open = false;
   await runPrediction({ useDemoData: params.get('a') === 'demo', keepClock: true });
-  if (state.searchId) showStatus(t('joinedSearch'));
+  // Couldn't reach the database: say so, because the map has none of the others' updates
+  // yet (it fills in by itself when the connection comes back).
+  if (searchId && sync.isConfigured() && !reachedDatabase) showStatus(t('joinFailed'));
+  else if (state.searchId) showStatus(t('joinedSearch'));
   return true;
 }
 

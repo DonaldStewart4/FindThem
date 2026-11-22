@@ -228,13 +228,17 @@ export function subscribe(searchId, onChange, onStatus = () => {}) {
     mirror = applyChange(mirror, kind, path, data);
     onChange(mirror.case || null, sortedEvents(mirror.events), mirror.searchers || {});
   };
-  const flush = () => { flushQueue(); };
+  let lastStatus = 'reconnecting';
+  const status = (s) => { lastStatus = s; onStatus(s); };
+  // Send anything that waited for signal, then report the status again so the screen's
+  // "x updates waiting" count goes away once they're sent.
+  const flush = () => { flushQueue().then(() => onStatus(lastStatus)); };
 
   source.addEventListener('put', handle('put'));
   source.addEventListener('patch', handle('patch'));
-  source.addEventListener('open', () => { onStatus('live'); flush(); });
-  source.addEventListener('error', () => onStatus('reconnecting')); // the browser retries by itself
-  source.addEventListener('cancel', () => { onStatus('denied'); source.close(); }); // rules said no
+  source.addEventListener('open', () => { status('live'); flush(); });
+  source.addEventListener('error', () => status('reconnecting')); // the browser retries by itself
+  source.addEventListener('cancel', () => { status('denied'); source.close(); }); // rules said no
   window.addEventListener('online', flush);
 
   return () => {

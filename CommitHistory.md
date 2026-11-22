@@ -60,6 +60,20 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 4: honest messages when the database drops out
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:**
+  - `app.js` `joinFromLink()`: if the database can't be reached when a share link is opened, the app now ends on "Couldn't reach the shared search. Showing the map from the link." It used to show that message and then immediately cover it with "You joined a shared search.", although the map had none of the others' updates yet.
+  - `sync.js` `subscribe()`: after the waiting updates are sent (on reconnect), the status is reported again, so the screen's waiting count goes away. Before, it kept saying "1 updates waiting for signal" after they'd been sent.
+  - `i18n.js`: the waiting count reads "Updates waiting for signal: 1." in English, Spanish and French (no more "1 updates"); Chinese and Japanese have no plural problem and are unchanged.
+  - `sw.js` `v23` → `v25`.
+- **Why:** Found by stopping `tools/mock-firebase.py` in the middle of a shared search during BenStew's requested test session.
+- **Decisions:** The map from the link plus the live stream filling in on reconnect is kept as is (it already self-heals); only the messages were wrong.
+- **How it was verified:** Browser pane: database stopped, shared link reloaded: "Reconnecting…" and "Couldn't reach the shared search…". Marked Area B searched: "Updates waiting for signal: 1." Database restarted: within a few seconds the status went back to "Shared live: everyone with the link sees the same map." with no count, and the event was in the database. `node --test` 73/73.
+- **Known issues / not done:** Not pushed.
+- **Next:** Laptop size and a last look.
+
 ### Testing pass 3: spots show their chance now, not "% of walkers"
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)
