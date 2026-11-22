@@ -1,6 +1,6 @@
 // sw.js: the service worker. It lets FindThem open and work with no signal.
 // Bump CACHE_VERSION whenever any app file changes, so phones fetch the new copies.
-const CACHE_VERSION = 'v18';
+const CACHE_VERSION = 'v19';
 const SHELL_CACHE = 'findthem-shell-' + CACHE_VERSION;
 const TILE_CACHE = 'findthem-tiles'; // kept across versions; tiles don't change with our code
 const MAX_TILES = 2000;              // oldest tiles are deleted past this many
@@ -8,7 +8,7 @@ const MAX_TILES = 2000;              // oldest tiles are deleted past this many
 // The "app shell": files the app needs to start offline.
 const SHELL_FILES = [
   './', 'index.html', 'style.css', 'app.js', 'data.js', 'i18n.js',
-  'config.js', 'sync.js', 'report.js', 'manifest.json',
+  'config.js', 'sync.js', 'report.js', 'quickread.js', 'manifest.json',
   'engine/index.js', 'engine/graph.js', 'engine/sim.js', 'engine/grid.js', 'engine/routes.js',
   'lib/leaflet.js', 'lib/leaflet.css',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',

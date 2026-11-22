@@ -13,7 +13,7 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 ## Team: who writes what
 The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's TypeSafe AI's Jev model, used only in the report box (see below).
 - **BenStew** (repo owner, the person in Claude Code sessions here):
-  - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
+  - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `quickread.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
   - **The engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), now **built with Claude Code** at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
 - **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
 - `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.

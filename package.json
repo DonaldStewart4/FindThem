@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "bench": "node bench/benchmark.js"
+    "bench": "node bench/benchmark.js",
+    "jev-eval": "node bench/jev-eval.js"
   }
 }

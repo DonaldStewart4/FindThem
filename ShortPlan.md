@@ -28,7 +28,7 @@
 - Thousands of simulated "walkers" move along real streets the way research says people with dementia do: straight until stuck, usually within a mile, often just off the road in a creek or brush.
 - Where they end up becomes the starting map, built from public sources (search-and-rescue statistics, OpenStreetMap).
 - Each area searched with no luck drops on the map and the rest rise (Bayesian search theory). Routes update with it.
-- The prediction runs on the phone. Only the shared record, messages and report parsing are online.
+- The prediction runs on the phone. Only the shared record, messages and Jev's report reading are online; without Jev, simple word rules on the phone fill in the report form.
 
 ## What it is NOT
 - **Not a replacement for 911**, police or search-and-rescue.
@@ -50,7 +50,7 @@
 - [x] Routes for each searcher
 - [x] Sightings update the map
 - [x] Messaging between searchers
-- [x] Voice/text report box (live once the Jev proxy is deployed)
+- [x] Voice/text report box (Jev once its key is in; simple word rules on the phone until then)
 - [x] Share link
 - [x] Police hand-off sheet
 - [x] Works offline after the first visit

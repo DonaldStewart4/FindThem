@@ -30,7 +30,12 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
   You should get a JSON draft back with `"kind":"sighting"`.
 
 ## 2. Tune the Jev questions with real reports
-- [ ] In `proxy/jev.js`, try real reports the way a panicking family member would type or say them, in all 5 languages (en, es, fr, zh, ja). Jev's support for other languages isn't documented, so note what fails.
+- [ ] Once the key is in, run the scorer: it sends 40 realistic reports (all 5 languages, `bench/jev-cases.json`) through the live proxy and shows what Jev gets right, leaves empty, or gets wrong:
+  ```bash
+  npm run jev-eval -- --show
+  ```
+  For comparison, the phone's backup word rules (`quickread.js`) score 95% on the same set (`npm run jev-eval -- --local`), but they were written alongside these reports, so Jev should be judged on reports it hasn't seen too.
+- [ ] Add your own real-sounding reports to `bench/jev-cases.json`, the way a panicking family member would type or say them. Jev's support for other languages isn't documented, so note what fails.
 - [ ] Adjust the question wording and `MIN_CONFIDENCE` (now 0.5) so wrong answers get left empty rather than guessed.
 - [ ] Keep `tests/jev.test.js` passing, and add a test for anything you change.
 

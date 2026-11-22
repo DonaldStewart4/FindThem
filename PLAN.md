@@ -21,7 +21,8 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - offline PWA
 - 5 languages
 - the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
-- 65 tests
+- 72 tests
+- report box backup reader on the phone (`quickread.js`, 5 languages) for when Jev can't answer, and a 40-report scorer for Jev (`npm run jev-eval`)
 - the app asks for location on start; searchers see each other as green dots in a shared search (needs the updated `firebase-rules.json` published)
 - commit emails switched to the GitHub noreply address
 - first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar

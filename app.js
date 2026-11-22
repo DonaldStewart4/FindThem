@@ -26,6 +26,7 @@
 import * as data from './data.js';
 import * as sync from './sync.js';
 import * as report from './report.js';
+import { readLocally } from './quickread.js';
 import { databaseUrl, proxyUrl } from './config.js';
 import * as i18n from './i18n.js';
 import { t } from './i18n.js';
@@ -1234,15 +1235,23 @@ async function readReport() {
   els.reportRead.disabled = true;
 
   let draft;
+  let readOnPhone = false; // true when the backup word rules filled it in instead of Jev
+  const places = nearbyPlaces();
   try {
-    draft = await report.parseReport(text, { lastSeen: state.lastSeen, places: nearbyPlaces() }, i18n.getLanguage());
+    draft = await report.parseReport(text, { lastSeen: state.lastSeen, places }, i18n.getLanguage());
   } catch (err) {
-    // Whatever went wrong, the manual form is always the way out.
-    if (err.message === 'offline') els.reportStatus.textContent = t('reportOffline');
-    else if (!report.isProxyConfigured()) els.reportStatus.textContent = t('reportNotSetUp');
-    else els.reportStatus.textContent = t('reportFailed');
-    openSightingForm();
-    return;
+    // Jev can't answer (no signal, proxy or key missing, or an error): read the report on
+    // the phone with simple word rules instead (quickread.js). Same checks as Jev's answer.
+    draft = report.validateDraft(readLocally(text, { places }));
+    readOnPhone = true;
+    if (!draft) {
+      // Shouldn't happen, but the manual form is always the way out.
+      if (err.message === 'offline') els.reportStatus.textContent = t('reportOffline');
+      else if (!report.isProxyConfigured()) els.reportStatus.textContent = t('reportNotSetUp');
+      else els.reportStatus.textContent = t('reportFailed');
+      openSightingForm();
+      return;
+    }
   } finally {
     els.reportRead.disabled = false;
   }
@@ -1257,12 +1266,13 @@ async function readReport() {
     els.reportText.value = '';
     toggleReportBox(); // close it, so the filled-in form is right there
     openSightingForm({ draft });
+    if (readOnPhone) showStatus(t('reportReadOnPhone'));
   } else if (draft.kind === 'message') {
     els.reportText.value = '';
     toggleReportBox();
     els.messageText.value = draft.note || draft.placeText;
     els.messageText.scrollIntoView({ block: 'center' });
-    showStatus(t('reportMessageReady'));
+    showStatus(readOnPhone ? `${t('reportMessageReady')} ${t('reportReadOnPhone')}` : t('reportMessageReady'));
   } else {
     // 'searched' needs an area from the map, which the person picks under "Next areas".
     els.reportStatus.textContent = t('reportSearched');

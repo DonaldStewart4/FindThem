@@ -32,13 +32,13 @@ Built for EvoHacks II (theme: social good).
      1. **Speech → text:** if the proxy has a Deepgram key, the app records you and **Deepgram** turns the recording into text, then goes straight on to step 2 (hands-free). Otherwise it uses the phone's own speech recognition (Google on Android Chrome, Apple on iPhone Safari), in the app's language.
      2. **Text → form:** our small proxy asks Jev five multiple-choice questions (kind, direction, minutes ago, how sure, which nearby place). Answers Jev isn't confident about are left blank.
      3. **You check the form and add it**, and it updates the shared map like any sighting. If the proxy has an ElevenLabs key and you spoke the report, the app also **says what it filled in** ("I filled in a sighting. Seen 10 minutes ago. Heading east. I wasn't sure about: where.") with an **ElevenLabs** voice. **The read-back is English only:** in Spanish, French, Chinese or Japanese the app doesn't speak (ElevenLabs is never called) and you just see the filled-in form. Voice input still works in all five languages.
-     If anything fails, the normal sighting form opens, so reporting never depends on the AI.
+     **If Jev can't answer** (no signal, no key, an error), a **backup reader on the phone** (`quickread.js`) fills in the same form with simple word rules in all five languages ("10 minutes", "hacia el norte", "往东", "maybe" …) and says so, so reporting never depends on the AI. On our 40-report test set (`bench/jev-cases.json`) it gets 95% of fields right, but we wrote those reports and the rules together, so expect less on real reports.
 7. **Messages** between everyone on the search.
 8. **Hand-off sheet for police:** last seen, how they walk, a timeline of everything searched and seen, the most likely places still to check (with coordinates), and the live link. You can copy or print it. A non-English sheet includes an English copy.
 
 **Before an emergency:** "Save my home area" stores the streets around home on the phone (find it by address, map tap or GPS), so the app works there even with no signal.
 
-**With no signal** (tested with the server stopped and every web request failing): the app opens, the Demo runs, saved areas work, searches and sightings stay on the phone and are sent when signal returns. What needs internet says so plainly instead of failing quietly: new streets ("No internet, and no streets saved near here…"), address search, sharing live (the link still works and shows the same map), and the report box (the normal form opens). Wi-Fi that has no internet is noticed after two failed tries (about 3 s) instead of minutes of "server busy" retries.
+**With no signal** (tested with the server stopped and every web request failing): the app opens, the Demo runs, saved areas work, searches and sightings stay on the phone and are sent when signal returns. What needs internet says so plainly instead of failing quietly: new streets ("No internet, and no streets saved near here…"), address search, sharing live (the link still works and shows the same map), and the report box (the backup reader on the phone fills in the form instead of Jev). Wi-Fi that has no internet is noticed after two failed tries (about 3 s) instead of minutes of "server busy" retries.
 
 **Anytime:** the ◎ button shows your own position as a blue dot (GPS works without cell signal). **Demo** runs a sample case in Fremont, CA in one tap.
 
@@ -111,6 +111,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `data.js` | Streets and creeks from OpenStreetMap (Overpass), address search (Nominatim), saving areas in the browser (IndexedDB) |
 | `sync.js` | Live sharing through Firebase's web API: the case, events and messages; an offline queue |
 | `report.js` | Report box logic: voice input, sending to the proxy, checking the answer |
+| `quickread.js` | The report box's backup reader: simple word rules in 5 languages, used on the phone when Jev can't answer |
 | `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
 | `config.js` | The Firebase and proxy addresses (not secrets) |
 | `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `sim.js` (walkers), `grid.js` (probability map, Bayes updates, next areas, top spots), `routes.js` (walking routes), `index.js` (what the app imports) |
@@ -174,7 +175,9 @@ Open http://localhost:8000/?db=http://localhost:9000 in two tabs. Run the Demo i
 
 Follow `proxy/README.md`: a free Cloudflare account, a TypeSafe API key for Jev stored as a Worker secret, then `wrangler deploy`. Put the Worker's address in `PROXY_URL` in `config.js`, and set `ALLOWED_ORIGIN` in `proxy/wrangler.toml` to your site's address before the demo. For the voice bot, also set `DEEPGRAM_API_KEY` and `ELEVENLABS_API_KEY` the same way (optional; without them, voice works as before). **Never put any API key in the website or the repo**; for local testing they go in `proxy/.dev.vars`, which git ignores.
 
-**Testing without a Jev key:** `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple keyword rules instead of Jev.
+**Testing without a Jev key:** the backup reader works with no proxy at all. To test the proxy path, run `python3 tools/mock-proxy.py`, then open http://localhost:8000/?proxy=http://localhost:9100. It fills in forms with simple English keyword rules instead of Jev.
+
+**Scoring the report box:** `npm run jev-eval -- --local` scores the backup reader on 40 realistic reports in all five languages; `npm run jev-eval` scores Jev through the live proxy (needs the TypeSafe key). Add `--show` to list the misses.
 
 ## Deploy for free with GitHub Pages
 
