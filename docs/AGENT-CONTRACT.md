@@ -361,6 +361,20 @@ Fields right (empty / wrong); dangerous cases (high / medium):
 
 ¹ This one was a scorer bug: it counted a *message* draft's reliability as dangerous, although a message never touches the map. It was fixed before tuning.
 
+### The honest number: blind-test, scored once
+
+Scored on commit `4c3a77f`, after all tuning, with nobody having looked at the cases. The scorer printed totals only.
+
+| blind-test (60) | Right | Empty | Wrong | Dangerous |
+|---|---|---|---|---|
+| Backup reader (`quickread.js`) | 156/190 (82%) | 22 | 12 | **4** (high 2, medium 2) |
+| Jev (`jev-1.14.0`) through the safety layer | 176/190 (93%) | 12 | 2 | **1** (high 0, medium 1) |
+
+- Neither reader reached 0 dangerous on reports it had never seen.
+- The backup reader falls from 92% on blind-dev to 82% on blind-test, and from 0 to 4 dangerous. Its word rules were fitted to the reports they were checked on.
+- Jev through the layer holds up much better: 95% → 93%, 0 → 1 dangerous, and that one is medium (a wrong direction or time, or too-high certainty; no wrong place).
+- blind-test is now **spent**. Any further tuning needs a new held-out set written by someone who hasn't seen the readers.
+
 "Before" means after the API fixes above, but before any tuning. "Jev" means Jev through the safety layer, exactly as the proxy returns it, with model `jev-1.14.0`.
 
 ## Screen work to show the flags (for the `app.js` session)

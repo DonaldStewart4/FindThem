@@ -61,6 +61,30 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Blind-test scored once: the honest number
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:** `docs/AGENT-CONTRACT.md` gets the blind-test result. `bench/jev-answers.json` now also holds Jev's answers for blind-test (saved by the one scoring run).
+- **Why:** step 6 of Nathan's request: score blind-test once, with both readers, after tuning.
+- **Decisions:**
+  - Scored on the committed state `4c3a77f`, with `--final` (totals only). Nobody looked at the failing cases, and they were not tuned on.
+  - blind-test is now spent: further tuning needs a new held-out set.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-test --reader local --final`: 156/190 right (82%), 22 empty, 12 wrong; **4 dangerous** (2 high, 2 medium).
+  - `--reader proxy` (Jev `jev-1.14.0`): 176/190 (93%), 12 empty, 2 wrong; **1 dangerous** (0 high, 1 medium).
+  - The replay check passed.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - the backup reader has 4;
+    - Jev through the layer has 1, a medium one.
+  - The backup reader generalizes worst: 92% on dev vs 82% on test.
+  - The screen still doesn't show flags.
+- **Next:**
+  - Nathan: write a fresh held-out set to measure future changes.
+  - Decide whether to pin `jev-1.14.0`.
+  - The app.js session: the "Screen work" list in the contract.
+
+
 ### Jev on the real API: docs check, blind split, tuning (before the blind-test score)
 - **Date:** 2026-11-22
 - **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
