@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { readLocally } from '../quickread.js';
 import { validateDraft } from '../report.js';
-import { safeJevDraft, minutesBucket } from '../proxy/jev.js';
+import { safeJevDraft, minutesBucket, MINUTE_OPTION } from '../proxy/jev.js';
 
 const ORIGIN = 'https://donaldstewart4.github.io';
 const WAIT_MS = 3200; // 60 s / 20 requests, plus a little (the proxy's rate limit)
@@ -136,7 +136,7 @@ export function hostileJevAnswers(c, data, { rightKind = false } = {}) {
     kind: pick(rightKind ? right.kind : right.kind === 'sighting' ? 'searched' : 'sighting'),
     place: pick(wrongPlace),
     direction: pick(right.direction === 'N' ? 'S' : 'N'),
-    minutes: pick(minutesBucket(right.minutes) === 60 ? '0' : '60'),
+    minutes: pick(MINUTE_OPTION[minutesBucket(right.minutes) === 60 ? 0 : 60]),
     sure: { type: 'score', score: 2, confidence: 0.95 },
   };
 }

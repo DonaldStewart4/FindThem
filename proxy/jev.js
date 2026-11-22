@@ -26,33 +26,45 @@
 //
 // This file has no Cloudflare or browser code, so tests/jev.test.js runs it in Node.
 
-import { readLocally, readSignals, PLACE_WORDS, hasWord, MAX_INTERSECTIONS } from '../quickread.js';
+import { readLocally, readSignals, PLACE_WORDS, hasWord, MAX_INTERSECTIONS, hasSearchEvidence } from '../quickread.js';
 import { UNSURE_FIELDS, DRAFT_FLAGS } from '../report.js';
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone';
-export const JEV_MODEL = 'jev-latest';
+// Pinned (Nathan, Nov 22): the question wording, MIN_CONFIDENCE and the safety rules were tuned on
+// jev-1.14.0. The alias 'jev-latest' moves when TypeSafe ships a release, which could change answers
+// without any change here. proxy/worker.js refuses an answer from any other model version.
+export const JEV_MODEL = 'jev-1.14.0';
 export const MIN_CONFIDENCE = 0.5; // below this, an answer is treated as "not sure" → left empty
 export const MAX_PLACES = 60;      // nearby named places offered as choices
 export const MIN_MARGIN = 0.15;    // top option must beat the runner-up by this much, or it's a conflict
 export const CONFLICT_PENALTY = 0.25; // confidence taken off an answer for each soft conflict
 const HARD = 1;                    // a penalty that always takes the answer below MIN_CONFIDENCE
 
+// Every choice question lists its safe "not stated" option FIRST: TypeSafe's docs ("Model
+// jaggedness: Choice option order") say Jev leans toward the option that comes first, so a
+// lean should land on "not stated" (left empty), never on a direction or "just now".
 const DIRECTIONS = {
+  unknown: 'the report does not say which way the person was going',
   N: 'heading north', NE: 'heading northeast', E: 'heading east', SE: 'heading southeast',
   S: 'heading south', SW: 'heading southwest', W: 'heading west', NW: 'heading northwest',
-  unknown: 'the report does not say which way the person was going',
 };
 
-// Option name → minutes since the sighting (null = not stated).
+// Option name → minutes since the sighting (null = not stated). The names are words, not
+// numbers: JavaScript always puts number-like keys ('0', '5'...) first in an object, which
+// would put "just now" ahead of "unknown"; and Jev reads words better than numbers (docs:
+// "Numeric representations").
 const MINUTE_BUCKETS = {
-  '0': { minutes: 0, text: 'just now, or less than 3 minutes ago' },
-  '5': { minutes: 5, text: 'about 5 minutes ago' },
-  '10': { minutes: 10, text: 'about 10 minutes ago' },
-  '15': { minutes: 15, text: 'about 15 to 20 minutes ago' },
-  '30': { minutes: 30, text: 'about half an hour ago' },
-  '60': { minutes: 60, text: 'about an hour ago or more' },
   unknown: { minutes: null, text: 'the report does not say when' },
+  just_now: { minutes: 0, text: 'just now, or less than 3 minutes ago' },
+  about_5_min: { minutes: 5, text: 'about 5 minutes ago' },
+  about_10_min: { minutes: 10, text: 'about 10 minutes ago' },
+  about_15_to_20_min: { minutes: 15, text: 'about 15 to 20 minutes ago' },
+  about_30_min: { minutes: 30, text: 'about half an hour ago' },
+  an_hour_or_more: { minutes: 60, text: 'about an hour ago or more' },
 };
+// Bucket minutes (0, 5, 10, 15, 30, 60) → the option name, for tests and the bench.
+export const MINUTE_OPTION = Object.fromEntries(
+  Object.entries(MINUTE_BUCKETS).filter(([, b]) => b.minutes !== null).map(([name, b]) => [b.minutes, name]));
 
 const SURE_LEVELS = [0.3, 0.6, 0.9]; // score level 0 / 1 / 2 → reliability
 
@@ -94,7 +106,7 @@ export function cleanIntersections(list) {
 // The request body for one Jev call: the report plus five questions, answered in parallel.
 // Street corners (if the phone sent any) are offered as places too.
 export function buildJevRequest(text, lang, places, intersections = []) {
-  const placeOptions = { none: 'the report does not clearly name one of these places' };
+  const placeOptions = { none: 'none of these places: the report names or describes no place, or a place that is not in this list, or more than one of them fits' };
   for (const p of places) placeOptions[p.name] = null; // the name alone is the description
   for (const c of intersections) placeOptions[c.name] = `where ${c.streets[0]} and ${c.streets[1]} cross`;
 
@@ -111,9 +123,9 @@ export function buildJevRequest(text, lang, places, intersections = []) {
         type: 'choice',
         instructions: 'What kind of report is this?',
         criteria: {
-          sighting: 'someone saw the missing person, or someone who may be them (not a guess, and not someone who turned out to be a different person)',
+          message: 'anything else: the person has been found; a guess or worry about where they might be when nobody saw anyone; a joke; someone who turned out to be a different person; coordination, a question, a status update',
           searched: 'someone checked a place and did NOT find the person',
-          message: 'anything else: a guess or worry about where they might be, a joke, someone who turned out to be a different person, coordination, a question, a status update',
+          sighting: 'someone saw the missing person, or someone who may be them, even if the reporter is not sure it was them ("maybe it was her"); not a guess when nobody saw anyone, and not someone who turned out to be a different person',
         },
       },
       direction: {
@@ -130,14 +142,14 @@ export function buildJevRequest(text, lang, places, intersections = []) {
         type: 'score',
         instructions: 'How sure is the reporter that it was the missing person?',
         criteria: [
-          'unsure: "maybe", "might have been", "not sure"',
+          'unsure: "maybe", "might have been", "not sure", seen from far away, or second-hand (someone else told the reporter they saw them)',
           'fairly sure: "I think", "probably"',
           'certain: "definitely", "I am sure", "it was them"',
         ],
       },
       place: {
         type: 'choice',
-        instructions: 'Which of the nearby places does the report say the person was at or near?',
+        instructions: 'Where was the person when they were seen or searched for: which of these nearby places? A general description counts as a place when exactly one place in the list fits it (for example "the lake" when only one lake is listed). A place they were heading toward does not count.',
         criteria: placeOptions,
       },
     },
@@ -169,28 +181,47 @@ function closeCall(answer) {
 // Reads one choice answer → { value, unsure }. value is one of `options`' names, or null.
 // No answer, an answer that isn't one of the options offered, or too little confidence
 // (after the penalties) all mean "not sure".
-function readChoice(answer, options, penalty = 0) {
+function readChoice(answer, options, penalty = 0, minConfidence = MIN_CONFIDENCE) {
   if (!answer || typeof answer.choice !== 'string' || !has(options, answer.choice)) return { value: null, unsure: true };
   const confidence = typeof answer.confidence === 'number' ? answer.confidence : 0;
-  if (confidence - closeCall(answer) - penalty < MIN_CONFIDENCE) return { value: null, unsure: true };
+  if (confidence - closeCall(answer) - penalty < minConfidence) return { value: null, unsure: true };
   return { value: answer.choice, unsure: false };
 }
 
+// The most likely level of a score answer. TypeSafe's `score` is the probability-weighted MEAN
+// of the levels (docs: Score; "Math using score"), so a split answer like 45% "maybe" / 45%
+// "certain" has a mean of "fairly sure", which neither reading says. So: the level with the
+// most probability, ties going to the LOWER level, and never above the rounded mean either
+// (40% "maybe" / 60% "certain" is "fairly sure", not "certain"): the lower reading wins.
+export function scoreLevel(answer, levels) {
+  const mean = Math.min(levels - 1, Math.max(0, Math.round(answer.score)));
+  const probs = answer && answer.probabilities;
+  if (probs && typeof probs === 'object') {
+    let best = -1;
+    let bestP = -1;
+    for (let level = 0; level < levels; level++) {
+      const p = Number(probs[String(level)]);
+      if (Number.isFinite(p) && p > bestP + 1e-9) { best = level; bestP = p; }
+    }
+    if (best >= 0) return Math.min(best, mean);
+  }
+  return mean;
+}
+
 // Reads the "how sure" score → { value: 0.3 | 0.6 | 0.9, unsure }. Not sure → the middle option.
-function readSure(answer, penalty = 0) {
+function readSure(answer, penalty = 0, minConfidence = MIN_CONFIDENCE) {
   if (!answer || typeof answer.score !== 'number' || !Number.isFinite(answer.score)) return { value: 0.6, unsure: true };
-  if ((answer.confidence ?? 1) - penalty < MIN_CONFIDENCE) return { value: 0.6, unsure: true };
-  const level = Math.min(2, Math.max(0, Math.round(answer.score)));
-  return { value: SURE_LEVELS[level], unsure: false };
+  if ((answer.confidence ?? 1) - penalty < minConfidence) return { value: 0.6, unsure: true };
+  return { value: SURE_LEVELS[scoreLevel(answer, SURE_LEVELS.length)], unsure: false };
 }
 
 // Builds a draft from Jev's answers. penalties = { kind, place, direction, minutes, sure }:
 // confidence to take off each answer first (safeJevDraft sets them; jevToDraft doesn't).
-function buildDraft(answers, text, places, penalties = {}) {
+function buildDraft(answers, text, places, penalties = {}, minConfidence = MIN_CONFIDENCE) {
   const a = answers || {};
   const note = String(text || '').trim().slice(0, 300); // Jev can't write text: keep the report itself
 
-  const kind = readChoice(a.kind, KIND_OPTIONS, penalties.kind).value;
+  const kind = readChoice(a.kind, KIND_OPTIONS, penalties.kind, minConfidence).value;
   if (!kind) {
     // Not sure what kind of report this is: open the sighting form with only the note,
     // and let the person decide.
@@ -199,10 +230,10 @@ function buildDraft(answers, text, places, penalties = {}) {
 
   const placeOptions = { none: 1 };
   for (const p of places) placeOptions[p.name] = 1;
-  const placeRead = readChoice(a.place, placeOptions, penalties.place);
-  const dirRead = readChoice(a.direction, DIRECTIONS, penalties.direction);
-  const minRead = readChoice(a.minutes, MINUTE_BUCKETS, penalties.minutes);
-  const sure = readSure(a.sure, penalties.sure);
+  const placeRead = readChoice(a.place, placeOptions, penalties.place, minConfidence);
+  const dirRead = readChoice(a.direction, DIRECTIONS, penalties.direction, minConfidence);
+  const minRead = readChoice(a.minutes, MINUTE_BUCKETS, penalties.minutes, minConfidence);
+  const sure = readSure(a.sure, penalties.sure, minConfidence);
   const place = placeRead.value && placeRead.value !== 'none' ? places.find((p) => p.name === placeRead.value) : null;
 
   // Which fields the person must fill in or check: only those that matter for this kind.
@@ -274,18 +305,19 @@ export function minutesSupported(text) {
 
 // Turns Jev's answers into a ReportDraft, from Jev alone (still to be checked by validateDraft).
 // Answers below MIN_CONFIDENCE are left empty and listed in `unsure`.
-export function jevToDraft(answers, text, places, intersections = []) {
-  return buildDraft(answers, text, [...places, ...intersections]);
+export function jevToDraft(answers, text, places, intersections = [], minConfidence = MIN_CONFIDENCE) {
+  return buildDraft(answers, text, [...places, ...intersections], {}, minConfidence);
 }
 
 // The safety layer: Jev's answers, cross-checked against the report's own words before they
 // become a draft. This is what the proxy returns. Everything here only removes answers or adds
 // flags; it never fills in a field Jev left empty.
 // options = { intersections, lang }: the street corners the phone sent, and the app's language.
-export function safeJevDraft(answers, text, places, { intersections = [], lang = 'en' } = {}) {
+// (minConfidence is only for bench/eval.js's threshold sweep; the proxy uses MIN_CONFIDENCE.)
+export function safeJevDraft(answers, text, places, { intersections = [], lang = 'en', minConfidence = MIN_CONFIDENCE } = {}) {
   const local = readLocally(text, { places, intersections, lang });   // the phone's word rules, as a second reader
   const signals = readSignals(text, places, { intersections, lang });
-  const own = jevToDraft(answers, text, places, intersections);       // Jev alone
+  const own = jevToDraft(answers, text, places, intersections, minConfidence); // Jev alone
   // The street corner the word rules found, if any. Jev naming one of its two streets agrees with it.
   const corner = intersections.find((c) => c.name === local.placeText) || null;
   const sameSpot = (name) => name === local.placeText || Boolean(corner && corner.streets.includes(name));
@@ -321,17 +353,22 @@ export function safeJevDraft(answers, text, places, { intersections = [], lang =
   if (own.direction && !directionSupported(own.direction, text)) penalties.direction = HARD;
   if (own.minutesSince !== null && !minutesSupported(text)) penalties.minutes = HARD;
 
-  // 4. Not a sighting, whatever Jev says: a joke, or someone else; or, when the report has no
+  // 4. Not a sighting, whatever Jev says: a joke, someone else, or "we found him" (the search is
+  //    over); or, when the report has no
   //    "saw" words, a guess, "he took the car" (police, not the walking map), or "I can't
   //    find him" (nobody has seen them).
   const joke = flags.has('joke');
   const noSawWords = local.kind !== 'sighting';
-  const notSighting = joke || flags.has('other_person')
+  const notSighting = joke || flags.has('other_person') || signals.found
     || (noSawWords && (flags.has('guess') || flags.has('vehicle') || signals.notSeen));
   if (jevKind === 'sighting' && notSighting) penalties.kind = HARD;
+  //    Nor is "she's gone, she's not here" a search: Jev's "searched" needs the same evidence as the
+  //    word rules' (a search verb, or a place), else it's a message.
+  const searchNeedsEvidence = jevKind === 'searched' && local.kind !== 'searched' && !hasSearchEvidence(text, places);
+  if (searchNeedsEvidence) penalties.kind = HARD;
   if (joke) Object.keys(penalties).forEach((k) => { penalties[k] = HARD; });
 
-  const draft = buildDraft(answers, text, [...places, ...intersections], penalties);
+  const draft = buildDraft(answers, text, [...places, ...intersections], penalties, minConfidence);
   const unsure = new Set(draft.unsure || []);
   // Jev named one street of the corner the report names: pin the corner itself (more exact).
   if (corner && draft.placeText && sameSpot(draft.placeText)) {
@@ -339,7 +376,7 @@ export function safeJevDraft(answers, text, places, { intersections = [], lang =
     draft.lat = corner.lat;
     draft.lng = corner.lng;
   }
-  if (unsure.has('kind') && notSighting) draft.kind = 'message'; // a message never moves the map
+  if (unsure.has('kind') && (notSighting || searchNeedsEvidence)) draft.kind = 'message'; // a message never moves the map
 
   // 5. "How sure": "definitely" + "not sure" → "maybe". "Certain" moves the map the most, so
   //    it needs certain words in the report too; otherwise it drops to "probably". And if the
@@ -353,6 +390,13 @@ export function safeJevDraft(answers, text, places, { intersections = [], lang =
         disagree = true;
       }
     }
+  }
+
+  // 6. A searched report's time is how long they searched. Jev is only asked how long ago someone
+  //    was SEEN, so that answer is never used here; the word rules read the time spent.
+  if (draft.kind === 'searched') {
+    draft.minutesSince = local.kind === 'searched' ? local.minutesSince : null;
+    unsure.delete('minutesSince');
   }
 
   if (disagree) flags.add('conflict');

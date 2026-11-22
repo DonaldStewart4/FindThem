@@ -109,6 +109,8 @@ AgentReply = {
 
 The voice read-back in `app.js` (`readBackText`) already works this way.
 
+**Changed Nov 22 (Nathan):** a reply may now be **generated** wording, under constraints. It goes through `POST /say`, and `replies.js` `checkReply` holds every number, place and direction to `data`, bans advice and promises, and falls back to the fixed template on any failure. `emergency` and `found` stay fixed. See `docs/REPLIES.md`.
+
 ## The functions
 
 All of them run on the phone and are pure: same inputs, same output on every phone. None of them writes to Firebase.
@@ -293,6 +295,100 @@ Results on Nov 22 (74 cases):
 
 - The one `--hostile` miss is a report with typos in every word ("lo bi en el parke sentral"). The word rules can't read it, so nothing contradicts Jev's "searched".
 - The layer's cost: a perfect Jev answer set on `bench/jev-cases.json` keeps 137 of 138 fields. `tests/safety.test.js` checks it stays ≥ 95%.
+
+## Jev against TypeSafe's published API (checked Nov 22 against docs.typesafe.ai)
+
+| Item | Docs | `proxy/jev.js` |
+|---|---|---|
+| Endpoint, auth | `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer` | same |
+| Body | `{ model, state, questions }`; `state` may be text or JSON | same |
+| Model | `jev-latest` is an alias; it pointed to **`jev-1.14.0`** on Nov 22 (not 1.13.0). Each response's `model` says which version answered | alias kept; tuned on 1.14.0 (see NATHAN.md: pin it?) |
+| Choice | `criteria` = object of options (up to 255); answer `choice`, `probabilities`, `confidence` | same |
+| Score | `criteria` = ordered array, 2–10 levels; `score` is the probability-weighted **mean** | **fixed**: we used `round(score)`; now the most likely level, never above the rounded mean, ties to the lower |
+| Yes/no | type **`noul`**, answer `noul` (0–1), no confidence. Vercel's AI SDK calls it `boolean` | not used; a test checks we never send `boolean` |
+| Confidence | how concentrated the probabilities are, not the chance of being right; the docs' example floor is 0.5 | `MIN_CONFIDENCE` 0.5, confirmed by a sweep (below) |
+| "Choice option order" | Jev leans toward the **first** option | **fixed**: every choice lists its safe option first (`message`, `unknown`, `none`). Minute options are words, because JavaScript always puts number-like keys first |
+| Errors | 429 / 529: back off and retry | 3 attempts, 0.8 s then 1.6 s |
+
+## Tuning on real Jev answers (Nov 22)
+
+### How it was done
+
+- **The blind set.** `bench/blind-cases.json` holds Nathan's 120 blind reports, written without seeing the readers. `bench/split-blind.js` (seed 20261122, balanced by language × kind) splits it into two halves:
+  - `blind-dev.json`: looked at, only to find *categories* of problems;
+  - `blind-test.json`: never looked at, scored once at the end.
+- **The scorer.** `bench/eval.js` scores every set. `acceptable` answers count as right; minutes are compared by Jev's buckets; for searched reports, minutes are the time spent searching; dangerous cases are split high / medium / low.
+- **Saving Jev's answers.** The local proxy, started with `DEBUG_ANSWERS`, saves Jev's raw answers (`bench/jev-answers.json`). Rule changes can then be re-scored with `--reader replay`, and a replay check confirms the saved answers reproduce every proxy draft exactly.
+
+### Categories fixed (none for a single report)
+
+**Backup reader:**
+- "found him" → message;
+- second-hand or far away → "maybe";
+- a question ending in "?" → message;
+- "bus stop" is a place;
+- a car report with no "saw" words → message;
+- a sighting told without a "saw" verb.
+
+**Both readers:**
+- a place after "toward / from" is not where the person was;
+- "BART station" is not BART Way;
+- Latin place names inside Chinese/Japanese text (a word-boundary bug of mine);
+- a searched report's time = time spent searching.
+
+**Jev's wording:**
+- "found" is a message;
+- a hedged sighting ("maybe it was her") is still a sighting;
+- a general description ("the lake") counts when only one listed place fits;
+- second-hand or far away = "unsure".
+
+The `MIN_CONFIDENCE` sweep over the saved answers (jev + safety + blind-dev together; right / empty / wrong, dangerous):
+
+| `MIN_CONFIDENCE` | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 |
+|---|---|---|---|---|---|---|
+| right / empty / wrong | 500 / 13 / 4 | 502 / 13 / 2 | **503 / 13 / 1** | 500 / 16 / 1 | 495 / 21 / 1 | 487 / 30 / 0 |
+| dangerous | 0 | 0 | 0 | 0 | 0 | 0 |
+
+0.5 stays. The one wrong field left is a reliability *lower* than expected, which is the safe direction. Removing it needs 0.8, which costs 16 right answers.
+
+### Before and after
+
+Fields right (empty / wrong); dangerous cases (high / medium):
+
+| Set | Backup reader before | Backup reader after | Jev before | Jev after |
+|---|---|---|---|---|
+| jev-cases (40) | 143/148, 97% (3 / 2); **0** | 145/148, 98% (2 / 1); **0** | 136/148, 92% (10 / 2); **1** (0/1)¹ | 148/148, 100% (0 / 0); **0** |
+| safety-cases (74) | 187/189, 99% (1 / 1); **0** | 187/189, 99% (1 / 1); **0** | 178/189, 94% (11 / 0); **0** | 184/189, 97% (5 / 0); **0** |
+| blind-dev (60) | 130/180, 72% (29 / 21); **9** (7/2) | 166/180, 92% (13 / 1); **0** | 146/180, 81% (31 / 3); **1** (0/1) | 171/180, 95% (8 / 1); **0** |
+
+¹ This one was a scorer bug: it counted a *message* draft's reliability as dangerous, although a message never touches the map. It was fixed before tuning.
+
+### The honest number: blind-test, scored once
+
+Scored on commit `4c3a77f`, after all tuning, with nobody having looked at the cases. The scorer printed totals only.
+
+| blind-test (60) | Right | Empty | Wrong | Dangerous |
+|---|---|---|---|---|
+| Backup reader (`quickread.js`) | 156/190 (82%) | 22 | 12 | **4** (high 2, medium 2) |
+| Jev (`jev-1.14.0`) through the safety layer | 176/190 (93%) | 12 | 2 | **1** (high 0, medium 1) |
+
+- Neither reader reached 0 dangerous on reports it had never seen.
+- The backup reader falls from 92% on blind-dev to 82% on blind-test, and from 0 to 4 dangerous. Its word rules were fitted to the reports they were checked on.
+- Jev through the layer holds up much better: 95% → 93%, 0 → 1 dangerous, and that one is medium (a wrong direction or time, or too-high certainty; no wrong place).
+- blind-test is now **spent**. Any further tuning needs a new held-out set written by someone who hasn't seen the readers.
+
+### The honest number, round 2: blind-2 (150 reports), scored once on Nov 22
+
+Scored after the caution rules and the blind-test category fixes, on commit `3bc7fdb`. The street corners were filled with `findIntersections` on the demo map. Full tables are in `bench/blind-2-results.md`; the summary is in `docs/REPORT-2026-11-22.md`.
+
+| blind-2 (150) | Right | Empty | Wrong | Dangerous |
+|---|---|---|---|---|
+| Backup reader | 429/564 (76%) | 95 | 40 | **7** (high 7) |
+| Jev (`jev-1.14.0`) through the safety layer | 479/564 (85%) | 77 | 8 | **3** (high 3) |
+
+All 3 of Jev's dangerous cases are "two reports in one message". blind-2 is spent too.
+
+"Before" means after the API fixes above, but before any tuning. "Jev" means Jev through the safety layer, exactly as the proxy returns it, with model `jev-1.14.0`.
 
 ## Screen work to show the flags (for the `app.js` session)
 

@@ -59,6 +59,11 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, drill mode, accounts or photos, or anything else on the roadmap.
 - **GPS-trail coverage is in scope (decision by Nathan, 2026-11-22 night; it was on the "do not build" list before).** The search planner scores a `completed` event from the trail the searcher actually walked when the event carries one. Recording is specified, not yet built on the screen: during an active task only, a point every 10 s, attached to the `completed` event (see `docs/PLANNER-MERGE.md`).
+- **Search-leader replies (2026-11-22, branch `agent-contract`, Nathan's decision):** replies are **generated wording, but constrained**. This replaces INTAKE-SPEC principle 2, "fixed templates only".
+  - `POST /say { intent, data, lang }` runs a text LLM through the Worker (`LLM_API_KEY` secret; `LLM_PROVIDER` / `LLM_MODEL` in `wrangler.toml`, default Anthropic `claude-opus-5-5`).
+  - `replies.js` `checkReply` holds every number, place and direction to `data` and bans advice, promises, water/road/property talk and "where they are". It runs on the proxy and on the phone; any failure gives the fixed template (5 languages).
+  - `emergency` / `found` are always fixed.
+  - This is a third online service, behind the same Worker; CLAUDE.md's "Online parts" list needs a line from BenStew.
 - **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
 - **Event integrity (2026-11-22, branch `integrity`, not merged):** no event can corrupt the shared map.
   - Firebase refuses any event that isn't exactly a known shape, refuses edits and deletes, and accepts the case once.
@@ -439,6 +444,207 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - Screen work is listed in `UPDATESBYNATE.md`: show the version warning (i18n in 5 languages), handle `invalid` in `recordEvent`, clamp minutes, `sw.js` cache bump, `INTERFACES.md` §6 update.
   - A malicious but well-formed event (a fake sighting) is still accepted; there are no accounts, so that is out of scope.
 - **Next:** deploy the rules with `sync.js` and test two phones against real Firebase; the screen session applies the `UPDATESBYNATE.md` items.
+
+### blind-2 scored once: the honest number for the pitch
+- **Date:** 2026-11-22
+- **Stage:** Finishing (evaluation), branch `agent-contract` (Nathan)
+- **What changed:**
+  - `bench/blind-2-results.md` (new): the full output, both readers, by language and by tag.
+  - `docs/REPORT-2026-11-22.md` (new): the overnight report.
+  - `docs/AGENT-CONTRACT.md`: the blind-2 result.
+  - `bench/jev-answers.json`: Jev's blind-2 answers (saved by the one run).
+- **Why:** Nathan: score blind-2 once with both readers, after the pin, the cautious backup reader and `/say`, and treat it as the honest number.
+- **Decisions:**
+  - **Street corners:** the 2 corners' null coordinates were filled with `findIntersections` on `tests/fixtures/demo-area.json`, not scored by name only.
+  - **"code-switch":** the set has no such tag; it was reported as the union of `spanglish`, `mixed-script` and `mixed`.
+  - **No tuning:** the dangerous cases were listed by category after scoring, and nothing was tuned on them.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-2 --reader local --final --by`: 429/564 (76%), 95 empty, 40 wrong, **7 dangerous** (7 high).
+  - `--reader proxy` (`jev-1.14.0` via `wrangler dev`): 479/564 (85%), 77 empty, 8 wrong, **3 dangerous** (3 high).
+  - The replay check passed. `node --test`: 141 pass.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - Jev: 3 cases, all two-in-one;
+    - backup reader: 7, in five categories (two-in-one; "nord ouest" with a space; mid-sentence corrections; "just saw … 5 minutes ago"; a spoken question without "?").
+  - blind-2 is spent.
+- **Next:** a new held-out set (two-in-one especially); the screen work in `docs/AGENT-CONTRACT.md` and `docs/REPLIES.md`; an `LLM_API_KEY` for `/say`.
+
+
+### Search-leader replies: POST /say, generated but constrained
+- **Date:** 2026-11-22
+- **Stage:** Finishing (conversation layer), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`replies.js` (new, root, pure; shared by phone and proxy):**
+    - `INTENTS` (ask, confirm, abstain, readRoute, comfort, found, emergency) and `cleanSayData` (per-intent fields only, and no advice, links or promises inside data);
+    - fixed templates in en/es/fr/zh/ja, with `templateReply`, `warningLines` (water / vehicle / "water in this area", fixed) and `replyFacts`;
+    - `checkReply`: numbers, places and directions only from the facts; banned medical, where-they-are, water/road/property, promise and "chatbot" content in 5 languages; one line, at most 2 sentences and 220 characters (90 for zh/ja); right language;
+    - `getReply`: the phone's call to `/say`, which re-checks the reply. It falls back to the template on any problem, uses a 2.5 s timeout, and never asks for emergency or found.
+  - **`proxy/say.js` (new):**
+    - the prompt (MEANING = the template, FACTS = the display facts);
+    - provider adapters with plain fetch: Anthropic Messages, `anthropic-version: 2026-10-21`, effort low, server-side refusal fallback; or OpenAI-compatible `/chat/completions`;
+    - `say()`: only `{ intent, data, lang }`, a 4 s timeout, a check, then the template.
+  - `proxy/worker.js`: route `POST /say`. `proxy/wrangler.toml`: `LLM_PROVIDER`, `LLM_MODEL`. `proxy/.dev.vars.example`: `LLM_API_KEY`.
+  - `tests/replies.test.js` (12 tests).
+  - Docs: `docs/REPLIES.md` (design, intents and data, provider, tests, **the screen hook-up list**); `INTERFACES.md` (`/say`); `docs/AGENT-CONTRACT.md` (AgentReply is now generated-but-constrained); `proxy/README.md`.
+- **Why:** Nathan's step 3: build the conversation layer from `docs/INTAKE-SPEC.md`, with generated but constrained wording.
+- **Decisions:**
+  - **The LLM never has to mention water, roads or property:** warnings are fixed lines added after the check. So any mention of them in a generated reply is rejected, except words the fixed template itself uses ("garage" in the house question).
+  - **The phone re-checks** what the proxy sends.
+  - **Templates live in `replies.js`** for now, because `i18n.js` is being edited elsewhere. The hook-up list moves them.
+  - **Strict over fluent:** a reply with Chinese numerals ("二十分钟") or a simplified direction is rejected, and the template is used.
+  - `docs/INTAKE-SPEC.md` (untracked in the main folder) was read but not copied into this branch, to avoid a merge clash.
+- **How it was verified:**
+  - `node --test`: 141 pass.
+  - Adversarial fake LLM: 0 of 720 bad replies got through. Fuzz: 500 planted errors, all rejected.
+  - All 60 generated-intent templates pass their own checker; 12 good paraphrases pass.
+  - The checker caught and fixed during development: neighbors' backyards (property), "il est là-bas", and English replies passing as es/fr.
+- **Known issues / not done:**
+  - **Not hooked up to the screen** (`app.js` / `i18n.js` untouched): see the list in `docs/REPLIES.md`.
+  - **No LLM key exists yet,** so the live generated path is untested against a real model: all tests use fakes.
+  - The templates need a native speaker's check.
+  - `caseGaps` / `proposeClue` (which feed `ask` / `confirm clue`) are still specified, not built.
+- **Next:** score blind-2 once.
+
+
+### Blind-test failure categories, and a cautious backup reader
+- **Date:** 2026-11-22
+- **Stage:** Finishing (report readers), branch `agent-contract` (Nathan)
+- **What changed:** blind-test was spent, so its 5 dangerous cases were opened. Each category was fixed, never a single case:
+
+  | Case | Reader | Level | Category | Fix |
+  |---|---|---|---|---|
+  | en-06 "SHE'S GONE … NOW SHES NOT HERE" | backup and Jev | medium | panic read as "searched" | "searched" needs search evidence (a search verb, or a place), in both readers (`hasSearchEvidence`); otherwise a message, kind unsure |
+  | en-11 "someone on nextdoor posted they saw…" | backup | medium | second-hand without a "says" word | `THIRD_PERSON_SEER` / `FIRST_PERSON_SEER`: someone else seeing ("the mailman saw", "posted", "was seen", es "vio / vieron", fr "l'a vue", zh "邻居…看到", ja "近所の人が…見") = maybe (0.3), unless the reporter also saw |
+  | fr-18 "Le facteur l'a vue…" | backup | high | same | same |
+  | ja-11 "…父じゃなかった" (it wasn't dad) | backup | high | "it wasn't" + a family word | `OTHER_PERSON` knows dad / mom / grandpa / grandma / husband / wife in 5 languages |
+
+  - Also, as a category: searching by walking a street ("walked all of", "端から端まで", "走遍", "parcouru") counts as a search verb.
+  - **Caution rule (Nathan):** a high-danger field is filled only on strong evidence, otherwise it's left empty and marked unsure.
+    - **place:** the full name, a short name of 7+ letters, or a short name next to a street word ("calle Walnut"); "walnut" or "bart" alone is left for the person;
+    - **kind:** a sighting with no "saw" verb is kept but marked unsure; "searched" without evidence becomes a message.
+  - Fields the caution rule emptied (backup reader, against the code before it): **18 in all**, 15 of them right, 1 wrong, 2 not scored. No field went from right to wrong.
+    - jev-cases 1 (a kind)
+    - safety 1 (a kind)
+    - blind-dev 13 (3 places, 10 kinds)
+    - blind-test 3 (1 place, 2 kinds)
+  - `tests/categories.test.js`: +4 tests, on new sentences. `sw.js` v32.
+- **Why:** Nathan: list the 5 dangerous blind-test cases, fix categories, and make the backup reader cautious.
+- **Decisions:**
+  - **"The lake" still pins Lake Elizabeth** when it's the only lake: Nathan's earlier rule, and uniqueness is the same evidence a person would use.
+  - **A presence sighting stays a sighting with kind unsure** (not a message), so a real sighting isn't dropped.
+  - **blind-test numbers are no longer held-out:** they were looked at. The honest number for the pitch is blind-2.
+- **How it was verified:**
+  - `node --test`: 129 pass.
+  - Dangerous is 0 on every set, for both readers. Backup reader: jev 98%, safety 99%, blind-dev 92%, blind-test 84% (it was 82%, with 4 dangerous). Jev through the layer: 100% / 97% / 95% / 94%.
+  - Live: the pinned `jev-1.14.0` answers through the local proxy (HTTP 200, `_jev.model` = `jev-1.14.0`).
+- **Known issues / not done:** blind-test can't measure these fixes honestly any more.
+- **Next:** the `/say` conversation layer, then blind-2 (once).
+
+
+### Pin Jev to jev-1.14.0
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev), branch `agent-contract` (Nathan's decision)
+- **What changed:**
+  - `proxy/jev.js`: `JEV_MODEL = 'jev-1.14.0'` (was the alias `jev-latest`).
+  - `proxy/worker.js`: a Jev response whose `model` is anything else, or missing, returns `502 model_mismatch`, so the phone reads the report with the backup rules.
+  - `tests/jev-api.test.js`: a new test that the proxy refuses `jev-1.15.0`, `jev-1.13.0`, `jev-latest` and a response with no `model`.
+  - `tests/jev.test.js`:
+    - the model assertion is now `'jev-1.14.0'`;
+    - the fake Jev response carries `model`, as the real API always does.
+  - `bench/eval.js` stops if a live answer comes from another model.
+  - `bench/jev-answers.json` re-keyed to the pinned request: 234 answers, all from `jev-1.14.0`. The 348 answers to earlier wordings were dropped; they are still in git history.
+- **Why:** the wording, `MIN_CONFIDENCE` and the safety rules were tuned on 1.14.0. The alias moves without notice.
+- **Decisions:** missing `model` counts as a mismatch: TypeSafe's docs say every response has it.
+- **How it was verified:**
+  - `node --test`: 125 pass.
+  - Replay scores identical before and after re-keying: jev 100%, safety 97%, blind-dev 95%, blind-test 93% / 1 dangerous.
+- **Known issues / not done:** a new TypeSafe release needs a deliberate re-tune and re-pin.
+- **Next:** blind-test failure categories.
+
+
+### Blind-test scored once: the honest number
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:** `docs/AGENT-CONTRACT.md` gets the blind-test result. `bench/jev-answers.json` now also holds Jev's answers for blind-test (saved by the one scoring run).
+- **Why:** step 6 of Nathan's request: score blind-test once, with both readers, after tuning.
+- **Decisions:**
+  - Scored on the committed state `4c3a77f`, with `--final` (totals only). Nobody looked at the failing cases, and they were not tuned on.
+  - blind-test is now spent: further tuning needs a new held-out set.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-test --reader local --final`: 156/190 right (82%), 22 empty, 12 wrong; **4 dangerous** (2 high, 2 medium).
+  - `--reader proxy` (Jev `jev-1.14.0`): 176/190 (93%), 12 empty, 2 wrong; **1 dangerous** (0 high, 1 medium).
+  - The replay check passed.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - the backup reader has 4;
+    - Jev through the layer has 1, a medium one.
+  - The backup reader generalizes worst: 92% on dev vs 82% on test.
+  - The screen still doesn't show flags.
+- **Next:**
+  - Nathan: write a fresh held-out set to measure future changes.
+  - Decide whether to pin `jev-1.14.0`.
+  - The app.js session: the "Screen work" list in the contract.
+
+
+### Jev on the real API: docs check, blind split, tuning (before the blind-test score)
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`proxy/jev.js`, checked against TypeSafe's docs:**
+    - **score:** the answer is a probability-weighted mean, so we now take the most likely level, never above the rounded mean, ties to the lower level (`scoreLevel`);
+    - **option order:** Jev leans toward the first option, so every choice now lists its safe option first, and the minute options are words (number-like keys always sort first in JavaScript);
+    - **retries:** backoff now has 3 attempts.
+    - Tuned wording for kind ("found" is a message; a hedged sighting is still a sighting), place (a general description counts when only one place fits; a place they were heading toward doesn't) and how-sure (second-hand / far away = unsure).
+    - `minConfidence` can be passed in for the bench sweep.
+    - Safety layer: "found" is never a sighting. A searched report's time is the time spent searching, from the word rules; Jev's "seen" time is never used for it.
+  - **`proxy/worker.js`:**
+    - `env.RATE_LIMIT` override;
+    - `env.DEBUG_ANSWERS` (local benchmarks only) adds Jev's raw answers and model to the reply.
+  - **`quickread.js`:**
+    - new rules: found, second-hand (and far away = maybe), questions ending in "?", sightings without a "saw" verb, "bus stop" is not a vehicle, a car report with no "saw" words → message, searched time spent;
+    - place roles: toward / from / near, and "BART station" is not BART Way;
+    - `hasWord` fix: a Chinese or Japanese character next to a Latin word is a word edge;
+    - more hedge and certainty words.
+  - **New:**
+    - `bench/blind-cases.json` (Nathan's 120 blind reports, committed as asked);
+    - `bench/split-blind.js`, writing `bench/blind-dev.json` / `bench/blind-test.json` (60 / 60, seed 20261122, by language × kind);
+    - `bench/eval.js` (`npm run eval`): one scorer for all sets and both readers, with replay of saved answers;
+    - `bench/jev-answers.json`: Jev's saved answers (no keys);
+    - `tests/jev-api.test.js` (API conformance), `tests/categories.test.js` (each fixed category, on new sentences).
+  - `tests/jev.test.js`: only the fake answers' minute option names changed (`pick('10')` → `pick(MINUTE_OPTION[10])`), because the option names sent to Jev changed. No assertion changed.
+  - `bench/safety-cases.json`: `en-secondhand` now expects 0.3, the team's convention from the blind set.
+  - Docs: `INTERFACES.md` (a searched draft's `minutesSince` = time spent), `docs/AGENT-CONTRACT.md` (API table, tuning, before/after), `proxy/README.md` (model alias, benchmark mode), `NATHAN.md` (decide: pin the model). `.gitignore`: `.wrangler/`. `sw.js` v31.
+- **Why:** Nathan's request:
+  - check against the real API;
+  - make a real call;
+  - split the blind set and score both readers before tuning;
+  - tune by category until dangerous is 0 on safety-cases and blind-dev, with wrong answers becoming empty;
+  - then score blind-test once.
+- **Decisions:**
+  - **Tuning used only blind-dev** (and the two self-written sets). `bench/eval.js` refuses blind-test without `--final` and then prints totals only.
+  - **The key stays in `proxy/.dev.vars`** (git-ignored). It was found in the main folder's `proxy/` and copied into the worktree's `proxy/` without being read.
+  - **`MIN_CONFIDENCE` stays 0.5:** the sweep's best point.
+  - **The model alias is kept** as Nathan specified, but it now points to 1.14.0. Pinning is left to Nathan (NATHAN.md).
+  - **The wording was kept only after checking for new wrong answers.** The first version made hedged sightings into messages (3 new wrongs); the second fixed that category.
+- **How it was verified:**
+  - **The real call:** the curl Nathan gave returned `{"kind":"sighting",…,"direction":"E","minutesSince":10,…,"unsure":["reliability"],"flags":["water"]}`, HTTP 200.
+  - **Tests:** `node --test`: 124 pass.
+  - **Scores:** before → after, fields right, then dangerous:
+
+    | Set | Backup reader | Jev (`jev-1.14.0`) |
+    |---|---|---|
+    | jev-cases | 97% / 0 → 98% / 0 | 92% / 1 medium (a scorer bug) → 100% / 0 |
+    | safety-cases | 99% / 0 → 99% / 0 | 94% / 0 → 97% / 0 |
+    | blind-dev | 72% / 9 (7 high) → 92% / 0 | 81% / 1 medium → 95% / 0 |
+
+  - **Replay check:** the saved answers reproduce every proxy draft.
+- **Known issues / not done:**
+  - **blind-test is not scored yet:** that comes next, once, on this commit.
+  - The fixes were found on blind-dev, so dev numbers overstate how well the readers would do on new reports.
+  - The backup reader still can't read transliterated place names (ウォルナット通り, 泰森泻湖).
+  - The screen still doesn't show flags.
+- **Next:** score blind-test once with both readers and record it.
+
 
 ### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
 - **Date:** 2026-11-22

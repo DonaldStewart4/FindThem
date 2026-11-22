@@ -12,7 +12,13 @@ Jev doesn't write text. `jev.js` asks it five multiple-choice questions about th
 | how sure | maybe / probably / definitely |
 | place | one of the nearby named places the app sends / none |
 
-Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in. Before the draft is sent back, `safeJevDraft` cross-checks Jev against the report's own words (the same word rules as `quickread.js`): a field the report gives two answers for, or that the two readers disagree on, or that has no words in the report to back it, is left empty too; jokes, someone else, guesses and "he took the car" never become sightings; and safety flags (water, vehicle, emergency...) are added. See `docs/AGENT-CONTRACT.md`. The person always checks the draft and taps the button before anything reaches the map.
+Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in. Before the draft is sent back, `safeJevDraft` cross-checks Jev against the report's own words (the same word rules as `quickread.js`): a field the report gives two answers for, or that the two readers disagree on, or that has no words in the report to back it, is left empty too; jokes, someone else, guesses and "he took the car" never become sightings; and safety flags (water, vehicle, emergency...) are added. See `docs/AGENT-CONTRACT.md`.
+
+**POST /say** (`proxy/say.js`): one short reply, worded by a text LLM and checked by `replies.js` `checkReply`. It falls back to the fixed template. Optional secret `LLM_API_KEY`; `LLM_PROVIDER` and `LLM_MODEL` are set in `wrangler.toml`. See `docs/REPLIES.md`.
+
+**Model version.** `JEV_MODEL` is the alias `jev-latest`, which TypeSafe moves when a new release ships (it pointed to `jev-1.14.0` on Nov 22, 2026). The thresholds were tuned on `jev-1.14.0`; when the alias moves, re-run `npm run eval` (below) before trusting the numbers, or pin `jev-1.14.0`.
+
+**Benchmark mode (local only).** `npx wrangler dev --var DEBUG_ANSWERS:1 --var RATE_LIMIT:1000` makes the local proxy also return Jev's raw answers (`_jev`) and lifts the per-IP limit, so `bench/eval.js --reader proxy` can save them in `bench/jev-answers.json` and `--reader replay` can re-score safety-rule changes without new calls. Never set `DEBUG_ANSWERS` in production. The person always checks the draft and taps the button before anything reaches the map.
 
 ## Optional voice bot: Deepgram + ElevenLabs
 

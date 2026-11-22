@@ -28,3 +28,5 @@ docs/research/**/sources-private.csv
 sources-private.csv
 # Map downloads cached by bench/real-cases.js (one per real case location).
 bench/.cache/
+# Wrangler's local dev state (created by `npx wrangler dev` in proxy/)
+.wrangler/

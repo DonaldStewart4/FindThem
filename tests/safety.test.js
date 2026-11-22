@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateDraft, confineDraft, parseReport, setProxyUrl, UNSURE_FIELDS, DRAFT_FLAGS, DRAFT_SCHEMA } from '../report.js';
 import { readLocally, readSignals, readFeaturePlace, findIntersections, readIntersection, guessLanguage } from '../quickread.js';
-import { buildJevRequest, cleanIntersections, jevToDraft, safeJevDraft, MIN_CONFIDENCE, MIN_MARGIN, placeSupported, directionSupported, minutesSupported, minutesBucket } from '../proxy/jev.js';
+import { MINUTE_OPTION, scoreLevel, buildJevRequest, cleanIntersections, jevToDraft, safeJevDraft, MIN_CONFIDENCE, MIN_MARGIN, placeSupported, directionSupported, minutesSupported, minutesBucket } from '../proxy/jev.js';
 import { loadCases, runAll, readWithBackup, readWithHostileJev, scoreCase } from '../bench/safety-eval.js';
 
 const PLACES = [
@@ -141,7 +141,7 @@ test('jevToDraft: an answer that is not one of the options counts as no answer, 
 
 test('jevToDraft: every field below MIN_CONFIDENCE is left empty and flagged unsure', () => {
   const low = MIN_CONFIDENCE - 0.01;
-  const d = jevToDraft({ kind: pick('sighting'), place: pick('Lake Elizabeth', low), direction: pick('E', low), minutes: pick('10', low), sure: { score: 2, confidence: low } },
+  const d = jevToDraft({ kind: pick('sighting'), place: pick('Lake Elizabeth', low), direction: pick('E', low), minutes: pick(MINUTE_OPTION[10], low), sure: { score: 2, confidence: low } },
     'saw him by the lake', PLACES);
   assert.deepEqual([d.placeText, d.direction, d.minutesSince, d.reliability], ['', null, null, 0.6]);
   assert.deepEqual(d.unsure, ['place', 'direction', 'minutesSince', 'reliability']);
@@ -172,7 +172,7 @@ test('safeJevDraft: "I think she\'s in the creek" never becomes a sighting at th
 });
 
 test('safeJevDraft: two places in the report → no pin, however sure Jev is', () => {
-  const d = safeJevDraft({ kind: pick('sighting'), place: pick('Lake Elizabeth', 0.99), direction: pick('N', 0.99), minutes: pick('10'), sure: { score: 1, confidence: 0.9 } },
+  const d = safeJevDraft({ kind: pick('sighting'), place: pick('Lake Elizabeth', 0.99), direction: pick('N', 0.99), minutes: pick(MINUTE_OPTION[10]), sure: { score: 1, confidence: 0.9 } },
     'Saw him by Lake Elizabeth heading north 10 min ago. Another volunteer says he was on Walnut Avenue going south.', PLACES);
   assert.equal(d.placeText, '');
   assert.equal(d.direction, null);
@@ -192,7 +192,7 @@ test('safeJevDraft: Jev may interpret ("by the lake") but not invent a place, di
   const lake = safeJevDraft({ kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('unknown'), minutes: pick('unknown'), sure: { score: 1, confidence: 0.9 } },
     'saw him walking by the lake', PLACES);
   assert.equal(lake.placeText, 'Lake Elizabeth');
-  const made = safeJevDraft({ kind: pick('sighting'), place: pick('Laguna Creek'), direction: pick('N'), minutes: pick('60'), sure: certain },
+  const made = safeJevDraft({ kind: pick('sighting'), place: pick('Laguna Creek'), direction: pick('N'), minutes: pick(MINUTE_OPTION[60]), sure: certain },
     'saw him near the library', PLACES);
   assert.deepEqual([made.placeText, made.direction, made.minutesSince, made.reliability], ['', null, null, 0.6]);
   assert.ok(placeSupported('Lake Elizabeth', '在湖边看到他'), '湖 = lake');
@@ -216,7 +216,7 @@ test('safeJevDraft: a joke, someone else, "he took the car", "I can\'t find him"
 });
 
 test('safeJevDraft: a clean, confident Jev answer passes through unchanged', () => {
-  const answers = { kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('E'), minutes: pick('10'), sure: certain };
+  const answers = { kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('E'), minutes: pick(MINUTE_OPTION[10]), sure: certain };
   const text = 'Definitely saw him by Lake Elizabeth 10 min ago heading east';
   const d = safeJevDraft(answers, text, PLACES);
   assert.deepEqual({ ...d, flags: undefined }, { ...jevToDraft(answers, text, PLACES), flags: undefined });
@@ -254,7 +254,7 @@ test('safety layer cost: a perfect Jev keeps at least 95% of the right answers o
     const e = c.expect;
     const answers = {
       kind: pick(e.kind), place: pick(e.place || 'none'), direction: pick(e.direction || 'unknown'),
-      minutes: pick(e.minutes == null ? 'unknown' : String(minutesBucket(e.minutes))),
+      minutes: pick(e.minutes == null ? 'unknown' : MINUTE_OPTION[minutesBucket(e.minutes)]),
       sure: { type: 'score', score: level[e.reliability ?? 0.6], confidence: 0.9 },
     };
     const d = validateDraft(safeJevDraft(answers, c.text, data.places));
@@ -301,7 +301,7 @@ test('water, true sighting: "I saw him by the lake" stays a sighting, pinned to 
 });
 
 test('water, true sighting: the same through the Jev safety layer', () => {
-  const answers = { kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('unknown'), minutes: pick('10'), sure: { score: 1, confidence: 0.9 } };
+  const answers = { kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('unknown'), minutes: pick(MINUTE_OPTION[10]), sure: { score: 1, confidence: 0.9 } };
   for (const [lang, text] of Object.entries(LAKE_SIGHTINGS)) {
     const d = safeJevDraft(answers, text, PLACES, { lang });
     assert.equal(d.kind, 'sighting', text);
@@ -388,7 +388,7 @@ test('not a corner: two separate sightings, streets that don\'t cross, a third p
 test('Jev and corners: Jev naming one street of the corner agrees, and the corner is pinned; another place is a conflict', () => {
   const corner = CORNERS.find((x) => x.name === PP_STEVENSON);
   const text = 'Saw him at Paseo Padre and Stevenson 5 minutes ago';
-  const answers = (place) => ({ kind: pick('sighting'), place: pick(place), direction: pick('unknown'), minutes: pick('5'), sure: { score: 1, confidence: 0.9 } });
+  const answers = (place) => ({ kind: pick('sighting'), place: pick(place), direction: pick('unknown'), minutes: pick(MINUTE_OPTION[5]), sure: { score: 1, confidence: 0.9 } });
   for (const place of ['Stevenson Boulevard', 'Paseo Padre Parkway', PP_STEVENSON]) {
     const d = safeJevDraft(answers(place), text, STREET_PLACES, { intersections: CORNERS });
     assert.equal(d.placeText, PP_STEVENSON, place);

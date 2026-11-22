@@ -296,7 +296,7 @@ ReportDraft = {
   placeText: 'Lake Elizabeth',   // only ever one of the place or corner names the phone sent, or ''
   lat, lng,                      // that place's own point, or null: the user taps the map
   direction: 'E' | null,
-  minutesSince: 10 | null,
+  minutesSince: 10 | null,       // a sighting: minutes since seen; a 'searched' report: minutes spent searching
   reliability: 0.3 | 0.6 | 0.9,  // from wording: "maybe" / "I think" / "definitely"
   note: 'blue coat',             // only ever the person's own words
   unsure: ['direction'],         // optional, version 2: fields the reader wasn't sure about
@@ -322,6 +322,12 @@ Intersection = {                 // a street corner
 - `report.js` `confineDraft` holds every proxy answer to these rules: the note is reset to the person's words, and a name the phone didn't send is dropped.
 
 If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js` `readLocally(text, { places, intersections, lang })`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
+
+**What the search leader says** (same proxy; `docs/REPLIES.md`, `replies.js`, `proxy/say.js`):
+
+- `POST /say { intent, data, lang } → { text, source: 'llm' | 'template', warnings: [..] }`, where intent ∈ `ask, confirm, abstain, readRoute, comfort, found, emergency`. Only those three fields are accepted.
+- A text LLM words the reply, held to `data` by `checkReply` on the proxy and again on the phone. Any failure, no key, or no signal gives the fixed template. `emergency` and `found` are always the template.
+- Replies are shown or spoken only: they never become events.
 
 **Optional voice bot** (same proxy, only if its keys are set; see `proxy/voice.js`):
 - `GET /voice` → `{ listen: bool, speak: bool }`. Both false → the app uses the phone's own speech recognition and doesn't speak (the behavior before the voice bot).
