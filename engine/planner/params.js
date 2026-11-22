@@ -95,6 +95,8 @@ export const DEFAULTS = {
   HAZARD_MIN_CELLS: 5,     // ASSUMPTION
   WATER_NEAR_CELLS: 3,     // a route within 30 m of water...
   WATER_NEAR_MIN_M: 100,   // ...for at least this far carries the water_nearby warning (ASSUMPTION)
+  COVER_WARN_CELLS: 5,     // a park task with at least this many 10 m squares of woods or brush
+                           // carries the stay_on_path warning: check it from the path (ASSUMPTION)
   // Containment points: stand and watch where a moving person would pass.
   CONTAIN_RADIUS_M: 2500,  // ASSUMPTION: how far from the last-seen point posts are considered
   CONTAIN_SPACING_M: 150,  // ASSUMPTION: two posts are at least this far apart

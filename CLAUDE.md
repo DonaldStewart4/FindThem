@@ -8,7 +8,12 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 3. `INTERFACES.md`: the contract between screen and engine.
 4. `CommitHistory.md`: every decision so far and a detailed log of each commit.
 5. `NATHAN.md`: Nathan's to-do list (TypeSafe key, Jev tuning, phone tests, UI review, tests).
-   - On branch `prior-v2` (Nathan's engine rewrite, Nov 22): `docs/PRIOR-V2.md` is the design note, and `BEN.md` lists every change made to BenStew's screen files and why.
+   - **Nathan's four branches (`prior-v2`, `planner`, `integrity`, `agent-contract`) were merged into `main` on Nov 22.** Their design notes:
+     - `docs/PRIOR-V2.md`: the engine rewrite (the map).
+     - `docs/PLANNER.md`: the search planner (who searches where); `docs/PLANNER-MERGE.md` lists screen work still open.
+     - `docs/AGENT-CONTRACT.md`: what an AI agent may read or propose, and the report box's safety layer; `docs/REPLIES.md`: the `/say` route.
+     - `docs/INTEGRITY-REPORT.md`: the database rules and checked events.
+     - `BEN.md` and `UPDATESBYNATE.md`: every change made to BenStew's screen files, why, and what is left for him.
 6. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team: who writes what
@@ -17,7 +22,8 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
   - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `quickread.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
   - **The first engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), built with Claude Code at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
 - **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
-  - **Since Nov 22 (branch `prior-v2`): the engine too.** Nathan rewrote the prior with Claude Code ("prior v2": `engine/surface.js`, `sim.js`, `prior.js`, `grid.js`, `params.js`, `host.js`, `worker.js`, plus `tools/calibrate.js` and `bench/prior-eval.js`). `docs/PRIOR-V2.md` is the design, `bench/prior-report.md` the evaluation. Changes he made to BenStew's screen files are listed in `BEN.md`.
+  - **Since Nov 22 (merged into `main`): the engine too.** Nathan rewrote the prior with Claude Code ("prior v2": `engine/surface.js`, `sim.js`, `prior.js`, `grid.js`, `params.js`, `host.js`, `worker.js`, plus `tools/calibrate.js` and `bench/prior-eval.js`). `docs/PRIOR-V2.md` is the design, `bench/prior-report.md` the evaluation. Changes he made to BenStew's screen files are listed in `BEN.md`.
+  - **Also Nathan's, built with Claude Code on Nov 22:** the search planner (`engine/planner/`), event integrity (`firebase-rules.json`, the checks in `sync.js`), the report box's safety layer (`proxy/jev.js`, `quickread.js`, `replies.js`, `proxy/say.js`) and its blind tests (`bench/eval.js`).
 - `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.
 - The real engine is integrated: `app.js` imports `engine/index.js`. (`engine/fake.js` was a dev-only stand-in and was deleted at integration.)
 
@@ -51,6 +57,7 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
 - Online parts are only these two, and the prediction always runs on the phone:
   - **Firebase Realtime Database** for the shared search (case, events, messages, and each searcher's latest position for the map), used through its REST API (`fetch` + `EventSource`) in `sync.js`, with no SDK. Supabase is the fallback.
   - **A tiny Cloudflare Worker** (`proxy/`) that holds the API keys as environment variables (Worker secrets): Jev (TypeSafe) to turn a report into a `ReportDraft`, and, optional, Deepgram (speech → text, all 5 languages) and ElevenLabs (reading the form back aloud, **English only**) for the voice bot. If a voice key is missing, the app falls back to the phone's own speech recognition and doesn't speak. No FastAPI or other server.
+    - The same Worker has a `/say` route (`proxy/say.js`, `docs/REPLIES.md`): a text LLM may re-word the app's short reply lines, and `replies.js` `checkReply` holds every number, place and direction to the app's data. The key (`LLM_API_KEY`) is optional and **not set**: without it, and on any failed check, the app shows the fixed templates in `replies.js`. Generated text is shown or spoken only; it never becomes an event.
 - **Never put an API key in the website's code** or commit one to the repo.
 - Engine code is pure and deterministic (seeded random numbers, no DOM), so every phone computes the same map from the same inputs and events. Tests run with `node --test`.
 - Every tunable engine number is labeled **DATA**, **EXPERT** or **ASSUMPTION** with its source (`engine/params.js`, `engine/prior.js`). Fitted values live in `engine/calibrated.js`, which `tools/calibrate.js` writes: don't edit it by hand. If the walkers change, re-run `node tools/calibrate.js`, `node bench/prior-eval.js` and `node bench/prior-report.js`.

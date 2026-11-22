@@ -42,5 +42,9 @@ if (refined) {
 console.log('Overpass requests:', requests.map((r) => `${r.kind} +${((r.at - t0) / 1000).toFixed(1)}s ${new URL(r.url).hostname}`).join(', '));
 const saved = await tab.eval(`new Promise((ok) => { const q = indexedDB.open('findthem', 1); q.onsuccess = () => { const g = q.result.transaction('areas').objectStore('areas').getAll(); g.onsuccess = () => ok(g.result.map((a) => ({ center: a.osm.center, half: a.osm.radiusM, bounds: !!a.osm.bounds, buildings: a.osm.layers ? a.osm.layers.buildings.length : 0, ways: a.osm.ways.length }))); }; })`);
 console.log('saved on the "phone":', JSON.stringify(saved));
-console.log('page errors:', tab.errors.filter((e) => !/voice|favicon/.test(e)));
+// The search planner's routes for this brand-new area (up to three, with their warnings).
+await tab.waitFor('document.querySelectorAll("#areas > li[data-task]").length > 0 || document.querySelectorAll("#areas > li.help").length > 0', 60000, 'routes').catch((err) => console.log('  ' + err.message));
+await sleep(1000);
+console.log('routes:', JSON.stringify(await tab.eval(`[...document.querySelectorAll('#areas > li')].map((li) => li.textContent.trim().replace(/\\s+/g, ' ').slice(0, 200))`), null, 1));
+console.log('page errors:', tab.errors.filter((e) => !/voice|favicon|findthem-proxy|ERR_FAILED/.test(e)));
 process.exit(0);

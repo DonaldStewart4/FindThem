@@ -1,6 +1,6 @@
 // sw.js: the service worker. It lets FindThem open and work with no signal.
 // Bump CACHE_VERSION whenever any app file changes, so phones fetch the new copies.
-const CACHE_VERSION = 'v32';
+const CACHE_VERSION = 'v34';
 const SHELL_CACHE = 'findthem-shell-' + CACHE_VERSION;
 const TILE_CACHE = 'findthem-tiles'; // kept across versions; tiles don't change with our code
 const MAX_TILES = 2000;              // oldest tiles are deleted past this many
@@ -8,10 +8,13 @@ const MAX_TILES = 2000;              // oldest tiles are deleted past this many
 // The "app shell": files the app needs to start offline.
 const SHELL_FILES = [
   './', 'index.html', 'style.css', 'app.js', 'data.js', 'i18n.js',
-  'config.js', 'sync.js', 'report.js', 'quickread.js', 'manifest.json',
+  'config.js', 'sync.js', 'report.js', 'quickread.js', 'replies.js', 'manifest.json',
   'engine/index.js', 'engine/graph.js', 'engine/sim.js', 'engine/grid.js', 'engine/routes.js',
   'engine/surface.js', 'engine/params.js', 'engine/calibrated.js', 'engine/prior.js',
   'engine/host.js', 'engine/worker.js',
+  // The search planner (who searches where). engine/index.js imports it, so it must be here.
+  'engine/planner/index.js', 'engine/planner/adapter.js', 'engine/planner/plan.js', 'engine/planner/world.js',
+  'engine/planner/segments.js', 'engine/planner/routes.js', 'engine/planner/detect.js', 'engine/planner/params.js',
   'lib/leaflet.js', 'lib/leaflet.css',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/apple-touch-icon.png',

@@ -19,6 +19,8 @@
 // 5. Top spots: the most likely places, with the nearest creek / park and named street.
 // 6. A second layer, "where it's dangerous": water, creeks and wetland in or beside the likely
 //    area (grid.hazard). Hazard flags come from this layer, not from where walkers ended.
+//    Woods and brush near the likely area are a second hazard class (grid.woods): "check from
+//    the path". See WOODS_CODES below.
 //
 // The grid is anchored to the CASE (its grid origin), not to the map download a phone holds, so
 // every phone on a shared search means the same ground by the same sector id.
@@ -68,6 +70,19 @@ export const HAZARD_REACH_M = 150;       // ASSUMPTION: about a two-minute walk
 export const HAZARD_MIN_CHANCE = 0.005;  // ASSUMPTION: 1 chance in 200 that they are that close
 // Codes in grid.hazardType (0 = no hazard in that square).
 export const HAZARD_CODES = [null, 'water', 'creek', 'wetland'];
+// A second hazard class: woods and brush near the likely area. The advice is different from
+// water's ("look from the bank, don't go in"): here it is "check from the path", so volunteers
+// look and call into the trees from the trail or street edge instead of pushing through cover.
+// DATA: 29% of the deaths in the real-case set were in woods and 3% in brush (65 deceased with a
+// known find place, of 161 news-reported cases; bench/prior-report.md "Where the deceased were
+// found", docs/research/REPORT.md). The water-only layer missed all of them.
+// It is kept in its own arrays (grid.woods / grid.woodsType) and its own fields (sector.woods,
+// spot.woodsNearby, woodsSpots), so everything that reads the water layer means what it did.
+// The same reach and threshold as water are used (HAZARD_REACH_M, HAZARD_MIN_CHANCE: ASSUMPTION).
+// Codes in grid.woodsType (0 = neither in that square).
+export const WOODS_CODES = [null, 'woods', 'brush'];
+// How each hazard class is to be checked. The screen turns these codes into words (i18n.js).
+export const HAZARD_CHECK = { water: 'from_bank', woods: 'from_path' };
 
 const COLS = Math.round((2 * GRID_RADIUS_M) / CELL_SIZE_M); // 256 squares across
 const ROWS = COLS;
@@ -439,14 +454,18 @@ export function replay(area, caseInput, events, options = {}) {
   const restOfWorld = outside / total;
 
   const hazardType = hazardTypesFor(surface);
-  const hazard = hazardLayer(p, hazardType);
+  const woodsType = woodsTypesFor(surface);
+  const sums = boxSums(p);
+  const hazard = hazardLayer(sums, hazardType);
+  const woods = hazardLayer(sums, woodsType); // the same score, for woods and brush squares
   return {
     sim: simSummary(area, surface, base, now),
     grid: {
       cellSize: CELL_SIZE_M, cols: COLS, rows: ROWS, p,
       origin: { ...origin },
       hazard, hazardType,
-      sectors: buildSectors(origin, p, searchedMinutes, hazard),
+      woods, woodsType,
+      sectors: buildSectors(origin, p, searchedMinutes, hazard, woods),
     },
     restOfWorld,
     minutes: now,
@@ -490,11 +509,29 @@ function hazardTypesFor(surface) {
   return out;
 }
 
-// The hazard score of every square: for a water / creek / wetland square, the chance that the
-// person is within HAZARD_REACH_M of it; 0 for every other square. (Sums of the map over a
-// box around each square, done with running totals so it is quick.)
-function hazardLayer(p, hazardType) {
-  const reach = Math.round(HAZARD_REACH_M / CELL_SIZE_M);
+// For each 25 m square: does it hold woods (1) or brush (2)? 0 = neither. A square that also
+// holds water, a creek or wetland still counts here: the two classes are separate layers.
+const woodsTypeCache = new WeakMap();
+function woodsTypesFor(surface) {
+  if (woodsTypeCache.has(surface)) return woodsTypeCache.get(surface);
+  const out = new Uint8Array(COLS * ROWS);
+  const n = surface.n;
+  for (let r = 0; r < n; r++) {
+    const row = Math.floor((2 * r + 1) / 5);
+    for (let c = 0; c < n; c++) {
+      const v = surface.cls[r * n + c];
+      const code = v === C.WOODS ? 1 : v === C.BRUSH ? 2 : 0;
+      if (!code) continue;
+      const i = row * COLS + Math.floor((2 * c + 1) / 5);
+      if (out[i] === 0 || code < out[i]) out[i] = code; // woods wins over brush
+    }
+  }
+  woodsTypeCache.set(surface, out);
+  return out;
+}
+
+// Running totals of the map, so the chance inside any box of squares is four look-ups.
+function boxSums(p) {
   const sums = new Float64Array((COLS + 1) * (ROWS + 1)); // sums[r][c] = total of p above-left
   for (let r = 0; r < ROWS; r++) {
     let rowTotal = 0;
@@ -503,6 +540,15 @@ function hazardLayer(p, hazardType) {
       sums[(r + 1) * (COLS + 1) + c + 1] = sums[r * (COLS + 1) + c + 1] + rowTotal;
     }
   }
+  return sums;
+}
+
+// The hazard score of every square: for a square of the given kind (water / creek / wetland in
+// hazardType, or woods / brush in woodsType), the chance that the person is within
+// HAZARD_REACH_M of it; 0 for every other square. (Sums of the map over a box around each
+// square, from the running totals above.)
+function hazardLayer(sums, hazardType) {
+  const reach = Math.round(HAZARD_REACH_M / CELL_SIZE_M);
   const hazard = new Float32Array(COLS * ROWS);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -584,7 +630,7 @@ function edgeCountsFor(area, surface, walks) {
   return counts;
 }
 
-function buildSectors(origin, p, searchedMinutes, hazard) {
+function buildSectors(origin, p, searchedMinutes, hazard, woods) {
   const probability = new Float64Array(SECTOR_COLS * SECTOR_COLS);
   for (let i = 0; i < p.length; i++) {
     const row = Math.floor(i / COLS);
@@ -597,6 +643,13 @@ function buildSectors(origin, p, searchedMinutes, hazard) {
     if (!hazard[i]) continue;
     const k = sectorOfGridCell(i);
     if (hazard[i] > hazardScore[k]) hazardScore[k] = hazard[i];
+  }
+  // The same for the woods class: the highest score of any woods / brush square in the sector.
+  const woodsScore = new Float64Array(SECTOR_COLS * SECTOR_COLS);
+  for (let i = 0; i < woods.length; i++) {
+    if (!woods[i]) continue;
+    const k = sectorOfGridCell(i);
+    if (woods[i] > woodsScore[k]) woodsScore[k] = woods[i];
   }
   const sectors = [];
   for (let sr = 0; sr < SECTOR_COLS; sr++) {
@@ -615,6 +668,8 @@ function buildSectors(origin, p, searchedMinutes, hazard) {
         pod: minutes ? podForMinutes(minutes) : 0,
         hazardScore: hazardScore[sr * SECTOR_COLS + sc],
         hazard: hazardScore[sr * SECTOR_COLS + sc] >= HAZARD_MIN_CHANCE, // water or a channel near the likely area
+        woodsScore: woodsScore[sr * SECTOR_COLS + sc],
+        woods: woodsScore[sr * SECTOR_COLS + sc] >= HAZARD_MIN_CHANCE,   // woods or brush near the likely area: check from the path
       });
     }
   }
@@ -740,7 +795,7 @@ export function topSpots(area, prediction, count) {
   chosen.sort((a, b) => b.probability - a.probability);
 
   const nWalkers = prediction.sim.nWalkers || prediction.sim.endpoints.length || 1;
-  const { hazardType } = prediction.grid;
+  const { hazardType, woodsType } = prediction.grid;
   return chosen.map((s) => {
     const street = nearestNamedStreet(area, s.areaXY.x, s.areaXY.y);
     let walkers = 0;
@@ -752,8 +807,11 @@ export function topSpots(area, prediction, count) {
     //                 the spot itself is for professionals
     //   hazardNearby  the closest such square within HAZARD_REACH_M whose score reaches
     //                 HAZARD_MIN_CHANCE: "look from the bank, don't go in"
+    //   woodsNearby   the closest woods / brush square within HAZARD_REACH_M whose score reaches
+    //                 HAZARD_MIN_CHANCE: "check from the path"
     let hazardCode = 0;
     let nearby = null;
+    let woodsNear = null;
     if (hazardType) {
       const row = Math.floor((s.pin.y + GRID_RADIUS_M) / CELL_SIZE_M);
       const col = Math.floor((s.pin.x + GRID_RADIUS_M) / CELL_SIZE_M);
@@ -762,9 +820,16 @@ export function topSpots(area, prediction, count) {
         for (let dc = -reach; dc <= reach; dc++) {
           const r = row + dr; const c = col + dc;
           if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+          const d = Math.hypot(dr, dc) * CELL_SIZE_M;
+          const wCode = woodsType ? woodsType[r * COLS + c] : 0;
+          if (wCode && d <= HAZARD_REACH_M) {
+            const wScore = prediction.grid.woods[r * COLS + c];
+            if (wScore >= HAZARD_MIN_CHANCE && (!woodsNear || d < woodsNear.distanceM)) {
+              woodsNear = { type: WOODS_CODES[wCode], distanceM: d, nearbyProbability: wScore, check: HAZARD_CHECK.woods };
+            }
+          }
           const code = hazardType[r * COLS + c];
           if (!code) continue;
-          const d = Math.hypot(dr, dc) * CELL_SIZE_M;
           if (d <= SPOT_TRAP_SEARCH_M && (hazardCode === 0 || code < hazardCode)) hazardCode = code;
           const score = prediction.grid.hazard[r * COLS + c];
           if (d <= HAZARD_REACH_M && score >= HAZARD_MIN_CHANCE && (!nearby || d < nearby.distanceM)) {
@@ -786,6 +851,7 @@ export function topSpots(area, prediction, count) {
       distanceToStreetM: street ? street.distance : null,
       hazard: hazardCode > 0 || trapIsHazard,
       hazardNearby: nearby,
+      woodsNearby: woodsNear,
     };
   });
 }
@@ -797,11 +863,24 @@ export function topSpots(area, prediction, count) {
 //   [{ lat, lng, type: 'water' | 'creek' | 'wetland', name, streetName, nearbyProbability }]
 export function hazardSpots(area, prediction, count) {
   const { hazard, hazardType } = prediction.grid;
-  if (!hazard) return [];
+  return layerSpots(area, prediction, count, hazard, hazardType, HAZARD_CODES, HAZARD_CHECK.water);
+}
+
+// The same list for the second hazard class: the woods and brush with the most chance of the
+// person being within HAZARD_REACH_M. Volunteers check these from the path or street edge.
+//   [{ lat, lng, type: 'woods' | 'brush', name, streetName, nearbyProbability, check: 'from_path' }]
+export function woodsSpots(area, prediction, count) {
+  const { woods, woodsType } = prediction.grid;
+  return layerSpots(area, prediction, count, woods, woodsType, WOODS_CODES, HAZARD_CHECK.woods);
+}
+
+// Shared by hazardSpots and woodsSpots: the highest-scoring squares of one layer, spaced apart.
+function layerSpots(area, prediction, count, score, type, codes, check) {
+  if (!score || !type) return [];
   const origin = prediction.grid.origin || area.origin;
   const candidates = [];
-  for (let i = 0; i < hazard.length; i++) if (hazard[i] >= HAZARD_MIN_CHANCE) candidates.push(i);
-  candidates.sort((a, b) => (hazard[b] - hazard[a]) || (a - b));
+  for (let i = 0; i < score.length; i++) if (score[i] >= HAZARD_MIN_CHANCE) candidates.push(i);
+  candidates.sort((a, b) => (score[b] - score[a]) || (a - b));
   const chosen = [];
   for (const cell of candidates) {
     if (chosen.length >= count) break;
@@ -815,12 +894,16 @@ export function hazardSpots(area, prediction, count) {
     const a = toXY(area.origin, lat, lng);
     const trap = nearestTrap(area, a.x, a.y, SPOT_TRAP_SEARCH_M);
     const street = nearestNamedStreet(area, a.x, a.y);
+    const kind = codes[type[s.cell]];
+    // The name of the feature the spot sits on, when it is one of this class.
+    const named = trap && (check === HAZARD_CHECK.water ? HAZARD_TYPES.includes(trap.type) : trap.type === kind);
     return {
       lat, lng,
-      type: HAZARD_CODES[hazardType[s.cell]],
-      name: trap && HAZARD_TYPES.includes(trap.type) ? trap.name : null,
+      type: kind,
+      name: named ? trap.name : null,
       streetName: street ? street.name : null,
-      nearbyProbability: hazard[s.cell],
+      nearbyProbability: score[s.cell],
+      check,
     };
   });
 }

@@ -170,6 +170,7 @@ const EVENT_FIELDS = {
   expiresAt: TIME,
   searchMin: num(...LIMITS.SEARCH_MIN),
   fraction: num(0, 1),
+  canvass: (v) => typeof v === 'boolean', // planner: knock and ask at the doors (true) or only walk past
   track: TRACK,
   field: oneOf(CASE_UPDATE_FIELDS),
   value: () => true,           // checked in checkEvent, like the case field it replaces
@@ -186,7 +187,7 @@ export const EVENT_TYPES = {
   searched: { required: ['sectorId', 'minutes'], optional: [] },
   sighting: { required: ['lat', 'lng', 'minutesSince', 'reliability'], optional: ['direction', 'note'] },
   message: { required: ['text'], optional: [] },
-  assigned: { required: [], optional: ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track'] },
+  assigned: { required: [], optional: ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track', 'canvass'] },
   released: { required: ['searcherId', 'taskId'], optional: ['track', 'fraction'] },
   completed: { required: ['searcherId', 'taskId', 'minutes'], optional: ['track', 'partnerId'] },
   caseUpdate: { required: ['field'], optional: ['value'] },

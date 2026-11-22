@@ -11,8 +11,8 @@ This merges three sources:
 
 EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**, with freeze at 9:30 am.
 
-## Status (Nov 21, night)
-**Done and pushed:**
+## Status (Nov 22, release)
+**Done and pushed by Nov 21, night:**
 - all five screens
 - the real engine, calibrated to the research
 - live sharing on real Firebase (`findthem-f4e5c`, rules tested)
@@ -20,10 +20,10 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - map search (magnifying glass), clear offline messages, Demo offline
 - offline PWA
 - 5 languages
-- the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
+- the benchmark (on the first engine: 54% vs. 21% on their own at 1,500 searcher-minutes; re-run on the new engine below)
 - 72 tests
 - report box backup reader on the phone (`quickread.js`, 5 languages) for when Jev can't answer, and a 40-report scorer for Jev (`npm run jev-eval`)
-- report box safety layer (branch `agent-contract`, not merged yet): Jev's answers are cross-checked against the report's own words, conflicting fields are left empty, and drafts carry `unsure` / `flags` codes (water, vehicle, emergency...); 74 adversarial reports scored right / abstained / dangerous (`npm run safety-eval`), 0 dangerous for the backup reader; street corners pinned where the streets cross; `INTERFACES.md` §5 updated (ReportDraft v2). The screen doesn't show the flags yet: the exact list is in `docs/AGENT-CONTRACT.md`, "Screen work". Contract for future agent features: `docs/AGENT-CONTRACT.md`
+- report box safety layer (merged Nov 22): Jev's answers are cross-checked against the report's own words, conflicting fields are left empty, and drafts carry `unsure` / `flags` codes (water, vehicle, emergency...); 74 adversarial reports scored right / abstained / dangerous (`npm run safety-eval`), 0 dangerous for the backup reader; street corners pinned where the streets cross; `INTERFACES.md` §5 updated (ReportDraft v2). The screen doesn't show the flags yet: the exact list is in `docs/AGENT-CONTRACT.md`, "Screen work". Contract for future agent features: `docs/AGENT-CONTRACT.md`
 - the app asks for location on start; searchers see each other as green dots in a shared search (rules published and tested on the live database)
 - commit emails switched to the GitHub noreply address
 - "What you know" is five numbered steps that fold into a summary after Find; the map redraws every 5 minutes as time passes (all phones in step)
@@ -31,7 +31,14 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - laptop layout fixed: only the side panel scrolls; the loading bar no longer hides under the map search box
 - first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar
 
-**On branch `prior-v2` (Nov 22, not merged, not pushed):** Nathan's engine rewrite, in four committed stages: ground map and walkers as particles, ISRID statistics map and blend, rest of world, hazard layer, two-phase download, engine in a worker, calibration (`tools/calibrate.js`), evaluation (`bench/prior-report.md`). 103 tests. Before merging: BenStew reads `BEN.md` and `INTERFACES.md`; try it on a real phone.
+**Merged into `main` on Nov 22 (release):** Nathan's four branches, each built with Claude Code.
+- `prior-v2`: the engine rewrite. Ground map, walkers as particles, ISRID statistics map and blend (95% statistics, 5% walkers, set by evaluation), rest of world, hazard layer (water and channels; woods and brush added at release), two-phase download, engine in a worker, calibration, evaluation (`bench/prior-report.md`: median 0.99 km² searched vs. 1.30 for rings and 2.54 for the first engine).
+- `planner`: the search planner (`engine/planner/`, `docs/PLANNER.md`): up to three ranked tasks per searcher with safety rules; its benchmark is `bench/planner-report.md`. `npm run bench` on the new map: 40% found at 1,500 searcher-minutes vs. 28% ring sweep vs. 19% on their own.
+- `integrity`: strict Firebase rules, the same checks on every phone, `caseUpdate` and `found` events, `engineVersion` (`docs/INTEGRITY-REPORT.md`). **The rules still have to be published in the console by BenStew.**
+- `agent-contract`: the report box's safety layer, `ReportDraft` v2 (`unsure`, `flags`), street corners, a cautious backup reader, the `/say` route with fixed templates (no LLM key), and the blind tests (`bench/blind-2-results.md`: Jev 85% of fields right with 3 dangerous; backup reader 76% with 7).
+- 161 real cases as a held-out check (`docs/research/cases-public.csv`).
+- Screen wiring done at release, and what is still open for BenStew: `UPDATESBYNATE.md`.
+- **Not done:** nothing merged on Nov 22 has run on a real phone; the proxy needs redeploying.
 
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
@@ -107,9 +114,9 @@ The official rules encourage AI use; we disclose who and what built each part.
 
 "This is a guide to help focus the search, not a guarantee" shows under the results.
 
-## The engine, version 2 (branch `prior-v2`, Nathan with Claude Code, Nov 22)
+## The engine, version 2 (Nathan with Claude Code, Nov 22; merged into `main` at release)
 
-The section below this one describes the first engine, which is what `main` runs. On branch `prior-v2` the prior was rewritten. In short (design in `docs/PRIOR-V2.md`, results in `bench/prior-report.md`, contract in `INTERFACES.md`):
+The section below this one describes the first engine, which `main` ran until Nov 22 (a frozen copy is in `bench/old-engine/`). The prior was then rewritten. In short (design in `docs/PRIOR-V2.md`, results in `bench/prior-report.md`, contract in `INTERFACES.md`):
 - **Ground map:** a 10 m raster from OSM (roads, paths, buildings, fences, rail, water, creeks, yards, lots, parks), anchored to the case, not to the phone's download.
 - **Walkers as particles:** 5,000, each with its own speed, time moving, kind and road habit, stored minute by minute. They can leave roads.
 - **A map for "t minutes since last seen"**, with "still missing" evidence (not noticed on busy roads).

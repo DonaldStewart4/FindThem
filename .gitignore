@@ -30,3 +30,8 @@ sources-private.csv
 bench/.cache/
 # Wrangler's local dev state (created by `npx wrangler dev` in proxy/)
 .wrangler/
+# The Fremont research notes WITH the links to articles about real missing people (the copy
+# in git, FREMONT.md, has those links removed). Team contact drafts stay private too.
+docs/research/FREMONT-private.md
+docs/research/OUTREACH.md
+docs/research/contacts.csv

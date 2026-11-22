@@ -25,7 +25,7 @@
 //
 // Probability and danger are separate numbers and are never combined into one score.
 
-import { withParams, V, HW, mobileShare } from './params.js';
+import { withParams, V, HW, G, mobileShare } from './params.js';
 import {
   FOOT, CAR, RAIL_X, nearestNode, shortestCached, pathTo, trackOfEdges, footprint,
   toLatLng, toXY,
@@ -666,6 +666,15 @@ export function planSearch(world, segs, input, overrides) {
     return task.bounds;
   };
   const mainLevel = (e) => (g.etype[e] === HW.primary ? 2 : g.etype[e] === HW.secondary ? 1 : 0);
+  // How many of a task's squares are woods or brush (counted once per task, then remembered).
+  const coverCells = (task) => {
+    if (task.coverCells === undefined) {
+      let k = 0;
+      for (const c of task.cells) if (world.cls[c] === G.WOODS || world.cls[c] === G.BRUSH) k += 1;
+      task.coverCells = k;
+    }
+    return task.coverCells;
+  };
   // Danger: its own number (0–3) and a list of warning codes. Never mixed into the ranking.
   const dangerOf = (o, edges, nodes) => {
     const warnings = new Set();
@@ -690,6 +699,10 @@ export function planSearch(world, segs, input, overrides) {
     }
     if (besideWater * world.cellM >= P.WATER_NEAR_MIN_M) raise('water_nearby', 1);
     if (o.task.type === 'hazard_check') { raise('do_not_enter_water', 3); raise('stay_on_path', 3); }
+    // A park task that takes in woods or brush: check that part from the path. (Woods and brush
+    // are the engine's second hazard class; see grid.js WOODS_CODES. A warning only: the level
+    // rises to 1 at most and, like every warning, it is never mixed into the ranking.)
+    if (o.task.type === 'park' && coverCells(o.task) >= P.COVER_WARN_CELLS) raise('stay_on_path', 1);
     if (o.task.type === 'containment' && world.nearWater[o.task.cell]) raise('water_nearby', 1);
     return { level, warnings: [...warnings].sort() };
   };

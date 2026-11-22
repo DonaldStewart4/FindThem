@@ -48,7 +48,7 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
 - **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes. *(On branch `prior-v2`, 2026-11-22, where the "true" people come from a different walker model than the app's: 19% / 28% / 40% / 86%. The 54% had been helped by both sides sharing one model.)*
-- **Branch `prior-v2` (2026-11-22, Nathan, not merged):** the engine's prior was rewritten: a 10 m ground map, walkers stored minute by minute, an ISRID statistics map blended in (95% / 5% by evaluation), an explicit rest-of-world share, a hazard layer, a grid anchored to the case, calibration (`tools/calibrate.js`) and an evaluation on held-out start points (`bench/prior-report.md`). Nathan now owns `engine/`. `BEN.md` lists what changed in the screen files; `INTERFACES.md` has the new contract.
+- **Engine rewrite, "prior v2" (2026-11-22, Nathan; merged into `main` at release, see the "Release" entry):** the engine's prior was rewritten: a 10 m ground map, walkers stored minute by minute, an ISRID statistics map blended in (95% / 5% by evaluation), an explicit rest-of-world share, a hazard layer, a grid anchored to the case, calibration (`tools/calibrate.js`) and an evaluation on held-out start points (`bench/prior-report.md`). Nathan now owns `engine/`. `BEN.md` lists what changed in the screen files; `INTERFACES.md` has the new contract.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
@@ -64,16 +64,69 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - `replies.js` `checkReply` holds every number, place and direction to `data` and bans advice, promises, water/road/property talk and "where they are". It runs on the proxy and on the phone; any failure gives the fixed template (5 languages).
   - `emergency` / `found` are always fixed.
   - This is a third online service, behind the same Worker; CLAUDE.md's "Online parts" list needs a line from BenStew.
-- **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
-- **Event integrity (2026-11-22, branch `integrity`, not merged):** no event can corrupt the shared map.
+- **Report box safety layer (2026-11-22, branch `agent-contract`; merged into `main` at release):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
+- **Event integrity (2026-11-22, branch `integrity`; merged into `main` at release):** no event can corrupt the shared map.
   - Firebase refuses any event that isn't exactly a known shape, refuses edits and deletes, and accepts the case once.
   - Every phone re-checks what it receives with the same rules (no clock involved), drops and counts bad events, and counts copies once.
   - The case carries `engineVersion`, so a phone on another engine version can warn.
   - The rules, `sync.js` and the mock are checked against one shared test table.
   - Corrections after sharing are `caseUpdate` events (the latest `at` per field wins). The person being found is a `found` event.
   - The table also passes against the real Firebase emulator. `INTERFACES.md` §6 is the reference (approved by Nathan).
+- **Release (2026-11-22, Nathan's decisions):** one `main` with all four branches merged and the planner on the screen.
+  - The screen shows the search planner's routes ("Your next task") instead of the "Next areas" list. It sends `assigned` / `completed` / `released` / `found` / `caseUpdate` events and no longer sends `searched`.
+  - The search leader's lines are the fixed templates only: the app never calls `/say` (no LLM key).
+  - Woods and brush near the likely area are a hazard class ("check from the path").
+  - `docs/research/FREMONT.md` is committed as a public copy **without** the links to articles about real missing people; the copy with links stays private (git-ignored), like the case files.
+  - The 40% / 28% / 19% benchmark is the area-by-area rule (`npm run bench`); the route planner's own benchmark is 25% / 24% / 20% at 3 hours (`bench/planner-report.md`). The README states both.
 
 ## Log
+
+### Release: all four branches merged; planner routes, Found, corrections and report flags on the screen; woods hazard
+- **Date:** 2026-11-22
+- **Stage:** Release (branch `release`, Nathan with Claude Code; merged into `main`)
+- **What changed:**
+  - **Merges.** `release` was branched from `main` and `prior-v2`, `planner`, `integrity`, `agent-contract` were merged in that order (four merge commits before this one).
+    - Conflicts in `CommitHistory.md`, `UPDATESBYNATE.md` and `INTERFACES.md`: both sides kept. The duplicate "Do not build ... GPS-trail coverage" line from the older branches was dropped, because the planner branch had already moved GPS trails into scope.
+    - `package.json`: all scripts kept (`planner-eval`, `safety-eval`, `eval`). `.gitignore`: both sides kept. `sw.js`: the higher cache version.
+  - **Engine wiring.** `engine/index.js` exports `planSearch`, `assignedEvent`, `trackFromLatLngs`, `woodsSpots`, `ENGINE_VERSION`. `engine/host.js` keeps a copy of the last prediction and has `plan()`; `engine/worker.js` answers a `plan` message.
+  - **Screen (`app.js`, `index.html`, `style.css`, `i18n.js`, `sw.js`).**
+    - "Your next task": up to three ranked routes per volunteer with warnings; Take / Done / Stop send `assigned` / `completed` / `released`. The old "Next areas" list (`renderAreas`, `markSearched`) is removed.
+    - "They've been found": a `found` event, a banner and pin on every phone, tasks hidden, positions no longer shared.
+    - Corrections in a shared search are `caseUpdate` events, and a correction from another phone fills this phone's form and redraws the map.
+    - Report box: flags (`draft.flags`) and "Not sure: please check" marks (`draft.unsure`); street corners and the language are sent to the readers; an unknown time stays empty and must be typed (it used to become 0 minutes).
+    - Search leader line from the fixed templates in `replies.js`. Version-mismatch warning. The hand-off sheet lists finished tasks and "found".
+    - 64 new i18n keys in five languages. `sw.js` `v34`, with `replies.js` and `engine/planner/*.js` in `SHELL_FILES`.
+  - **Hazard layer.** `engine/grid.js`: woods and brush near the likely area are a second hazard class (`grid.woods`, `sector.woods`, `spot.woodsNearby`, `woodsSpots`). `engine/planner/plan.js`, `params.js`: park tasks through woods carry `stay_on_path`. New `tests/woods-hazard.test.js` (4 tests).
+  - **Rules.** `sync.js`, `firebase-rules.json`, `tools/mock-firebase.py`, `tests/sync.test.js`: `assigned` may carry `canvass` (true / false).
+  - **Tests and checks.** New `tests/host-plan.test.js` (2 tests). `tools/browser/twotab.mjs` rewritten for two volunteers; new `tools/browser/release-check.mjs`; `newarea.mjs` prints the routes.
+  - **Docs and data.** `README.md` rewritten (3-command setup, results, limits). `UPDATESBYNATE.md` is one list for BenStew. `CLAUDE.md`, `PLAN.md`, `ShortPlan.md`, `INTERFACES.md` updated. Added `docs/INTAKE-SPEC.md`, `docs/research/FREMONT.md` (public copy), `docs/research/hazards.geojson`, `bench/real-cases-maps.json` (the 18-case street-level result the README cites).
+- **Why:** Nathan's release list: one clean `main` a judge can clone and run in 3 commands, with the Demo working end to end.
+- **Decisions:**
+  - **With no usable GPS, routes start at the last-seen point** (location off, or more than 3 km away), and a note says so. Otherwise a judge trying the Demo from another city would get "too far from this map".
+  - **The foot / car switch and the GPS trail were left out.** `mode` on a searcher's position is refused by the database rules, and a trail needs privacy text; neither was on the release list. A finished task is credited from its planned route.
+  - **`/say` is not called at all** (`proxyUrl: ''`), so the lines are instant, work offline and can't differ between phones.
+  - **`canvass` was added to the rules** instead of being dropped from the event: without it a "walk past only" block would be counted as doors knocked.
+  - **FREMONT.md: public copy only.** Nathan asked for the file to be committed and also for no id-to-URL list to be committed; its case tables were exactly that (83 links to articles and alerts that name people). The links were replaced by the publisher's name. The original is kept as `docs/research/FREMONT-private.md` (git-ignored).
+  - **A database refusal is said out loud** (`eventRefused`), because until the new rules are published the live database refuses `completed`, `released`, `found` and `caseUpdate`.
+- **How it was verified:**
+  - `node --test`: 231 tests, 230 pass, 0 fail, 1 skipped (the Firebase emulator check, which needs Java).
+  - Headless Chrome on `localhost:8000` with the mock database:
+    - `release-check.mjs` (the Demo): results after about 1 s, three routes with warnings about 1.5 s later, Take, Done, a lake report (water flag, empty time marked and refused until typed), Found with its pin, hand-off lines.
+    - `twotab.mjs` (two volunteers): same top spots; a route taken by one is not the other's first choice and both end up on different ground; a correction (90 minutes, east) reached the other tab as three `caseUpdate` events and both maps matched again; "found" ended the search in both; a case made with another engine version showed the warning. No page errors apart from the proxy's CORS notice on `localhost`.
+    - `newarea.mjs` (a live download, central Fremont): first map and three routes 13.5 s after pressing Find, from the streets alone. The second download (buildings) did **not** arrive in this run: the public Overpass servers answered 502 / 504 for five minutes. The app kept the streets-only map, as designed. (The same check got the buildings after 66 s earlier in the day.)
+  - A fresh `git clone` of the branch into an empty folder: `node --test` gives the same 231 / 230 / 1, so nothing depends on untracked or git-ignored files.
+  - **Two bugs found by these checks and fixed before the merge:**
+    - A tap on a numbered marker did nothing while the app was asking "tap the map where they were found" (markers swallow map taps), and people are often found right at a numbered spot. While placing a sighting or "found", a tap on a marker now counts (`map.on('layeradd', ...)` in `app.js`).
+    - With two tabs in one browser, the second tab ignored the first tab's correction: the send queue lives in storage shared by all tabs, so the second tab took the first tab's waiting corrections for its own. `applySharedCase` now looks only at what this page itself sent.
+- **Known issues / not done:**
+  - **Not run on a real phone.** Jev could not be reached from `localhost` (the proxy only answers the live site), so the report box was checked with the backup reader only.
+  - **The live database still has the old rules until BenStew publishes `firebase-rules.json`**: in a shared search on the live site Done, Stop, Found and corrections are refused (the phone says so). The proxy also needs redeploying for the safety layer.
+  - The colored map does not fade where planner tasks were finished (`docs/PLANNER-MERGE.md` step 8).
+  - Two tabs in one browser share one searcher id (it is kept in `localStorage`), so they count as one volunteer; the browser check gives each tab its own.
+  - The route cards re-order when a new plan arrives (every few seconds while people move), which can shift a card just before a tap. The open card stays open.
+  - `bench/prior-report.md` still says woods are not flagged; `node bench/prior-report.js` was not re-run.
+  - New translations are AI-written and unreviewed.
+- **Next:** BenStew: publish the rules, redeploy the proxy, phone test (`UPDATESBYNATE.md`). Then the GPS trail and letting the map fade for finished tasks.
 
 ### Planner: benchmark re-run on the calibrated prior (stage 4) map
 - **Date:** 2026-11-22

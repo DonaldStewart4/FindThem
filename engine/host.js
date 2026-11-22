@@ -5,6 +5,7 @@
 
 import { prepareArea, withLayers } from './graph.js';
 import { replay, topSpots, hazardSpots } from './grid.js';
+import { planSearch } from './planner/index.js';
 
 // A tiny made-up area and case, used once when the worker starts: running the engine on it
 // makes the browser compile and optimize the engine's code while the person is still reading
@@ -31,16 +32,19 @@ export function warmUp() {
 export function createHost() {
   let areaKey = null;
   let area = null;
+  let lastPrediction = null; // the full prediction of the last run(), kept for the planner
   return {
     // A new area: the full OsmData from data.js.
     setArea(key, osm) {
       area = prepareArea(osm);
       areaKey = key;
+      lastPrediction = null;
     },
     // The same area's ground layers arrived later (the second download).
     addLayers(key, layers) {
       if (key !== areaKey || !area) throw new Error('addLayers: unknown area');
       area = withLayers(area, layers);
+      lastPrediction = null; // the map must be worked out again on the sharper area first
     },
     // Replays a case and also works out the lists the screen shows.
     // Returns { prediction, spots, hazards, ms }. The walkers' end points are left out of
@@ -51,8 +55,17 @@ export function createHost() {
       const prediction = replay(area, caseInput, events);
       const spots = topSpots(area, prediction, spotsMax);
       const hazards = hazardSpots(area, prediction, hazardsMax);
+      // The planner reads this later. Its two big arrays are copied, because worker.js hands
+      // the originals over to the page (after which they are empty on this side).
+      lastPrediction = { ...prediction, grid: { ...prediction.grid, p: prediction.grid.p.slice(), hazard: prediction.grid.hazard.slice() } };
       const slim = { ...prediction, sim: { ...prediction.sim, endpoints: [] } };
       return { prediction: slim, spots, hazards, ms: Date.now() - t0 };
+    },
+    // The search plan for the map of the last run(): who should search where next.
+    // searchers: [ { id, lat, lng, mode, at } ]; events: every event of the search; nowMs: the clock.
+    plan(key, caseInput, events, searchers, nowMs) {
+      if (key !== areaKey || !area || !lastPrediction) throw new Error('plan: run the engine first');
+      return planSearch(area, caseInput, lastPrediction, { searchers, events, nowMs });
     },
   };
 }

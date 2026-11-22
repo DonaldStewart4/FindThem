@@ -165,6 +165,9 @@
             "fraction": {
               ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1 && (newData.parent().child('type').val() === 'released')"
             },
+            "canvass": {
+              ".validate": "newData.isBoolean() && (newData.parent().child('type').val() === 'assigned')"
+            },
             "track": {
               ".validate": "newData.hasChildren() && (newData.parent().child('type').val() === 'assigned' || newData.parent().child('type').val() === 'released' || newData.parent().child('type').val() === 'completed')",
               "$i": {

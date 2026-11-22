@@ -253,6 +253,14 @@ The screen starts `new Worker('engine/worker.js', { type: 'module' })` and sends
 
 Each is answered with `{ id, ok: true, ... }` or `{ id, ok: false, error }`. A `replay` answer carries `{ prediction, spots, hazards, ms }` (`spots` = `topSpots`, `hazards` = `hazardSpots`; `prediction.sim.endpoints` is empty). If the worker can't start or doesn't answer within 20 s, `app.js` calls `engine.replay` on the page instead. `engine/host.js` is the same logic without the worker wrapper, so tests can run it. The worker is started when the page opens and runs the engine once on a tiny made-up area (`warmUp`), so the browser has optimized the engine's code before the first real map.
 
+### Added at release (Nov 22; new, not yet reviewed by BenStew)
+
+- **`engine/index.js` also exports** `planSearch`, `assignedEvent`, `trackFromLatLngs` (the search planner, `docs/PLANNER.md` section 5 has the `Plan` and `Option` shapes), `woodsSpots(area, prediction, n)` and `ENGINE_VERSION` (a string like `'2026-11-22.2'`). The screen calls `sync.setEngineVersion(ENGINE_VERSION)` at start; bump it whenever the same inputs give a different map or plan.
+- **The worker answers one more message:** `{ id, type: 'plan', key, caseInput, events, searchers, nowMs }` → `{ id, ok: true, plan }`. It plans on the map of its last `replay`, so send `replay` first (otherwise the answer is `ok: false`, "plan: run the engine first"). `searchers` is `[ { id, lat, lng, at, mode: 'foot' } ]`; `events` is every event of the search except messages, each with an `id`.
+- **Woods and brush are a second hazard class** ("check from the path"), next to water: `grid.woods` (score per square), `grid.woodsType`, `sector.woods` / `sector.woodsScore`, `spot.woodsNearby = { type: 'woods' | 'brush', distanceM, nearbyProbability, check: 'from_path' } | null`. `hazardSpots` items gained `check: 'from_bank'`. `grid.p` is unchanged by it.
+- **The planner's `assigned` event may carry `canvass`** (`true`: knock and ask at the doors; `false`: only walk past). The rules, `sync.js` and the mock database accept it as a yes/no on `assigned` only.
+- **What the screen sends now:** `assigned` (Take this task), `completed` with `minutes` 1–600 (Done), `released` (Stop), `found` (They've been found), `caseUpdate` (a correction in a shared search; a minutes correction also sends `minutesAt` with the same `at`). It no longer sends `searched`; the engine still honors `searched` events from older links.
+
 ## 3. Tunable constants
 
 Every tunable number is a named constant with a comment giving its source and one of three labels: **DATA** (a published number, never tuned), **EXPERT** (a described behavior; the number is ours), **ASSUMPTION** (our choice; the ones in `tools/calibrate.js` are fitted to ISRID).

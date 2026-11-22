@@ -143,6 +143,7 @@ EVENT_FIELDS = {
     'expiresAt': is_num,  # checked against 'at' below
     'searchMin': num(0, 600),
     'fraction': num(0, 1),
+    'canvass': lambda v: isinstance(v, bool),
     'track': track,
     'field': lambda v: isinstance(v, str) and v in CASE_UPDATE_FIELDS,
     'value': lambda v: True,  # checked in check_event, like the case field it replaces
@@ -153,7 +154,7 @@ EVENT_TYPES = {
     'searched': (['sectorId', 'minutes'], []),
     'sighting': (['lat', 'lng', 'minutesSince', 'reliability'], ['direction', 'note']),
     'message': (['text'], []),
-    'assigned': ([], ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track']),
+    'assigned': ([], ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track', 'canvass']),
     'released': (['searcherId', 'taskId'], ['track', 'fraction']),
     'completed': (['searcherId', 'taskId', 'minutes'], ['track', 'partnerId']),
     'caseUpdate': (['field'], ['value']),
