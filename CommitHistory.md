@@ -58,8 +58,54 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 - **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
+- **Event integrity (2026-11-22, branch `integrity`, not merged):** no event can corrupt the shared map.
+  - Firebase refuses any event that isn't exactly a known shape, refuses edits and deletes, and accepts the case once.
+  - Every phone re-checks what it receives with the same rules (no clock involved), drops and counts bad events, and counts copies once.
+  - The case carries `engineVersion`, so a phone on another engine version can warn.
+  - The rules, `sync.js` and the mock are checked against one shared test table.
 
 ## Log
+
+### Event integrity: strict Firebase rules, checked events on every phone, engineVersion
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - `firebase-rules.json`:
+    - Every event type is checked for its exact shape: `searched`, `sighting`, `message`, plus the planner's `assigned`, `released` and `completed`. `assigned` accepts the planner shape and the INTERFACES shape, with an optional `toId`.
+    - Ranges: `searched` and `completed` minutes are numbers from 1 to 600, lat ±90, lng ±180, reliability is 0.3, 0.6 or 0.9, `at` ≥ 2020 and ≤ server time + 1 h.
+    - Text caps: name 40, note and message 300, ids by regex. A `track` is at most 2000 whole numbers.
+    - Unknown types and extra fields are refused.
+    - Completeness checks sit in `.write`, so writing one field at a time can't build a half event or half case.
+    - Events are append-only and need a 20-character push id. The case is written once, whole, and must carry `engineVersion`.
+    - Searcher positions can still be overwritten and removed, but their shape is checked now.
+  - `sync.js`:
+    - `checkEvent`, `checkCase` and `checkSearcher` apply the same rules (without the clock).
+    - `cleanEvents` / `readMirror` drop and count bad events and de-duplicate by content. `subscribe` passes an `info` 4th argument (dropped, duplicates, caseProblem, versionMismatch) and ignores stream messages it can't parse.
+    - `applyChange` handles multi-path patches and ignores `__proto__` paths.
+    - `addEvent` and `createSearch` refuse invalid data locally with `error: 'invalid'`.
+    - Events are sent with PUT at a client-made push id (`newPushId`). If a send is refused, sync.js reads that id back and treats an identical stored copy as success, so a retry is never stored twice.
+    - `createSearch` stamps `engineVersion` (`ENGINE_VERSION = '2026-11-22.1'`, or `setEngineVersion`). `loadSearch` returns `info` and fills in `direction: null` and `familiarPlaces: []`.
+  - `tools/mock-firebase.py`:
+    - Enforces the same rules by checking each touched slot (case, event or searcher) whole after a write.
+    - Adds PATCH (all-or-nothing) and DELETE, a 400 for bodies that aren't JSON, 401 "Permission denied", Firebase-style push ids, `--port 0`, and `patch` stream events.
+  - `tests/sync.test.js`:
+    - A 75-row table of good and bad events (malformed, oversized, wrong-type, extra-field, future-dated, emoji length) is checked against sync.js, against `firebase-rules.json` through a small rules evaluator, and against the mock over HTTP.
+    - Separate tests cover append-only, write-once case, partial-write and PATCH, duplicate and replay, lost-answer retry, prototype pollution, and junk on the stream.
+  - `UPDATESBYNATE.md` (new): what the screen must do.
+- **Why:** Anyone with a search link can write to the database. Before this, a malformed event (minutes as text, lat 500, a 1 MB note, an unknown field), an edit, or a duplicate could poison the map on every phone or crash `replay`.
+- **Decisions:**
+  - **Rejected: a server-side `cids/` index for replay protection.** `cid` is `local-<ms>-<n>`, which an attacker could guess and claim first. Retries are made safe by client-chosen push ids instead, and replays (same content under a new id) are counted once on every phone.
+  - **Case `minutes` and `minutesSince` allow up to 1440**, not 600: the form allows 1440, and `app.js` caps the growing minutes at 1440. Only event minutes are 1–600.
+  - **Phones don't apply the "not in the future" check.** Phone clocks differ, and every phone must drop the same events.
+  - `minutes` may be fractional (`markSearched` takes `Number(input)`).
+- **How it was verified:**
+  - `node --test`: 125 tests, 125 pass (110 before this change; the new ones are in `tests/sync.test.js`).
+  - Mutation check: loosening one rule (reliability 0.5) and one mock check (text 400) each made the table test fail. Both files were then restored.
+  - The rules were *not* deployed to real Firebase or run in the Firebase emulator. The evaluator in the test models Firebase's documented semantics (cascading `.write`, `.validate` at and below the write, `$` wildcards, `%`, `.matches`). The real server could differ in edge cases.
+- **Known issues / not done:**
+  - Screen work is listed in `UPDATESBYNATE.md`: show the version warning (i18n in 5 languages), handle `invalid` in `recordEvent`, clamp minutes, `sw.js` cache bump, `INTERFACES.md` §6 update.
+  - A malicious but well-formed event (a fake sighting) is still accepted; there are no accounts, so that is out of scope.
+- **Next:** deploy the rules with `sync.js` and test two phones against real Firebase; the screen session applies the `UPDATESBYNATE.md` items.
 
 ### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
 - **Date:** 2026-11-22
