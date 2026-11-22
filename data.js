@@ -35,11 +35,28 @@ const DB_STORE = 'areas';
 
 // ---- Building the Overpass query ----------------------------------------------
 
+// Rail lines people can't walk across (bridges and tunnels are skipped when reading the answer).
+const RAIL_TYPES = 'rail|light_rail|subway';
+// Roads nobody walks on or across: they act as walls for the walkers.
+const MOTORWAY_TYPES = 'motorway|trunk|motorway_link|trunk_link';
+const BARRIER_TYPES = 'fence|wall|hedge|retaining_wall';
+// Land use that changes how easy the ground is to walk over (see engine/surface.js).
+const LANDUSE_TYPES = 'residential|commercial|retail|industrial|cemetery|recreation_ground|religious';
+const LEISURE_TYPES = 'pitch|playground|garden|golf_course';
+const AMENITY_TYPES = 'parking|school';
+
 // Returns the Overpass QL text for one area. "out body geom" gives each way its tags,
 // its node ids AND the coordinates of those nodes, so one request is enough.
+//
+// Since the "prior v2" engine the same request also asks for the layers the walkers' 10 m
+// ground map needs (OsmData.layers, see INTERFACES.md): buildings, fences/walls/hedges, rail
+// lines, motorways, land use and bus stops. Buildings are by far the biggest part, so they
+// come back with NO tags ("out skel geom"): a way with geometry and no tags is a building.
+// Measured for Fremont (Nov 22): about +3.7 MB on the wire and noticeably more server time.
+// The engine still works without these layers (old saved areas), just with a rougher map.
 export function buildQuery(lat, lng, radiusM = DEFAULT_RADIUS_M) {
   const around = `(around:${radiusM},${lat},${lng})`;
-  return `[out:json][timeout:90];
+  return `[out:json][timeout:120];
 (
   way${around}[highway~"^(${WALKABLE})$"];
 )->.walk;
@@ -48,9 +65,25 @@ export function buildQuery(lat, lng, radiusM = DEFAULT_RADIUS_M) {
   way${around}[natural~"^(wood|scrub|wetland|water)$"];
   way${around}[landuse~"^(forest|meadow|grass)$"];
   way${around}[leisure=park];
+  relation${around}[natural~"^(wood|scrub|wetland|water)$"];
+  relation${around}[landuse~"^(forest|meadow|grass)$"];
+  relation${around}[leisure=park];
 )->.trap;
+(
+  way${around}[barrier~"^(${BARRIER_TYPES})$"];
+  way${around}[railway~"^(${RAIL_TYPES})$"];
+  way${around}[highway~"^(${MOTORWAY_TYPES})$"];
+  way${around}[landuse~"^(${LANDUSE_TYPES})$"];
+  way${around}[leisure~"^(${LEISURE_TYPES})$"];
+  way${around}[amenity~"^(${AMENITY_TYPES})$"];
+)->.ground;
 .walk out body geom qt;
-.trap out body geom qt;`;
+.trap out body geom qt;
+.ground out tags geom qt;
+way${around}[building];
+out skel geom qt;
+node${around}[highway=bus_stop];
+out skel qt;`;
 }
 
 // ---- Turning Overpass JSON into OsmData ---------------------------------------
@@ -78,10 +111,11 @@ export function parseOverpass(json, center, radiusM = DEFAULT_RADIUS_M) {
   const features = [];
 
   for (const el of json.elements || []) {
+    if (el.type === 'relation') { features.push(...relationFeatures(el)); continue; }
     if (el.type !== 'way' || !el.geometry || !el.tags) continue;
     const tags = el.tags;
 
-    if (tags.highway) {
+    if (tags.highway && !MOTORWAY_RE.test(tags.highway)) {
       // A walkable way. Remember each node's position, and the order of nodes.
       const nodeIds = [];
       el.nodes.forEach((id, i) => {
@@ -112,8 +146,141 @@ export function parseOverpass(json, center, radiusM = DEFAULT_RADIUS_M) {
     });
   }
 
-  return { center, radiusM, nodes: [...nodesById.values()], ways, features };
+  const osm = { center, radiusM, nodes: [...nodesById.values()], ways, features };
+  const layers = parseLayers(json, center);
+  if (layers) osm.layers = layers; // only when the answer had them (older answers don't)
+  return osm;
 }
+
+// ---- Lakes and parks drawn in several pieces (OSM "multipolygon" relations) ----------------
+
+// Big lakes and parks are often stored as a relation: a list of member ways that together make
+// the outline (Lake Elizabeth in Fremont is one). Each OUTER outline becomes a feature like any
+// other, with id 'r<relation id>' ('r<id>-2', ... if there are several). Islands and other
+// holes (inner members) are ignored: the whole outline counts as the lake or park.
+// Outline pieces are joined end to end; a piece that still doesn't close is kept as a line.
+export function relationFeatures(el) {
+  const type = trapType(el.tags || {});
+  if (!type || !Array.isArray(el.members)) return [];
+  const pieces = [];
+  for (const m of el.members) {
+    if (m.type !== 'way' || m.role === 'inner' || !Array.isArray(m.geometry)) continue;
+    const pts = m.geometry.filter(Boolean).map((g) => ({ lat: r7(g.lat), lng: r7(g.lon) }));
+    if (pts.length >= 2) pieces.push(pts);
+  }
+  const same = (a, b) => a.lat === b.lat && a.lng === b.lng;
+  const isClosed = (pts) => pts.length >= 4 && same(pts[0], pts[pts.length - 1]);
+  const rings = [];
+  while (pieces.length) {
+    let ring = pieces.shift();
+    // Keep attaching any piece that starts or ends where this one ends, until it closes.
+    for (let joined = true; joined && !isClosed(ring);) {
+      joined = false;
+      for (let i = 0; i < pieces.length; i++) {
+        const next = pieces[i];
+        const end = ring[ring.length - 1];
+        if (same(end, next[0])) ring = ring.concat(next.slice(1));
+        else if (same(end, next[next.length - 1])) ring = ring.concat([...next].reverse().slice(1));
+        else continue;
+        pieces.splice(i, 1);
+        joined = true;
+        break;
+      }
+    }
+    rings.push(ring);
+  }
+  return rings.map((points, i) => ({
+    id: 'r' + el.id + (i ? '-' + (i + 1) : ''),
+    type,
+    name: (el.tags && el.tags.name) || null,
+    shape: isClosed(points) && type !== 'creek' && type !== 'river' ? 'area' : 'line',
+    points,
+  }));
+}
+
+// ---- The ground layers for the walkers' 10 m map (OsmData.layers) -----------------------
+
+const MOTORWAY_RE = new RegExp(`^(${MOTORWAY_TYPES})$`);
+const RAIL_RE = new RegExp(`^(${RAIL_TYPES})$`);
+const BARRIER_RE = new RegExp(`^(${BARRIER_TYPES})$`);
+
+// Which kind of ground a tagged way is, or null. See engine/surface.js for what each kind does.
+//   fence / rail / motorway  → lines the walkers can't cross
+//   yard                     → land around houses (private, mostly fenced, rarely crossed)
+//   lot                      → open paved or built-up ground (parking, shops, schools)
+//   green                    → sports pitches, playgrounds, gardens, golf, cemeteries
+function groundKind(tags) {
+  // A rail line or motorway on a bridge or in a tunnel can be walked under / over.
+  const offGround = (tags.bridge && tags.bridge !== 'no') || (tags.tunnel && tags.tunnel !== 'no');
+  if (tags.barrier && BARRIER_RE.test(tags.barrier)) return 'fence';
+  if (tags.railway && RAIL_RE.test(tags.railway)) return offGround ? null : 'rail';
+  if (tags.highway && MOTORWAY_RE.test(tags.highway)) return offGround ? null : 'motorway';
+  if (tags.landuse === 'residential') return 'yard';
+  if (['commercial', 'retail', 'industrial', 'religious'].includes(tags.landuse)) return 'lot';
+  if (tags.amenity === 'parking' || tags.amenity === 'school') return 'lot';
+  if (['cemetery', 'recreation_ground'].includes(tags.landuse)) return 'green';
+  if (['pitch', 'playground', 'garden', 'golf_course'].includes(tags.leisure)) return 'green';
+  return null;
+}
+
+// Packs a list of Overpass points into a short list of whole numbers: each point is stored as
+// the step from the previous one (the first one as the step from `center`), in units of
+// 0.00001 degrees (about 1 m). Buildings have ~240,000 points in the Fremont area, and this
+// keeps them at about a third of the size of plain { lat, lng } objects.
+// unpackPoints() in engine/surface.js is the reverse.
+export const LAYER_UNIT_DEG = 1e-5;
+export function packPoints(geometry, center) {
+  const out = [];
+  let prevLat = Math.round(center.lat / LAYER_UNIT_DEG);
+  let prevLng = Math.round(center.lng / LAYER_UNIT_DEG);
+  for (const g of geometry) {
+    if (!g) continue;
+    const lat = Math.round(g.lat / LAYER_UNIT_DEG);
+    const lng = Math.round(g.lon / LAYER_UNIT_DEG);
+    out.push(lat - prevLat, lng - prevLng);
+    prevLat = lat;
+    prevLng = lng;
+  }
+  return out;
+}
+
+// Reads the ground layers out of an Overpass answer. Returns null when the answer has none of
+// them (an answer to the older, smaller query), so the engine knows to use its fallback.
+//   layers = { version: 1, unitDeg: 0.00001,
+//              buildings: [ packedPoints, ... ],              closed outlines
+//              lines:     [ { kind: 'fence'|'rail'|'motorway', pts: packedPoints } ],
+//              areas:     [ { kind: 'yard'|'lot'|'green', pts: packedPoints } ],
+//              busStops:  [ [lat, lng], ... ] }
+export function parseLayers(json, center) {
+  const buildings = [];
+  const lines = [];
+  const areas = [];
+  const busStops = [];
+  for (const el of json.elements || []) {
+    if (el.type === 'node') {
+      // The only nodes the query asks for are bus stops (sent without tags).
+      if (Number.isFinite(el.lat) && Number.isFinite(el.lon)) busStops.push([r5(el.lat), r5(el.lon)]);
+      continue;
+    }
+    if (el.type !== 'way' || !el.geometry) continue;
+    const tags = el.tags;
+    if (!tags || tags.building) {
+      // No tags = a building (see buildQuery). A tagged building is also accepted, so an
+      // answer saved with full tags works too.
+      if (el.geometry.length >= 4) buildings.push(packPoints(el.geometry, center));
+      continue;
+    }
+    const kind = groundKind(tags);
+    if (!kind) continue;
+    const pts = packPoints(el.geometry, center);
+    if (kind === 'fence' || kind === 'rail' || kind === 'motorway') lines.push({ kind, pts });
+    else if (el.geometry.length >= 4) areas.push({ kind, pts });
+  }
+  if (!buildings.length && !lines.length && !areas.length && !busStops.length) return null;
+  return { version: 1, unitDeg: LAYER_UNIT_DEG, buildings, lines, areas, busStops };
+}
+
+const r5 = (x) => Math.round(x * 1e5) / 1e5;
 
 // ---- Downloading ---------------------------------------------------------------
 

@@ -60,6 +60,46 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Prior v2, stage 2: ground map, walkers as particles, time-aware map
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 2 of 4
+- **What changed:**
+  - **New `engine/surface.js`:** the 10 m ground map (640 × 640 squares, ±3.2 km), built from OSM for the case's grid origin. 16 ground classes (road, path, service way, building, fence/rail/motorway, water, creek, wetland, woods, brush, grass, park, yard, open lot, plain ground, no data). Roads are drawn last, so bridges and gates stay open. Also per square: how exposed to the public a way is (road type, bus stops), "beside a building", joined to the main street network, and (worked out only when asked for) distance to the nearest road and to water. `snapToNetwork()` moves a start point in a house, a lake or a cut-off scrap of path onto walkable ground joined to the streets.
+  - **`engine/sim.js` rewritten:** walkers move square by square over the ground map and their position is stored **every minute**. Each has its own speed (0.62 ± 0.23 m/s, Toots et al. 2019), share of time moving, minutes of mobility, kind (keeps a course / wanders / heads for a familiar place / stays near a structure) and road habit (34% follow roads, ISRID). They stop when mobility runs out, at a structure, stuck in brush / woods / wetland / a drainage channel, or in water (decided once per walker). Familiar places pull through a walking-cost field (`costToGoal`), so goal-seekers go around lakes and blocks. Each walker has its own random stream, so its first hour is the same whether one hour or twelve are simulated.
+  - **New `engine/params.js`:** every tunable number, labeled DATA / EXPERT / ASSUMPTION with its source. **New `engine/calibrated.js`:** empty for now (stage 4 fills it).
+  - **`engine/grid.js` rewritten around particles:**
+    - The grid is anchored to the **case** (`gridOriginFor`: `caseInput.gridOrigin`, or the last-seen point rounded to 3 decimals), and coordinates are read at the share link's 6 decimals, so every phone means the same ground by the same sector id.
+    - The map is for **t minutes since last seen** (where each walker is at minute t), with **"still missing"** evidence: weight × (1 − rate × exposure) for every minute on a road.
+    - A search re-weighs the walkers that were in that sector **at the time of the search** (needs `caseInput.minutesAt`; without it every event counts as "now", as before).
+    - A sighting starts new walkers from the sighting point that walk for as long as it has been since (grows with the clock), is **not** discounted by searches made before it, and is discounted by searches made after it.
+    - `Number(ev.minutes)`; ties in `at` are ordered by code point like `sync.js`; `topSpots` checks the 150 m spacing after moving a pin onto a creek or park.
+    - New fields: `Prediction.restOfWorld` (walkers that left the map; `grid.p` now sums to `1 − restOfWorld`), `Prediction.minutes`, `grid.origin`. New exports: `gridOriginFor`, `sectorIdAt`, `groundClassAt`.
+    - Smoothing never crosses a sector's edge, so the sector Bayes arithmetic is exact.
+  - `engine/graph.js`: `prepareArea` also keeps a reference to `osm` (the ground map is drawn later, once the case is known). `engine/routes.js`: sector membership is measured from the grid origin.
+  - **`data.js` (BenStew's file; Nathan's brief allowed the query change):** the Overpass query also asks for buildings (sent without tags), fences / walls / hedges, rail, motorways, land use, pitches, parking, schools, bus stops, and lakes / parks stored as relations. New `parseLayers`, `packPoints`, `relationFeatures`; `parseOverpass` adds `osm.layers` when the answer has them. **Cost, measured on Nov 22 for Fremont:** buildings alone are about 3.7 MB on the wire and took 55 s on a busy public server (the old query's live download was 35 s).
+  - `tools/make-fixture.js`: new `--add file ...` mode that adds layers and relations to the existing fixture without touching its streets. `tests/fixtures/demo-area.json` regenerated that way: 22,582 buildings, 198 fences, 70 rail pieces, 334 residential areas, 475 lots, 425 green areas, 178 bus stops, and 5 relations including **Lake Elizabeth, which the old data did not have at all**. 3.0 → 4.6 MB.
+  - `sw.js` (BenStew's file): the three new engine files added to the offline list, `v28` → `v29`. Without this the app would not start offline.
+  - `bench/old-engine/`: a frozen copy of `main`'s `graph.js`, `sim.js`, `grid.js`, for comparing old and new. `bench/benchmark.js` now places its "true" people with those old walkers, so the app is no longer graded on its own model.
+  - `tests/engine.test.js` rewritten: 29 tests (was 16).
+- **Why:** Stage 2 of Nathan's brief: a movement surface, walkers stored as particles with per-walker variety, and a prior for "t minutes since last seen".
+- **Decisions:**
+  - The grid origin is derived inside the engine from the last-seen point, so sharing works with **no change to `app.js`**. `caseInput.gridOrigin` is honored if a later version wants to pass one.
+  - The probability map stays 256 × 256 squares of 25 m and sectors stay 200 m, so the screen draws it as before; only the walkers use the 10 m map.
+  - Buildings are stored as packed whole-number steps (about a third the size of `{lat, lng}` objects).
+  - Sightings use 2,500 walkers (the base run keeps 5,000) and walkers are simulated in half-hour blocks, to keep a cold replay fast.
+  - The even 2% floor is still there; stage 3 replaces it with the ISRID statistics map and the full rest-of-world share.
+  - Elevation skipped (see the design note).
+- **How it was verified:** `node --test`: 86 pass, 0 fail. On the laptop a cold replay of a new case with 7 searches and 3 sightings took 283–471 ms (the first run in a new process is the slow one), the 5-minute clock tick 12–24 ms, the Demo's cold replay about 250 ms. With the default (uncalibrated) numbers, from the map center: median straight-line distance 177 m at 15 min, 340 m at 60 min, 372 m at 12 h (ISRID urban says 1,100 m for where people are found, so the defaults are too short: that is what stage 4 fits). Busy roads hold 27% of the walkers at 120 min but 4% of the weight after "still missing". A familiar place 600 m away raises the chance within 200 m of it from 0.017 to 0.130 at 45 min; the Lake Elizabeth pin 1.7 km away from 0.001 to 0.023 within 400 m at 90 min (the old engine: 0.000 both ways).
+- **Known issues / not done:**
+  - **Not calibrated.** Distances are far too short until stage 4.
+  - `INTERFACES.md` is not updated yet (stage 3 does it, with the exact list for BenStew).
+  - The Demo's last-seen point is 1.6 km from the center of the bundled area, so 32% of its ground map is "no data".
+  - Two phones holding different downloads agree on the grid and on everything inside both downloads; walkers that reach ground only one phone has data for will differ.
+  - Hazard flags still come from the old trap lookup; the Demo's top spots show none yet (stage 3).
+  - The full benchmark (`npm run bench`) was not re-run; its numbers in the README are for the old engine.
+  - Not tried in a browser or on a phone.
+- **Next:** Stage 3: ISRID statistics map and blend, rest of world, hazard layer, remaining audit fixes, tests.
+
 ### Prior v2, stage 1: design note
 - **Date:** 2026-11-22
 - **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 1 of 4

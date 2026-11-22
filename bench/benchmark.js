@@ -18,18 +18,23 @@
 // (the same detection model the app uses). We count the share of cases found after 500, 1,500
 // and 3,000 searcher-minutes.
 //
-// Honest limits: the "true" people come from our own walker model, run with DIFFERENT settings
-// (straighter or twistier walking, giving up sooner, stopping at dead ends more often) so the
-// app isn't graded on exactly its own assumptions. Real people are messier; this shows how much
-// coordination and the map could help, not how searches go in real life.
+// Honest limits: the "true" people come from a walker model, not from real cases. Since the
+// "prior v2" engine (Nov 22) it is a DIFFERENT model from the one the app uses: the street-only
+// walkers the app had before (frozen in bench/old-engine/), run with two sets of settings. So
+// the app is no longer graded on its own assumptions, but the truths are still simulated.
+// Real people are messier; this shows how much coordination and the map could help, not how
+// searches go in real life. bench/prior-eval.js grades the map itself against ISRID statistics.
 //
 // Run:   node bench/benchmark.js          (prints the table and writes bench/results.md)
 
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { prepareArea, toXY } from '../engine/graph.js';
-import { simulate, makeRandom } from '../engine/sim.js';
-import { replay, podForMinutes, GRID_RADIUS_M, SECTOR_CELLS, CELL_SIZE_M } from '../engine/grid.js';
+import { makeRandom } from '../engine/sim.js';
+import { replay, podForMinutes, sectorIdAt, gridOriginFor } from '../engine/grid.js';
+// The old street-only walkers place the "true" people (see the limits above).
+import { prepareArea as prepareOldArea, toLatLng as oldToLatLng } from './old-engine/graph.js';
+import { simulate as simulateOld } from './old-engine/sim.js';
 
 // ---- Settings ----------------------------------------------------------------------------------
 
@@ -52,23 +57,13 @@ const STARTS = [
 const CASE_MINUTES = 60;   // how long ago they were last seen
 const CASE_MOBILITY = 'normal';
 
-// How the "true" missing people walk: not quite what the app assumes (see sim.js for defaults:
-// give-up 2,500 m, turn scale 30°, heading scale 90°, dead-end stop 0.3, trap 0.6).
+// How the "true" missing people walk: the old engine's walkers (bench/old-engine/sim.js; its
+// defaults are give-up 2,500 m, turn scale 30°, heading scale 90°, dead-end stop 0.3, trap 0.6)
+// with two different sets of settings.
 const TRUTH_TUNINGS = [
   { GIVE_UP_MEDIAN_M: 2000, TURN_SCALE_DEG: 45, HEADING_SCALE_DEG: 120, DEAD_END_STOP_PROB: 0.45, TRAP_PROB: 0.5 },
   { GIVE_UP_MEDIAN_M: 3000, TURN_SCALE_DEG: 20, HEADING_SCALE_DEG: 60, DEAD_END_STOP_PROB: 0.2, TRAP_PROB: 0.7 },
 ];
-
-const COLS = Math.round((2 * GRID_RADIUS_M) / CELL_SIZE_M);
-const SECTOR_SIZE = SECTOR_CELLS * CELL_SIZE_M;
-const SECTOR_COLS = COLS / SECTOR_CELLS;
-
-function sectorIdAt(x, y) {
-  const sc = Math.floor((x + GRID_RADIUS_M) / SECTOR_SIZE);
-  const sr = Math.floor((y + GRID_RADIUS_M) / SECTOR_SIZE);
-  if (sc < 0 || sr < 0 || sc >= SECTOR_COLS || sr >= SECTOR_COLS) return null;
-  return `r${sr}c${sc}`;
-}
 
 // ---- The four strategies --------------------------------------------------------------------------
 // Each one is called once per turn and returns the VOLUNTEERS area ids to search this turn.
@@ -182,6 +177,7 @@ function normalish(random) {
 export function runBenchmark({ casesPerSetup = 50, osm = null, log = () => {} } = {}) {
   const data = osm || JSON.parse(fs.readFileSync(new URL('../tests/fixtures/demo-area.json', import.meta.url)));
   const area = prepareArea(data);
+  const oldArea = prepareOldArea(data);
   const strategies = ['own', 'ring', 'findthem', 'sighting'];
   const found = Object.fromEntries(strategies.map((s) => [s, CHECKPOINTS.map(() => 0)]));
   let cases = 0;
@@ -216,7 +212,7 @@ export function runBenchmark({ casesPerSetup = 50, osm = null, log = () => {} } 
       // The "true" people for this setup: walkers with different settings, a different seed.
       const truths = [];
       TRUTH_TUNINGS.forEach((tuning, k) => {
-        const sim = simulate(area, {
+        const sim = simulateOld(oldArea, {
           start: caseInput.lastSeen, minutes: CASE_MINUTES, direction: caseInput.direction,
           mobility: CASE_MOBILITY, familiarPlaces: [], seed: 50000 + setupIndex * 10 + k, tuning,
         });
@@ -224,7 +220,9 @@ export function runBenchmark({ casesPerSetup = 50, osm = null, log = () => {} } 
       });
 
       for (const t of truths.slice(0, casesPerSetup)) {
-        const truth = { x: t.x, y: t.y, sector: sectorIdAt(t.x, t.y) };
+        // The truth's sector on the app's grid, which is anchored to this case's grid origin.
+        const where = oldToLatLng(oldArea.origin, t.x, t.y);
+        const truth = { x: t.x, y: t.y, sector: sectorIdAt(gridOriginFor(caseInput), where.lat, where.lng) };
         cases += 1;
         strategies.forEach((strategy, si) => {
           const random = makeRandom(cases * 7 + si * 100003);

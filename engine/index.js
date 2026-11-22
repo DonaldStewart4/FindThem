@@ -3,6 +3,8 @@
 //
 //   prepareArea(osm)                       → graph.js   street network + trap lookup
 //   replay(area, caseInput, events)        → grid.js    walkers → map → Bayes updates
+//                                            (surface.js draws the 10 m ground map, sim.js runs
+//                                            the walkers, params.js holds every tunable number)
 //   cellToLatLng(area, grid, cellIndex)    → grid.js    for drawing the likely areas
 //   nextSectors(prediction, minutes, n)    → grid.js    where the next searchers should go
 //   topSpots(area, prediction, n)          → grid.js    "Check these first"

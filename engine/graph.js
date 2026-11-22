@@ -81,7 +81,9 @@ export function prepareArea(osm) {
     }
   }
 
-  return { origin, graph: { nodes, edges }, traps: buildTrapIndex(origin, osm.features) };
+  // `osm` is kept (not copied) so surface.js can draw the 10 m ground map for a case later;
+  // the ground map depends on the case's grid origin, which isn't known yet here.
+  return { origin, graph: { nodes, edges }, traps: buildTrapIndex(origin, osm.features), osm };
 }
 
 // ---- Trap features: creeks, water, wetlands, woods, brush, grass, parks ----------------------
