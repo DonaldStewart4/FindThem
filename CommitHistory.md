@@ -57,9 +57,50 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
+- **Search-leader replies (2026-11-22, branch `agent-contract`, Nathan's decision):** replies are **generated wording, but constrained**. This replaces INTAKE-SPEC principle 2, "fixed templates only".
+  - `POST /say { intent, data, lang }` runs a text LLM through the Worker (`LLM_API_KEY` secret; `LLM_PROVIDER` / `LLM_MODEL` in `wrangler.toml`, default Anthropic `claude-opus-5-5`).
+  - `replies.js` `checkReply` holds every number, place and direction to `data` and bans advice, promises, water/road/property talk and "where they are". It runs on the proxy and on the phone; any failure gives the fixed template (5 languages).
+  - `emergency` / `found` are always fixed.
+  - This is a third online service, behind the same Worker; CLAUDE.md's "Online parts" list needs a line from BenStew.
 - **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
 
 ## Log
+
+### Search-leader replies: POST /say, generated but constrained
+- **Date:** 2026-11-22
+- **Stage:** Finishing (conversation layer), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`replies.js` (new, root, pure; shared by phone and proxy):**
+    - `INTENTS` (ask, confirm, abstain, readRoute, comfort, found, emergency) and `cleanSayData` (per-intent fields only, and no advice, links or promises inside data);
+    - fixed templates in en/es/fr/zh/ja, with `templateReply`, `warningLines` (water / vehicle / "water in this area", fixed) and `replyFacts`;
+    - `checkReply`: numbers, places and directions only from the facts; banned medical, where-they-are, water/road/property, promise and "chatbot" content in 5 languages; one line, at most 2 sentences and 220 characters (90 for zh/ja); right language;
+    - `getReply`: the phone's call to `/say`, which re-checks the reply. It falls back to the template on any problem, uses a 2.5 s timeout, and never asks for emergency or found.
+  - **`proxy/say.js` (new):**
+    - the prompt (MEANING = the template, FACTS = the display facts);
+    - provider adapters with plain fetch: Anthropic Messages, `anthropic-version: 2026-10-21`, effort low, server-side refusal fallback; or OpenAI-compatible `/chat/completions`;
+    - `say()`: only `{ intent, data, lang }`, a 4 s timeout, a check, then the template.
+  - `proxy/worker.js`: route `POST /say`. `proxy/wrangler.toml`: `LLM_PROVIDER`, `LLM_MODEL`. `proxy/.dev.vars.example`: `LLM_API_KEY`.
+  - `tests/replies.test.js` (12 tests).
+  - Docs: `docs/REPLIES.md` (design, intents and data, provider, tests, **the screen hook-up list**); `INTERFACES.md` (`/say`); `docs/AGENT-CONTRACT.md` (AgentReply is now generated-but-constrained); `proxy/README.md`.
+- **Why:** Nathan's step 3: build the conversation layer from `docs/INTAKE-SPEC.md`, with generated but constrained wording.
+- **Decisions:**
+  - **The LLM never has to mention water, roads or property:** warnings are fixed lines added after the check. So any mention of them in a generated reply is rejected, except words the fixed template itself uses ("garage" in the house question).
+  - **The phone re-checks** what the proxy sends.
+  - **Templates live in `replies.js`** for now, because `i18n.js` is being edited elsewhere. The hook-up list moves them.
+  - **Strict over fluent:** a reply with Chinese numerals ("二十分钟") or a simplified direction is rejected, and the template is used.
+  - `docs/INTAKE-SPEC.md` (untracked in the main folder) was read but not copied into this branch, to avoid a merge clash.
+- **How it was verified:**
+  - `node --test`: 141 pass.
+  - Adversarial fake LLM: 0 of 720 bad replies got through. Fuzz: 500 planted errors, all rejected.
+  - All 60 generated-intent templates pass their own checker; 12 good paraphrases pass.
+  - The checker caught and fixed during development: neighbors' backyards (property), "il est là-bas", and English replies passing as es/fr.
+- **Known issues / not done:**
+  - **Not hooked up to the screen** (`app.js` / `i18n.js` untouched): see the list in `docs/REPLIES.md`.
+  - **No LLM key exists yet,** so the live generated path is untested against a real model: all tests use fakes.
+  - The templates need a native speaker's check.
+  - `caseGaps` / `proposeClue` (which feed `ask` / `confirm clue`) are still specified, not built.
+- **Next:** score blind-2 once.
+
 
 ### Blind-test failure categories, and a cautious backup reader
 - **Date:** 2026-11-22

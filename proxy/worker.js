@@ -10,12 +10,14 @@
 //   GET  /voice    → { listen, speak }: which optional voice services have keys (proxy/voice.js)
 //   POST /listen?lang=en   body = a recording (audio/webm or audio/mp4) → { text } (Deepgram)
 //   POST /speak    { text, lang: 'en' } → MP3 audio (ElevenLabs; English only, others → 400)
+//   POST /say      { intent, data, lang } → { text, source: 'llm' | 'template', warnings } (proxy/say.js)
 // Errors: { error: 'code' } with a 4xx/5xx status.
 
 // Shared checker, so the browser and the proxy clean drafts the same way.
 // (wrangler bundles these imports into the worker when deploying.)
 import { validateDraft, MAX_TEXT } from '../report.js';
 import { JEV_URL, JEV_MODEL, buildJevRequest, safeJevDraft, cleanPlaces, cleanIntersections } from './jev.js';
+import { say } from './say.js';
 import {
   voiceCapabilities, buildDeepgramRequest, deepgramText, buildElevenLabsRequest,
   MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
@@ -94,6 +96,7 @@ export default {
     if (tooMany(ip, Number(env.RATE_LIMIT) || RATE_LIMIT)) return reply(env, 429, { error: 'rate_limit' });
 
     if (path === '/listen') return listen(request, env);
+    if (path === '/say') return sayRoute(request, env);
     if (path === '/speak') return speak(request, env);
     if (path !== '/') return reply(env, 404, { error: 'not_found' });
     return readReport(request, env);
@@ -134,6 +137,19 @@ async function readReport(request, env) {
   // safety-rule changes without new calls. The browser ignores the extra field (validateDraft).
   if (env.DEBUG_ANSWERS === '1') return reply(env, 200, { ...draft, _jev: { model: jev && jev.model, answers: jev && jev.answers } });
   return reply(env, 200, draft);
+}
+
+// POST /say { intent, data, lang } → { text, source, warnings }: one short reply, worded by a text LLM
+// and checked (proxy/say.js), or the fixed template. Only these three fields are accepted.
+async function sayRoute(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (err) {
+    return reply(env, 400, { error: 'bad_json' });
+  }
+  const out = await say(env, body);
+  return reply(env, out.status, out.body);
 }
 
 // POST /listen?lang=xx: a recording → { text }, with Deepgram. Nothing is stored.

@@ -109,6 +109,8 @@ AgentReply = {
 
 The voice read-back in `app.js` (`readBackText`) already works this way.
 
+**Changed Nov 22 (Nathan):** a reply may now be **generated** wording, under constraints. It goes through `POST /say`, and `replies.js` `checkReply` holds every number, place and direction to `data`, bans advice and promises, and falls back to the fixed template on any failure. `emergency` and `found` stay fixed. See `docs/REPLIES.md`.
+
 ## The functions
 
 All of them run on the phone and are pure: same inputs, same output on every phone. None of them writes to Firebase.

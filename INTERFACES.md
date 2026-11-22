@@ -253,6 +253,12 @@ Intersection = {                 // a street corner
 
 If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js` `readLocally(text, { places, intersections, lang })`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
 
+**What the search leader says** (same proxy; `docs/REPLIES.md`, `replies.js`, `proxy/say.js`):
+
+- `POST /say { intent, data, lang } → { text, source: 'llm' | 'template', warnings: [..] }`, where intent ∈ `ask, confirm, abstain, readRoute, comfort, found, emergency`. Only those three fields are accepted.
+- A text LLM words the reply, held to `data` by `checkReply` on the proxy and again on the phone. Any failure, no key, or no signal gives the fixed template. `emergency` and `found` are always the template.
+- Replies are shown or spoken only: they never become events.
+
 **Optional voice bot** (same proxy, only if its keys are set; see `proxy/voice.js`):
 - `GET /voice` → `{ listen: bool, speak: bool }`. Both false → the app uses the phone's own speech recognition and doesn't speak (the behavior before the voice bot).
 - `POST /listen?lang=xx` with a recording (`audio/webm` or `audio/mp4`) → `{ text }` (Deepgram nova-3). The text then goes through `POST /` like typed text.
