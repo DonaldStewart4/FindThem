@@ -9,11 +9,14 @@ import * as engine from '../engine/index.js';
 import { prepareArea } from '../engine/graph.js';
 import { simulate, N_WALKERS, STOP, KIND } from '../engine/sim.js';
 import { PARAMS } from '../engine/params.js';
+import { statsMap, findTypes, FIND_TYPES, BLOCKED, ISRID, distanceCdf, farther } from '../engine/prior.js';
+import { createHost } from '../engine/host.js';
 import {
   buildSurface, cellAt, snapToNetwork, latLngToXY, C, SURFACE_N,
 } from '../engine/surface.js';
 import {
   podForMinutes, sectorBoundsXY, sectorIdAt, gridOriginFor, groundClassAt, SPOT_SEPARATION_M,
+  HAZARD_MIN_CHANCE, HAZARD_REACH_M,
 } from '../engine/grid.js';
 
 const osm = JSON.parse(fs.readFileSync(new URL('./fixtures/demo-area.json', import.meta.url)));
@@ -26,11 +29,11 @@ const CASE = {
 const ORIGIN = gridOriginFor(CASE);
 const surface = buildSurface(osm, ORIGIN);
 const startCell = snapToNetwork(surface, cellAt(surface, START.lat, START.lng));
-const run = (overrides = {}) => simulate(surface, { startCell, minutes: 45, seed: 1, ...overrides });
+const run = (overrides = {}) => simulate(surface, { startCell, minutes: 45, seed: 1, trace: true, ...overrides });
 
 // Straight-line meters from the start to where walker w is at minute m (NaN if it left the map).
 function distanceAt(walks, w, m) {
-  const cell = walks.pos[w * (walks.T + 1) + m];
+  const cell = walks.pos10[w * (walks.T + 1) + m];
   if (cell < 0) return NaN;
   return 10 * Math.hypot(Math.floor(cell / SURFACE_N) - Math.floor(startCell / SURFACE_N), (cell % SURFACE_N) - (startCell % SURFACE_N));
 }
@@ -50,6 +53,18 @@ test('ground map: Lake Elizabeth is water, and roads, paths, buildings, creeks, 
     assert.ok(counts[k] > 100, `class ${k} should appear on the map`);
   }
   assert.ok(surface.hasLayers);
+});
+
+test('ground map: no more than 3% of the Demo\'s map is without data', () => {
+  // Until Nov 22 the Demo's download was a circle centered 1.6 km away from its last-seen
+  // point, and a third of its map had no data. Now the download is a square around the grid
+  // origin. (On a real coastline the sea would be mapped as "no data" too: Fremont's Demo
+  // area has none, so the limit applies in full here.)
+  assert.ok(surface.noDataShare <= 0.03, `${(100 * surface.noDataShare).toFixed(1)}% of the map has no data`);
+  assert.equal(engine.replay(area, CASE, []).noDataShare, surface.noDataShare);
+  // The fixture is centered on the Demo's grid origin and reaches past the map's edge.
+  assert.deepEqual(osm.center, ORIGIN);
+  assert.ok(osm.radiusM >= 3200 + 100);
 });
 
 test('ground map: an area saved before the new layers existed still works', () => {
@@ -72,7 +87,7 @@ test('ground map: a last-seen point in the lake or in a house starts on walkable
   const walks = simulate(surface, { startCell: snapped, minutes: 60, seed: 3 });
   const where = new Map();
   for (let w = 0; w < walks.n; w++) {
-    const cell = walks.pos[w * (walks.T + 1) + walks.T];
+    const cell = walks.endCell[w];
     where.set(cell, (where.get(cell) || 0) + 1);
   }
   assert.ok(Math.max(...where.values()) < 0.5 * walks.n, 'no single square holds half the walkers');
@@ -86,18 +101,24 @@ test('walkers: same seed gives identical results, a different seed does not', ()
   const c = run({ seed: 43 });
   assert.equal(a.n, N_WALKERS);
   assert.deepEqual(a.pos, b.pos);
+  assert.deepEqual(a.seen, b.seen);
   assert.deepEqual(a.reason, b.reason);
   assert.notDeepEqual(a.pos, c.pos);
 });
 
-test('walkers: positions are stored every minute, and a longer run starts the same way', () => {
-  const short = run({ minutes: 60, seed: 5 });
-  const long = run({ minutes: 120, seed: 5 });
+test('walkers: positions are stored every minute in 4 bytes, and a longer run starts the same way', () => {
+  const short = run({ minutes: 60, seed: 5, trace: false });
+  const long = run({ minutes: 120, seed: 5, trace: false });
   assert.equal(short.pos.length, N_WALKERS * 61);
   assert.equal(long.pos.length, N_WALKERS * 121);
+  // Memory: a 16-bit map square and a 16-bit exposure total per walker-minute.
+  assert.ok(short.pos instanceof Uint16Array && short.seen instanceof Uint16Array);
+  assert.equal((short.pos.byteLength + short.seen.byteLength) / (N_WALKERS * 61), 4);
+  assert.equal(short.pos10, null, 'the 10 m trace is only kept when asked for');
   for (let w = 0; w < N_WALKERS; w += 7) {
     for (let m = 0; m <= 60; m += 5) {
       assert.equal(short.pos[w * 61 + m], long.pos[w * 121 + m], `walker ${w} minute ${m}`);
+      assert.equal(short.seen[w * 61 + m], long.seen[w * 121 + m], `walker ${w} minute ${m} exposure`);
     }
   }
 });
@@ -122,7 +143,7 @@ test('walkers: never inside a building or a fence; in water only if they walked 
   const walks = run({ minutes: 120, seed: 9 });
   for (let w = 0; w < walks.n; w++) {
     for (let m = 0; m <= walks.T; m += 3) {
-      const cell = walks.pos[w * (walks.T + 1) + m];
+      const cell = walks.pos10[w * (walks.T + 1) + m];
       if (cell < 0) continue;
       const v = surface.cls[cell];
       assert.ok(v !== C.BUILDING && v !== C.BARRIER, `walker ${w} minute ${m} is inside class ${v}`);
@@ -151,7 +172,7 @@ test('walkers: a stated direction pulls them that way', () => {
   let ne = 0;
   let sw = 0;
   for (let w = 0; w < walks.n; w++) {
-    const cell = walks.pos[w * (walks.T + 1) + walks.T];
+    const cell = walks.endCell[w];
     if (cell < 0) continue;
     const along = (Math.floor(cell / SURFACE_N) - sr) + ((cell % SURFACE_N) - sc); // + = northeast
     if (along > 5) ne++; else if (along < -5) sw++;
@@ -389,6 +410,203 @@ test('topSpots: up to n spots, really at least 150 m apart, with sensible fields
   }
 });
 
+// ---- The ISRID statistics map, the blend and "rest of world" -------------------------------------
+
+test('statistics map: the map and "rest of world" sum to 1 at every time, and rest of world grows', () => {
+  let last = -1;
+  for (const minutes of [0, 15, 45, 120, 480, 1440]) {
+    const { grid, outside } = statsMap(surface, startCell, minutes);
+    assert.ok(Math.abs(sum(grid) + outside - 1) < 1e-9, `t = ${minutes}: ${sum(grid) + outside}`);
+    assert.ok(outside >= last - 1e-12, `rest of world should not shrink with time (t = ${minutes})`);
+    last = outside;
+  }
+  // With unlimited time the share beyond the map is what ISRID's distances say: about a
+  // quarter of people are found more than 3.2 km away (the 75% distance).
+  assert.ok(last > 0.15 && last < 0.3, `rest of world at 24 h = ${last.toFixed(3)}`);
+  // At 15 minutes nobody can be off a map that reaches 3.2 km.
+  assert.ok(statsMap(surface, startCell, 15).outside < 1e-9);
+});
+
+test('statistics map: distances follow the ISRID urban percentiles and the find-location shares', () => {
+  for (const [p, d] of ISRID.urban.distanceM) assert.ok(Math.abs(distanceCdf(d, 'urban') - p) < 1e-12);
+  // Time limits distance: after 10 minutes almost nobody is past 1 km, whatever ISRID's end
+  // distances say; after a day the limit no longer bites.
+  assert.ok(farther(1000, 10, 'normal') < 0.02);
+  assert.ok(Math.abs(farther(1100, 1440, 'normal') - 0.5) < 0.02);
+  // Within 1 km of the start, each kind of place holds its ISRID share of that ring's chance.
+  // (stillMissing off: that evidence deliberately moves chance off busy roads.)
+  const { grid } = statsMap(surface, startCell, 1440, { stillMissing: false });
+  const type = findTypes(surface);
+  assert.ok(sum(grid) > 0.7);
+  const counts = new Array(FIND_TYPES.length).fill(0);
+  for (const k of type) if (k !== BLOCKED) counts[k] += 1;
+  for (const name of ['structure', 'road', 'linear', 'field', 'drainage']) {
+    assert.ok(counts[FIND_TYPES.indexOf(name)] > 500, `the map should have ${name} squares`);
+  }
+});
+
+test('replay: the result is a blend, and with more time more of the chance is "not on this map"', () => {
+  const at = (minutes) => engine.replay(area, { ...CASE, minutes, direction: null, familiarPlaces: [], mobility: 'normal' }, []);
+  const early = at(20);
+  const late = at(600);
+  assert.ok(early.restOfWorld < 0.001, `rest of world at 20 min = ${early.restOfWorld}`);
+  assert.ok(late.restOfWorld > 0.03, `rest of world at 10 h = ${late.restOfWorld}`);
+  near1(total(early));
+  near1(total(late));
+  // No even floor any more: a square inside a big building far from everything can be 0,
+  // while every sector that has open ground has some chance.
+  const withGround = late.grid.sectors.filter((s) => s.probability > 0).length;
+  assert.ok(withGround > 900, `${withGround} of 1024 sectors have some chance`);
+});
+
+// ---- Familiar places and slow mobility ----------------------------------------------------------------
+
+test('a familiar place really pulls: more chance near it, and walkers arrive', () => {
+  const plain = { ...CASE, direction: null, mobility: 'normal', familiarPlaces: [] };
+  // A place about 600 m from the last-seen point.
+  const place = { lat: 37.5440, lng: -121.9750, label: 'Old house' };
+  for (const minutes of [45, 90]) {
+    const without = chanceNear(engine.replay(area, { ...plain, minutes }, []), place, 200);
+    const withPlace = chanceNear(engine.replay(area, { ...plain, minutes, familiarPlaces: [place] }, []), place, 200);
+    assert.ok(withPlace > 2 * without && withPlace > without + 0.02,
+      `t = ${minutes}: within 200 m of the place ${without.toFixed(3)} → ${withPlace.toFixed(3)}`);
+  }
+  // The Demo's pin, Lake Elizabeth, 1.7 km away (the old engine: 0.000 with or without it).
+  const lake = CASE.familiarPlaces[0];
+  const without = chanceNear(engine.replay(area, { ...plain, minutes: 180 }, []), lake, 400);
+  const withLake = chanceNear(engine.replay(area, { ...plain, minutes: 180, familiarPlaces: [lake] }, []), lake, 400);
+  assert.ok(withLake > 1.5 * without, `within 400 m of the lake after 3 h: ${without.toFixed(4)} → ${withLake.toFixed(4)}`);
+  // Goal-seekers walk AROUND the lake to the shore: they don't end in the water.
+  const goalCell = snapToNetwork(surface, cellAt(surface, lake.lat, lake.lng));
+  assert.notEqual(surface.cls[goalCell], C.WATER);
+});
+
+test('slow mobility keeps the map closer to the last-seen point', () => {
+  const at = (mobility) => {
+    const pred = engine.replay(area, { ...CASE, minutes: 60, direction: null, familiarPlaces: [], mobility }, []);
+    return chanceNear(pred, START, 400);
+  };
+  const normal = at('normal');
+  const slow = at('slow');
+  const walker = at('walker');
+  assert.ok(walker > slow && slow > normal, `chance within 400 m: normal ${normal.toFixed(2)}, slow ${slow.toFixed(2)}, walker or cane ${walker.toFixed(2)}`);
+});
+
+// ---- Hazard layer -----------------------------------------------------------------------------------
+
+test('hazard layer: scores only water / creek / wetland squares, by the chance nearby', () => {
+  const pred = engine.replay(area, CASE, []);
+  const { hazard, hazardType, p, cols, rows } = pred.grid;
+  assert.equal(hazard.length, cols * rows);
+  let flagged = 0;
+  for (let i = 0; i < hazard.length; i++) {
+    if (!hazardType[i]) { assert.equal(hazard[i], 0, 'a square with no water has no hazard score'); continue; }
+    if (hazard[i] >= HAZARD_MIN_CHANCE) flagged += 1;
+  }
+  assert.ok(flagged > 0, 'the Demo has a drainage channel 100 m from the last-seen point');
+  // One score checked by hand: the chance within the reach, added up square by square.
+  let best = 0;
+  for (let i = 1; i < hazard.length; i++) if (hazard[i] > hazard[best]) best = i;
+  const reach = Math.round(HAZARD_REACH_M / 25);
+  const r0 = Math.floor(best / cols);
+  const c0 = best % cols;
+  let byHand = 0;
+  for (let r = r0 - reach; r <= r0 + reach; r++) for (let c = c0 - reach; c <= c0 + reach; c++) if (r >= 0 && r < rows && c >= 0 && c < cols) byHand += p[r * cols + c];
+  assert.ok(Math.abs(byHand - hazard[best]) < 1e-6, `${byHand} vs ${hazard[best]}`);
+});
+
+test('hazard layer drives the flags: the Demo now shows its creek, and sectors are flagged', () => {
+  const pred = engine.replay(area, CASE, []);
+  const spots = engine.topSpots(area, pred, 8);
+  // The audit found the Demo's top eight spots showed no hazard at all, though a drainage
+  // channel runs about 100 m from the last-seen point. Now the most likely spot says so.
+  assert.ok(spots[0].hazardNearby, 'the Demo\'s first spot has the drainage channel nearby');
+  assert.equal(spots[0].hazardNearby.type, 'creek');
+  assert.ok(spots[0].hazardNearby.distanceM <= HAZARD_REACH_M);
+  for (const s of spots) {
+    if (s.hazard) assert.ok(['creek', 'river', 'water', 'wetland'].includes(s.trapType), `hazard spot has type ${s.trapType}`);
+    if (s.hazard) assert.ok(s.hazardNearby, 'a spot at the water also has it "nearby"');
+  }
+  const dangerous = engine.hazardSpots(area, pred, 5);
+  assert.ok(dangerous.length > 0);
+  for (let i = 0; i < dangerous.length; i++) {
+    const h = dangerous[i];
+    assert.ok(['water', 'creek', 'wetland'].includes(h.type));
+    assert.ok(h.nearbyProbability >= HAZARD_MIN_CHANCE && h.nearbyProbability <= 1);
+    if (i > 0) assert.ok(dangerous[i - 1].nearbyProbability >= h.nearbyProbability, 'most dangerous first');
+  }
+  const flaggedSectors = pred.grid.sectors.filter((s) => s.hazard);
+  assert.ok(flaggedSectors.length > 0 && flaggedSectors.length < pred.grid.sectors.length / 2);
+  assert.ok(flaggedSectors.every((s) => s.hazardScore >= HAZARD_MIN_CHANCE));
+});
+
+test('hazard layer does not depend on walkers standing in water', () => {
+  // Far from any water the walkers' own water rule can't matter; near it, the flag is there
+  // even at 5 minutes, before any walker could have walked in.
+  const pred = engine.replay(area, { ...CASE, minutes: 5 }, []);
+  assert.ok(engine.hazardSpots(area, pred, 3).length > 0, 'the channel 100 m away is flagged at 5 minutes');
+});
+
+// ---- Allocation --------------------------------------------------------------------------------------
+
+test('nextSectors is the best possible allocation: checked against brute force on tiny maps', () => {
+  // Brute force, written differently from the code on purpose: for EVERY way of sending
+  // `count` searchers to different areas, work out the chance the person is found, as
+  // 1 − P(not found), where P(not found) adds up, area by area, the chance they are there
+  // times the chance a search there misses them (and they may be nowhere on the map).
+  const pod = podForMinutes(20);
+  const chanceFound = (probs, chosen) => {
+    let notFound = 1 - probs.reduce((a, b) => a + b, 0); // rest of world: never found
+    probs.forEach((p, i) => { notFound += p * (chosen.includes(i) ? Math.exp(-(0.8 * 20 * 60 * 20) / 40000) : 1); });
+    return 1 - notFound;
+  };
+  const subsets = (n, k, from = 0) => (k === 0 ? [[]] : Array.from({ length: n - from }, (_, j) => from + j)
+    .flatMap((i) => subsets(n, k - 1, i + 1).map((rest) => [i, ...rest])));
+  const maps = [
+    [0.1, 0.4, 0.2, 0.2, 0.1],
+    [0.05, 0.03, 0.3, 0.02, 0.25, 0.15],   // leaves 0.2 for "rest of world"
+    [0.2, 0.2, 0.2, 0.2],
+    [0.01, 0.5, 0.01, 0.01, 0.3, 0.02, 0.1],
+  ];
+  for (const probs of maps) {
+    const prediction = { grid: { sectors: probs.map((probability, i) => ({ id: `r0c${i}`, probability })) } };
+    for (let count = 1; count <= 3; count++) {
+      const got = engine.nextSectors(prediction, 20, count);
+      const gotIndexes = got.map((s) => Number(s.sectorId.slice(3)));
+      let best = -1;
+      for (const chosen of subsets(probs.length, count)) best = Math.max(best, chanceFound(probs, chosen));
+      assert.ok(Math.abs(chanceFound(probs, gotIndexes) - best) < 1e-12, `map ${probs}, ${count} searchers: ${chanceFound(probs, gotIndexes)} vs best ${best}`);
+      // And the reported gains add up to that chance.
+      assert.ok(Math.abs(got.reduce((a, s) => a + s.gain, 0) - best) < 1e-12);
+      assert.ok(Math.abs(pod - (1 - Math.exp(-(0.8 * 20 * 60 * 20) / 40000))) < 1e-12);
+    }
+  }
+});
+
+// ---- The engine behind a worker ------------------------------------------------------------------------
+
+test('engine host (what the Web Worker runs): same map as calling the engine directly; layers can arrive later', () => {
+  const host = createHost();
+  const { layers, ...streetsOnly } = osm;
+  host.setArea('demo', streetsOnly);               // phase 1: streets, creeks and parks
+  const first = host.run('demo', CASE, EVENTS, { spotsMax: 5 });
+  assert.equal(first.prediction.hasLayers, false);
+  near1(total(first.prediction));
+  assert.ok(first.spots.length > 0 && first.spots.length <= 5, 'a full prediction from streets alone');
+  assert.equal(first.prediction.sim.endpoints.length, 0, 'end points are not sent to the page');
+  host.addLayers('demo', layers);                  // phase 2: buildings, fences, land use
+  const second = host.run('demo', CASE, EVENTS, { spotsMax: 5 });
+  assert.equal(second.prediction.hasLayers, true);
+  const direct = engine.replay(area, CASE, EVENTS);
+  assert.deepEqual(Array.from(second.prediction.grid.p), Array.from(direct.grid.p));
+  assert.notDeepEqual(Array.from(first.prediction.grid.p), Array.from(second.prediction.grid.p));
+  assert.throws(() => host.run('another-area', CASE, []));
+  // What crosses to the page survives being copied (a worker message is a structured copy).
+  const copy = structuredClone(second);
+  assert.deepEqual(Array.from(copy.prediction.grid.p), Array.from(second.prediction.grid.p));
+  assert.equal(copy.spots.length, second.spots.length);
+});
+
 // ---- Routes ----------------------------------------------------------------------------------------
 
 test('routeFor: stays inside its area, follows connected streets, and times the walk', () => {
@@ -435,10 +653,12 @@ test('topSpots are listed from most to least likely (by the total chance around 
 
 test('fast enough for a phone: a cold replay with 7 searches and 3 sightings', () => {
   // "Cold" = a case the engine has not seen: new ground map, new walkers, nothing cached.
-  // A mid-range phone runs this kind of code about 3× slower than a laptop, and the limit on a
-  // phone is 2 s, so the laptop limit here is 650 ms. The other test files run at the same
-  // time and compete for the processor, so the cold run is done twice (two different cases,
-  // each on a freshly prepared area) and the quicker one counts.
+  // The target is under 2 s with the processor slowed four times. Measured in Chrome that way
+  // (tools/browser/budget.mjs) the same replay takes about 3 times as long as on this laptop
+  // unslowed, so the limit here is 650 ms.
+  // The other test files run at the same time and compete for the processor, so the cold run
+  // is done three times (three different cases, each on a freshly prepared area) and the
+  // quickest counts.
   const T0 = 1_700_000_000_000;
   const coldRun = (lastSeen, seed) => {
     const fresh = prepareArea(osm);
@@ -459,10 +679,27 @@ test('fast enough for a phone: a cold replay with 7 searches and 3 sightings', (
     engine.replay(fresh, { ...cold, minutes: 80, minutesAt: T0 + 80 * 60000 }, events); // the 5-minute clock tick
     return { ms, tick: performance.now() - t1 };
   };
-  const a = coldRun({ lat: 37.5521, lng: -121.9712 }, 99);
-  const b = coldRun({ lat: 37.5461, lng: -121.9762 }, 100);
-  const ms = Math.min(a.ms, b.ms);
-  const tick = Math.min(a.tick, b.tick);
+  const runs = [
+    coldRun({ lat: 37.5461, lng: -121.9762 }, 99),
+    coldRun({ lat: 37.5381, lng: -121.9842 }, 100),
+    coldRun({ lat: 37.5431, lng: -121.9712 }, 101),
+  ];
+  const ms = Math.min(...runs.map((r) => r.ms));
+  const tick = Math.min(...runs.map((r) => r.tick));
   assert.ok(ms < 650, `cold replay took ${ms.toFixed(0)} ms`);
-  assert.ok(tick < 300, `the clock-tick replay took ${tick.toFixed(0)} ms`);
+  assert.ok(tick < 150, `the clock-tick replay took ${tick.toFixed(0)} ms`);
+});
+
+test('memory: what one search keeps in a phone\'s memory', () => {
+  // The walkers of a 12-hour case (the longest the engine simulates): 5,000 walkers x 721
+  // minutes x 4 bytes = 14.4 MB. A typical first-hour case keeps under 2 MB.
+  const hour = simulate(surface, { startCell, minutes: 60, seed: 1 });
+  const day = simulate(surface, { startCell, minutes: 1440, seed: 1 });
+  const bytes = (w) => w.pos.byteLength + w.seen.byteLength;
+  assert.equal(day.T, PARAMS.MAX_SIM_MINUTES);
+  assert.ok(bytes(hour) < 1.3e6, `${(bytes(hour) / 1e6).toFixed(2)} MB for the first hour`);
+  assert.ok(bytes(day) < 15e6, `${(bytes(day) / 1e6).toFixed(2)} MB at the 12-hour cap`);
+  // The ground map: five layers of one byte per 10 m square.
+  const mapBytes = surface.cls.byteLength + surface.exposure.byteLength + surface.nearBuilding.byteLength + surface.region.byteLength;
+  assert.ok(mapBytes < 2e6, `${(mapBytes / 1e6).toFixed(2)} MB for the ground map`);
 });

@@ -1,9 +1,12 @@
 // engine/grid.js — the probability map and Bayesian search theory.
 //
-// 1. Prior: where the simulated walkers (sim.js) are, t minutes after the person was last seen,
-//    counted onto a grid of 25 m squares. A walker that would have spent long on busy roads
-//    counts for less, because the person is STILL MISSING: on a busy road someone would
-//    probably have noticed them by now.
+// 1. Prior, for "t minutes since last seen": a BLEND of two maps on a grid of 25 m squares.
+//      - where the simulated walkers (sim.js) are at minute t. A walker that would have spent
+//        long on busy roads counts for less, because the person is STILL MISSING: on a busy
+//        road someone would probably have noticed them by now.
+//      - the ISRID statistics map (prior.js): the published distances and find locations.
+//    Whatever lies beyond the map's edge is "rest of world" (Prediction.restOfWorld), so the
+//    map plus rest of world always sums to 1.
 // 2. Searched, nobody found: every walker that was inside that area AT THE TIME OF THE SEARCH
 //    counts for less, by how likely searchers were to spot the person there (probability of
 //    detection, POD = 1 − e^(−coverage), Koopman's formula). Everything else rises (Bayes' rule).
@@ -14,6 +17,8 @@
 // 4. Next areas: the 200 m sectors where the next searcher's minutes add the most chance of
 //    finding the person.
 // 5. Top spots: the most likely places, with the nearest creek / park and named street.
+// 6. A second layer, "where it's dangerous": water, creeks and wetland in or beside the likely
+//    area (grid.hazard). Hazard flags come from this layer, not from where walkers ended.
 //
 // The grid is anchored to the CASE (its grid origin), not to the map download a phone holds, so
 // every phone on a shared search means the same ground by the same sector id.
@@ -22,6 +27,7 @@
 // plus podForMinutes and sectorBoundsXY used by routes.js and the tests.
 
 import { simulate, compassToDegrees, costToGoal, STOP } from './sim.js';
+import { statsMap, ringProbability } from './prior.js';
 import { nearestTrap, toXY } from './graph.js';
 import { PARAMS } from './params.js';
 import {
@@ -39,9 +45,6 @@ export const SECTOR_CELLS = 8;      // ASSUMPTION: a sector is 8 × 8 squares = 
 // decimals of a degree (3 → about 100 m). Rounding makes it a short, exact number that every
 // phone works out identically from the shared last-seen point.
 export const GRID_ORIGIN_DECIMALS = 3; // ASSUMPTION
-// Until the ISRID statistics map arrives (stage 3 of prior v2), a small share of the chance is
-// spread evenly over the grid so no square is exactly zero.
-export const PRIOR_FLOOR = 0.02;    // ASSUMPTION (temporary)
 // Searching: a volunteer walks SEARCH_SPEED_MPS and spots a person within SWEEP_WIDTH_M / 2
 // either side. coverage = speed × seconds × sweep width ÷ sector area; POD = 1 − e^(−coverage)
 // (Koopman; Koester, Cooper, Frost & Robe 2004, DTIC ADA511593).
@@ -57,14 +60,20 @@ export const SPOT_SEPARATION_M = 150;  // ASSUMPTION
 export const SPOT_RADIUS_M = 75;       // ASSUMPTION
 export const SPOT_TRAP_SEARCH_M = 50;  // ASSUMPTION
 export const HAZARD_TYPES = ['creek', 'river', 'water', 'wetland'];
+// The hazard layer: a water / creek / wetland square is scored by the chance of the person
+// being within HAZARD_REACH_M of it. A sector or spot is flagged when that score reaches
+// HAZARD_MIN_CHANCE. Rowe et al. 2011: deaths "most commonly occurred in unpopulated areas due
+// to exposure and drowning", half of them within 0.5 mile of where the person was last seen.
+export const HAZARD_REACH_M = 150;       // ASSUMPTION: about a two-minute walk
+export const HAZARD_MIN_CHANCE = 0.005;  // ASSUMPTION: 1 chance in 200 that they are that close
+// Codes in grid.hazardType (0 = no hazard in that square).
+export const HAZARD_CODES = [null, 'water', 'creek', 'wetland'];
 
 const COLS = Math.round((2 * GRID_RADIUS_M) / CELL_SIZE_M); // 256 squares across
 const ROWS = COLS;
 const SECTOR_SIZE_M = SECTOR_CELLS * CELL_SIZE_M;            // 200 m
 const SECTOR_COLS = COLS / SECTOR_CELLS;                      // 32 sectors across
 const SECTOR_AREA_M2 = SECTOR_SIZE_M * SECTOR_SIZE_M;
-const N10 = SURFACE_N;                                        // 640 ground squares across
-const SECTOR_GROUND_CELLS = SECTOR_SIZE_M / SURFACE_CELL_M;   // 20 ground squares per sector side
 
 // ---- Small helpers ----------------------------------------------------------------------------
 
@@ -106,20 +115,11 @@ export function sectorIdAt(origin, lat, lng) {
   return `r${sr}c${sc}`;
 }
 
-// Which sector (0..1023) a 10 m ground square belongs to.
-function sectorOfGroundCell(cell) {
-  const r = Math.floor(cell / N10);
-  const c = cell % N10;
-  return Math.floor(r / SECTOR_GROUND_CELLS) * SECTOR_COLS + Math.floor(c / SECTOR_GROUND_CELLS);
-}
-
-// Which 25 m square of the probability map holds the middle of a 10 m ground square.
-function gridCellOfGroundCell(cell) {
-  const r = Math.floor(cell / N10);
-  const c = cell % N10;
-  const row = Math.floor(((r + 0.5) * SURFACE_CELL_M) / CELL_SIZE_M);
-  const col = Math.floor(((c + 0.5) * SURFACE_CELL_M) / CELL_SIZE_M);
-  return row * COLS + col;
+// Which sector (0..1023) a 25 m square of the probability map belongs to.
+function sectorOfGridCell(cell) {
+  const r = Math.floor(cell / COLS);
+  const c = cell % COLS;
+  return Math.floor(r / SECTOR_CELLS) * SECTOR_COLS + Math.floor(c / SECTOR_CELLS);
 }
 
 // Coordinates as every phone must see them: 6 decimals (about 0.1 m), the precision the share
@@ -163,29 +163,40 @@ function cachedSimulate(surface, options) {
   return cache.get(key);
 }
 
-// Familiar places as the walkers need them: the square, and the walking cost to it from everywhere.
-// A place off the map only gives a bearing from the start (walkers just head that way).
-function goalsFor(surface, places, fromLatLng) {
+// Familiar places as the walkers need them: the square, and the walking cost to it (see
+// costToGoal). The cost is worked out once per place, for the box around the LAST-SEEN point
+// and the place, and used for every story of the case, so every phone uses the same field
+// whatever order it learned things in. A place off the map, or walkers that start outside that
+// box (a far-away sighting), only get a bearing: they just head that way.
+//   lastSeen   the case's last-seen point (decides the box)
+//   from       where these walkers start: { lat, lng } (the last-seen point or a sighting)
+function goalsFor(surface, places, lastSeen, from) {
   if (!goalCache.has(surface)) goalCache.set(surface, new Map());
   const cache = goalCache.get(surface);
+  const anchor = snapToNetwork(surface, cellAt(surface, lastSeen.lat, lastSeen.lng));
+  const fromCell = snapToNetwork(surface, cellAt(surface, canon(from.lat), canon(from.lng)));
+  const UNREACHABLE = 0x3fffffff;
   const goals = [];
   for (const p of places || []) {
     if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
     const lat = canon(p.lat);
     const lng = canon(p.lng);
     const cell = snapToNetwork(surface, cellAt(surface, lat, lng));
-    if (cell < 0) {
-      const a = latLngToXY(surface.origin, fromLatLng.lat, fromLatLng.lng);
-      const b = latLngToXY(surface.origin, lat, lng);
-      const deg = (Math.atan2(b.x - a.x, b.y - a.y) * 180) / Math.PI;
-      goals.push({ cell: -1, bearingDeg: deg < 0 ? deg + 360 : deg });
-      continue;
+    let cost = null;
+    if (cell >= 0 && anchor >= 0 && fromCell >= 0) {
+      const key = `${cell}|${anchor}`;
+      if (!cache.has(key)) {
+        if (cache.size > 6) cache.clear();
+        cache.set(key, costToGoal(surface, cell, anchor));
+      }
+      cost = cache.get(key);
+      if (cost[fromCell] >= UNREACHABLE) cost = null; // these walkers start outside the box
     }
-    if (!cache.has(cell)) {
-      if (cache.size > 6) cache.clear();
-      cache.set(cell, costToGoal(surface, cell));
-    }
-    goals.push({ cell, cost: cache.get(cell) });
+    if (cost) { goals.push({ cell, cost }); continue; }
+    const a = latLngToXY(surface.origin, canon(from.lat), canon(from.lng));
+    const b = latLngToXY(surface.origin, lat, lng);
+    const deg = (Math.atan2(b.x - a.x, b.y - a.y) * 180) / Math.PI;
+    goals.push({ cell: -1, bearingDeg: deg < 0 ? deg + 360 : deg });
   }
   return goals;
 }
@@ -207,52 +218,97 @@ function horizonFor(minutes) {
 // weights. Nothing is renormalized until the end, so the components compete fairly: a story
 // that searches keep contradicting loses its share to the others.
 
-// A walker's square at a case minute (minutes since last seen), or -1 if it has left the map.
-function cellAtMinute(comp, w, minute) {
-  let index = Math.round(minute - comp.born);
-  if (index < 0) return -2; // this story hasn't started yet at that minute
-  if (index > comp.walks.T) index = comp.walks.T;
-  return comp.walks.pos[w * (comp.walks.T + 1) + index];
+// Where a story's walkers are at a case minute (minutes since last seen): the index into each
+// walker's minute-by-minute record, or -1 if the story hasn't started yet at that minute.
+function minuteIndex(comp, minute) {
+  const index = Math.round(minute - comp.born);
+  if (index < 0) return -1;
+  return Math.min(index, comp.walks.T);
 }
 
-// "Still missing": multiply each walker's weight by the chance nobody noticed it, given the
-// minutes it spent on roads up to `minute`.
-function applyStillMissing(surface, comp, minute, scale) {
+// "Still missing": each walker's weight is the chance nobody noticed it, given how exposed to
+// the public it has been up to `minute`: (1 − rate)^(exposure-minutes). The weights are then
+// scaled so the whole story keeps the share `total`: the evidence moves chance from walkers on
+// busy roads to the others, it doesn't shrink the story.
+function applyStillMissing(comp, minute, total) {
   const { walks } = comp;
   const W = walks.T + 1;
-  const last = Math.max(0, Math.min(walks.T, Math.round(minute - comp.born)));
-  const logKeep = new Float64Array(101);
-  for (let e = 1; e <= 100; e++) logKeep[e] = Math.log(1 - Math.min(0.999, PARAMS.SPOT_RATE_PER_MIN * e * 0.01));
+  const index = Math.max(0, minuteIndex(comp, minute));
+  const logKeep = Math.log(1 - PARAMS.SPOT_RATE_PER_MIN) * 0.01;
+  let sum = 0;
   for (let w = 0; w < walks.n; w++) {
-    let log = 0;
-    const base = w * W;
-    for (let m = 1; m <= last; m++) {
-      const cell = walks.pos[base + m];
-      if (cell < 0) break;
-      const e = surface.exposure[cell];
-      if (e) log += logKeep[e];
-    }
-    comp.weight[w] = scale * Math.exp(log);
+    comp.weight[w] = Math.exp(logKeep * walks.seen[w * W + index]);
+    sum += comp.weight[w];
   }
+  const scale = sum > 0 ? total / sum : 0;
+  for (let w = 0; w < walks.n; w++) comp.weight[w] *= scale;
 }
 
 // A search of `sector` at case minute `minute` that found nobody.
 function applySearchToWalkers(comp, sector, minute, keep) {
-  if (minute < comp.born) return; // this story starts later: the person wasn't there yet
-  for (let w = 0; w < comp.walks.n; w++) {
-    const cell = cellAtMinute(comp, w, minute);
-    if (cell >= 0 && sectorOfGroundCell(cell) === sector) comp.weight[w] *= keep;
+  const index = minuteIndex(comp, minute);
+  if (index < 0) return; // this story starts later: the person wasn't there yet
+  const { walks } = comp;
+  const W = walks.T + 1;
+  for (let w = 0; w < walks.n; w++) {
+    if (index >= walks.leftMin[w]) continue; // already off the map
+    if (sectorOfGridCell(walks.pos[w * W + index]) === sector) comp.weight[w] *= keep;
   }
+}
+
+// The same search, for a story's statistics-map layer. That layer has no paths, so we ask how
+// much of the chance now in a square was ALREADY there when it was searched: the chance of
+// being at that distance from the story's start at the time of the search, over the chance of
+// being there now (at most 1). A square nobody could have reached yet is left alone.
+function applySearchToBackground(comp, sector, minute, keep, now) {
+  const then = minute - comp.born;
+  if (then < 0) return;
+  const age = now - comp.born;
+  const sameTime = then >= age - 0.5;
+  forEachGridCellInSector(sector, (i) => {
+    if (!(comp.background[i] > 0)) return;
+    let present = 1;
+    if (!sameTime) {
+      const x = ((i % COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+      const y = (Math.floor(i / COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+      const d = Math.hypot(x - comp.startX, y - comp.startY);
+      const nowChance = ringProbability(d, age, comp.mobility);
+      present = nowChance > 0 ? Math.min(1, ringProbability(d, then, comp.mobility) / nowChance) : 0;
+    }
+    comp.background[i] *= 1 - (1 - keep) * present;
+  });
 }
 
 function sumWeights(comp) {
   let total = 0;
   for (let w = 0; w < comp.weight.length; w++) total += comp.weight[w];
+  for (let i = 0; i < comp.background.length; i++) total += comp.background[i];
   return total;
 }
 
 function scaleWeights(comp, factor) {
   for (let w = 0; w < comp.weight.length; w++) comp.weight[w] *= factor;
+  for (let i = 0; i < comp.background.length; i++) comp.background[i] *= factor;
+}
+
+// One story: its walkers and its statistics map, sharing `share` of the whole map between
+// them (walkers BLEND_WALKERS, statistics map the rest). Returns the story and the part of its
+// statistics map that lies beyond the map's edge.
+function makeStory(surface, walks, startCell, born, now, mobility, headingDeg, share) {
+  const blend = Math.min(1, Math.max(0, PARAMS.BLEND_WALKERS));
+  const stats = cachedStats(surface, startCell, Math.max(0, now - born), mobility, headingDeg);
+  const background = new Float64Array(COLS * ROWS);
+  for (let i = 0; i < background.length; i++) background[i] = share * (1 - blend) * stats.grid[i];
+  const n = surface.n;
+  const comp = {
+    walks, born, mobility, background,
+    weight: new Float64Array(walks.n),
+    // The start, in meters from the grid origin.
+    startX: ((startCell % n) + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M,
+    startY: (Math.floor(startCell / n) + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M,
+  };
+  applyStillMissing(comp, now, share * blend);
+  return { comp, outside: share * (1 - blend) * stats.outside };
 }
 
 // ---- Replay: prior + every event, in order ------------------------------------------------------------
@@ -266,7 +322,7 @@ export function replay(area, caseInput, events) {
   const mobility = caseInput.mobility || 'normal';
   const seed = caseInput.seed >>> 0;
   const startCell = snapToNetwork(surface, cellAt(surface, lastSeen.lat, lastSeen.lng));
-  const goals = goalsFor(surface, caseInput.familiarPlaces, lastSeen);
+  const goals = goalsFor(surface, caseInput.familiarPlaces, lastSeen, lastSeen);
 
   // When did an event happen, in minutes since last seen? Needs caseInput.minutesAt (the clock
   // time at which `minutes` was true). Without it every event counts as "now", as before.
@@ -277,17 +333,16 @@ export function replay(area, caseInput, events) {
     return Math.max(0, Math.min(now, Math.round((Number(ev.at) - lastSeenMs) / 60000)));
   };
 
-  // The base story: walkers from the last-seen point.
+  // The base story. Its walkers get the share BLEND_WALKERS of the map, the ISRID statistics
+  // map the rest. (The statistics map's part beyond the map's edge is "rest of world".)
+  const heading = compassToDegrees(caseInput.direction);
   const baseWalks = cachedSimulate(surface, {
-    startCell, minutes: horizonFor(now), headingDeg: compassToDegrees(caseInput.direction),
-    mobility, goals, seed,
+    startCell, minutes: horizonFor(now), headingDeg: heading, mobility, goals, seed,
   });
-  const base = { walks: baseWalks, born: 0, weight: new Float64Array(baseWalks.n) };
-  applyStillMissing(surface, base, now, (1 - PRIOR_FLOOR) / baseWalks.n);
+  const first = makeStory(surface, baseWalks, startCell, 0, now, mobility, heading, 1);
+  const base = first.comp;
   const components = [base];
-  // The background layer: weight per 25 m square.
-  const background = new Float64Array(COLS * ROWS).fill(PRIOR_FLOOR / (COLS * ROWS));
-  let outside = 0; // "rest of world" weight that doesn't belong to any walker
+  let outside = first.outside; // "rest of world" weight that isn't a walker's
 
   const searchedMinutes = {};
   const pastSearches = []; // { sector, minute, keep }
@@ -305,8 +360,10 @@ export function replay(area, caseInput, events) {
       if (!sector) continue; // unknown sector id
       const keep = 1 - podForMinutes(minutes);
       const minute = caseMinute(ev);
-      for (const comp of components) applySearchToWalkers(comp, sector.index, minute, keep);
-      forEachGridCellInSector(sector, (i) => { background[i] *= keep; });
+      for (const comp of components) {
+        applySearchToWalkers(comp, sector.index, minute, keep);
+        applySearchToBackground(comp, sector, minute, keep, now);
+      }
       pastSearches.push({ sector, minute, keep });
       searchedMinutes[ev.sectorId] = (searchedMinutes[ev.sectorId] || 0) + minutes;
     } else {
@@ -319,35 +376,31 @@ export function replay(area, caseInput, events) {
       // Everything so far becomes the "witness was wrong" story, with share (1 − r).
       let total = outside;
       for (const comp of components) total += sumWeights(comp);
-      for (let i = 0; i < background.length; i++) total += background[i];
       const shrink = total > 0 ? (1 - r) / total : 0;
       for (const comp of components) scaleWeights(comp, shrink);
-      for (let i = 0; i < background.length; i++) background[i] *= shrink;
       outside *= shrink;
 
-      // The "witness was right" story, with share r: walkers from the sighting, walking for as
-      // long as it has been since the person was seen there.
+      // The "witness was right" story, with share r: walkers (and a statistics map) from the
+      // sighting, for as long as it has been since the person was seen there.
       const seenAt = Math.max(0, caseMinute(ev) - Math.max(0, Number(ev.minutesSince) || 0));
       const elapsed = Math.max(SIGHTING_MIN_MINUTES, now - seenAt);
       const sightCell = snapToNetwork(surface, cellAt(surface, canon(lat), canon(lng)));
       if (sightCell < 0) { outside += r; continue; } // seen somewhere off this map
+      const sightHeading = compassToDegrees(ev.direction);
       const walks = cachedSimulate(surface, {
-        startCell: sightCell, minutes: horizonFor(elapsed), headingDeg: compassToDegrees(ev.direction),
-        mobility, goals: goalsFor(surface, caseInput.familiarPlaces, { lat, lng }),
+        startCell: sightCell, minutes: horizonFor(elapsed), headingDeg: sightHeading,
+        mobility, goals: goalsFor(surface, caseInput.familiarPlaces, lastSeen, { lat, lng }),
         seed: (seed + 7919 * sightingNumber) >>> 0, walkedMin: Math.round(seenAt),
         n: PARAMS.N_SIGHTING_WALKERS,
       });
-      const comp = { walks, born: now - elapsed, weight: new Float64Array(walks.n) };
-      applyStillMissing(surface, comp, now, (r * (1 - PRIOR_FLOOR)) / walks.n);
+      const story = makeStory(surface, walks, sightCell, now - elapsed, now, mobility, sightHeading, r);
+      outside += story.outside;
       // Searches made after the person was seen there do count against this story.
-      const extra = new Float64Array(COLS * ROWS).fill((r * PRIOR_FLOOR) / (COLS * ROWS));
       for (const s of pastSearches) {
-        if (s.minute < comp.born) continue;
-        applySearchToWalkers(comp, s.sector.index, s.minute, s.keep);
-        forEachGridCellInSector(s.sector, (i) => { extra[i] *= s.keep; });
+        applySearchToWalkers(story.comp, s.sector.index, s.minute, s.keep);
+        applySearchToBackground(story.comp, s.sector, s.minute, s.keep, now);
       }
-      for (let i = 0; i < background.length; i++) background[i] += extra[i];
-      components.push(comp);
+      components.push(story.comp);
     }
   }
 
@@ -355,28 +408,96 @@ export function replay(area, caseInput, events) {
   // background. Walkers that left the map count as "rest of world".
   const counts = new Float64Array(COLS * ROWS);
   for (const comp of components) {
-    for (let w = 0; w < comp.walks.n; w++) {
-      const cell = cellAtMinute(comp, w, now);
-      if (cell < 0) outside += comp.weight[w];
-      else counts[gridCellOfGroundCell(cell)] += comp.weight[w];
+    const { walks } = comp;
+    const W = walks.T + 1;
+    const index = Math.max(0, minuteIndex(comp, now));
+    for (let w = 0; w < walks.n; w++) {
+      if (index >= walks.leftMin[w]) outside += comp.weight[w];
+      else counts[walks.pos[w * W + index]] += comp.weight[w];
     }
   }
   const p = smooth(counts);
+  for (const comp of components) for (let i = 0; i < p.length; i++) p[i] += comp.background[i];
   let total = outside;
-  for (let i = 0; i < p.length; i++) { p[i] += background[i]; total += p[i]; }
+  for (let i = 0; i < p.length; i++) total += p[i];
   for (let i = 0; i < p.length; i++) p[i] /= total;
   const restOfWorld = outside / total;
 
+  const hazardType = hazardTypesFor(surface);
+  const hazard = hazardLayer(p, hazardType);
   return {
     sim: simSummary(area, surface, base, now),
     grid: {
       cellSize: CELL_SIZE_M, cols: COLS, rows: ROWS, p,
       origin: { ...origin },
-      sectors: buildSectors(origin, p, searchedMinutes),
+      hazard, hazardType,
+      sectors: buildSectors(origin, p, searchedMinutes, hazard),
     },
     restOfWorld,
     minutes: now,
+    noDataShare: surface.noDataShare,
+    hasLayers: surface.hasLayers,
   };
+}
+
+// The statistics map for a start point and time, kept for the last few asked for.
+const statsCache = new WeakMap(); // surface → Map(key → { grid, outside })
+function cachedStats(surface, startCell, minutes, mobility, headingDeg) {
+  if (!statsCache.has(surface)) statsCache.set(surface, new Map());
+  const cache = statsCache.get(surface);
+  const key = `${startCell}|${minutes}|${mobility}|${headingDeg}`;
+  if (!cache.has(key)) {
+    if (cache.size > 8) cache.clear();
+    cache.set(key, statsMap(surface, startCell, minutes, { mobility, headingDeg }));
+  }
+  return cache.get(key);
+}
+
+// ---- The hazard layer ------------------------------------------------------------------------------
+
+// For each 25 m square: does it hold water (1), a creek or channel (2) or wetland (3)? 0 = none.
+const hazardTypeCache = new WeakMap();
+function hazardTypesFor(surface) {
+  if (hazardTypeCache.has(surface)) return hazardTypeCache.get(surface);
+  const out = new Uint8Array(COLS * ROWS);
+  const n = surface.n;
+  for (let r = 0; r < n; r++) {
+    const row = Math.floor((2 * r + 1) / 5);
+    for (let c = 0; c < n; c++) {
+      const v = surface.cls[r * n + c];
+      const code = v === C.WATER ? 1 : v === C.CREEK ? 2 : v === C.WETLAND ? 3 : 0;
+      if (!code) continue;
+      const i = row * COLS + Math.floor((2 * c + 1) / 5);
+      if (out[i] === 0 || code < out[i]) out[i] = code; // water wins over creek over wetland
+    }
+  }
+  hazardTypeCache.set(surface, out);
+  return out;
+}
+
+// The hazard score of every square: for a water / creek / wetland square, the chance that the
+// person is within HAZARD_REACH_M of it; 0 for every other square. (Sums of the map over a
+// box around each square, done with running totals so it is quick.)
+function hazardLayer(p, hazardType) {
+  const reach = Math.round(HAZARD_REACH_M / CELL_SIZE_M);
+  const sums = new Float64Array((COLS + 1) * (ROWS + 1)); // sums[r][c] = total of p above-left
+  for (let r = 0; r < ROWS; r++) {
+    let rowTotal = 0;
+    for (let c = 0; c < COLS; c++) {
+      rowTotal += p[r * COLS + c];
+      sums[(r + 1) * (COLS + 1) + c + 1] = sums[r * (COLS + 1) + c + 1] + rowTotal;
+    }
+  }
+  const hazard = new Float32Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!hazardType[r * COLS + c]) continue;
+      const r1 = Math.max(0, r - reach); const r2 = Math.min(ROWS, r + reach + 1);
+      const c1 = Math.max(0, c - reach); const c2 = Math.min(COLS, c + reach + 1);
+      hazard[r * COLS + c] = sums[r2 * (COLS + 1) + c2] - sums[r1 * (COLS + 1) + c2] - sums[r2 * (COLS + 1) + c1] + sums[r1 * (COLS + 1) + c1];
+    }
+  }
+  return hazard;
 }
 
 // Calls fn(cellIndex) for every 25 m square in a sector.
@@ -413,22 +534,20 @@ function smooth(counts) {
   return out;
 }
 
-// What the screen draws from the base walkers: where each is now, and how many used each street.
-const trapOfClass = { [C.CREEK]: 'creek', [C.WATER]: 'water', [C.WETLAND]: 'wetland', [C.WOODS]: 'woods',
-  [C.BRUSH]: 'brush', [C.GRASS]: 'grass', [C.PARK]: 'park' };
-
+// What the screen draws from the base walkers: where each is now (the middle of its 25 m
+// square), and how many used each street.
 function simSummary(area, surface, comp, minute) {
   const { walks } = comp;
+  const W = walks.T + 1;
+  const index = Math.max(0, minuteIndex(comp, minute));
   const endpoints = [];
   for (let w = 0; w < walks.n; w++) {
-    const cell = cellAtMinute(comp, w, minute);
-    if (cell < 0) continue; // left the map
-    const r = Math.floor(cell / N10);
-    const c = cell % N10;
-    const x = (c + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M;
-    const y = (r + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M;
+    if (index >= walks.leftMin[w]) continue; // left the map
+    const cell = walks.pos[w * W + index];
+    const x = ((cell % COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+    const y = (Math.floor(cell / COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
     const { lat, lng } = xyToLatLng(surface.origin, x, y);
-    endpoints.push({ lat, lng, x, y, edgeIndex: -1, trapType: trapOfClass[surface.cls[cell]] || null, trapId: null });
+    endpoints.push({ lat, lng, x, y, edgeIndex: -1, trapType: null, trapId: null });
   }
   return { nWalkers: walks.n, endpoints, edgeCounts: edgeCountsFor(area, surface, walks) };
 }
@@ -450,12 +569,19 @@ function edgeCountsFor(area, surface, walks) {
   return counts;
 }
 
-function buildSectors(origin, p, searchedMinutes) {
+function buildSectors(origin, p, searchedMinutes, hazard) {
   const probability = new Float64Array(SECTOR_COLS * SECTOR_COLS);
   for (let i = 0; i < p.length; i++) {
     const row = Math.floor(i / COLS);
     const col = i % COLS;
     probability[Math.floor(row / SECTOR_CELLS) * SECTOR_COLS + Math.floor(col / SECTOR_CELLS)] += p[i];
+  }
+  // Each sector's hazard score: the highest score of any water / creek / wetland square in it.
+  const hazardScore = new Float64Array(SECTOR_COLS * SECTOR_COLS);
+  for (let i = 0; i < hazard.length; i++) {
+    if (!hazard[i]) continue;
+    const k = sectorOfGridCell(i);
+    if (hazard[i] > hazardScore[k]) hazardScore[k] = hazard[i];
   }
   const sectors = [];
   for (let sr = 0; sr < SECTOR_COLS; sr++) {
@@ -472,6 +598,8 @@ function buildSectors(origin, p, searchedMinutes) {
         probability: probability[sr * SECTOR_COLS + sc],
         searchedMinutes: minutes,
         pod: minutes ? podForMinutes(minutes) : 0,
+        hazardScore: hazardScore[sr * SECTOR_COLS + sc],
+        hazard: hazardScore[sr * SECTOR_COLS + sc] >= HAZARD_MIN_CHANCE, // water or a channel near the likely area
       });
     }
   }
@@ -597,21 +725,87 @@ export function topSpots(area, prediction, count) {
   chosen.sort((a, b) => b.probability - a.probability);
 
   const nWalkers = prediction.sim.nWalkers || prediction.sim.endpoints.length || 1;
+  const { hazardType } = prediction.grid;
   return chosen.map((s) => {
     const street = nearestNamedStreet(area, s.areaXY.x, s.areaXY.y);
     let walkers = 0;
     for (const e of prediction.sim.endpoints) if (Math.hypot(e.x - s.x, e.y - s.y) <= SPOT_RADIUS_M) walkers += 1;
     const { lat, lng } = xyToLatLng(origin, s.pin.x, s.pin.y);
+    // Hazard flags come from the hazard layer (grid.hazardType / grid.hazard), not from where
+    // walkers ended: nobody is pushed into a creek to raise a flag.
+    //   hazard        water, a creek or wetland AT the spot (within SPOT_TRAP_SEARCH_M):
+    //                 the spot itself is for professionals
+    //   hazardNearby  the closest such square within HAZARD_REACH_M whose score reaches
+    //                 HAZARD_MIN_CHANCE: "look from the bank, don't go in"
+    let hazardCode = 0;
+    let nearby = null;
+    if (hazardType) {
+      const row = Math.floor((s.pin.y + GRID_RADIUS_M) / CELL_SIZE_M);
+      const col = Math.floor((s.pin.x + GRID_RADIUS_M) / CELL_SIZE_M);
+      const reach = Math.ceil(HAZARD_REACH_M / CELL_SIZE_M);
+      for (let dr = -reach; dr <= reach; dr++) {
+        for (let dc = -reach; dc <= reach; dc++) {
+          const r = row + dr; const c = col + dc;
+          if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+          const code = hazardType[r * COLS + c];
+          if (!code) continue;
+          const d = Math.hypot(dr, dc) * CELL_SIZE_M;
+          if (d <= SPOT_TRAP_SEARCH_M && (hazardCode === 0 || code < hazardCode)) hazardCode = code;
+          const score = prediction.grid.hazard[r * COLS + c];
+          if (d <= HAZARD_REACH_M && score >= HAZARD_MIN_CHANCE && (!nearby || d < nearby.distanceM)) {
+            nearby = { type: HAZARD_CODES[code], distanceM: d, nearbyProbability: score };
+          }
+        }
+      }
+    }
+    const trapIsHazard = s.trap ? HAZARD_TYPES.includes(s.trap.type) : false;
     return {
       lat,
       lng,
       probability: s.probability,
       walkerShare: walkers / nWalkers,
-      trapType: s.trap ? s.trap.type : null,
+      // The named feature the pin sits on, or else the kind of hazard right at it.
+      trapType: s.trap ? s.trap.type : HAZARD_CODES[hazardCode],
       trapName: s.trap ? s.trap.name : null,
       streetName: street ? street.name : null,
       distanceToStreetM: street ? street.distance : null,
-      hazard: s.trap ? HAZARD_TYPES.includes(s.trap.type) : false,
+      hazard: hazardCode > 0 || trapIsHazard,
+      hazardNearby: nearby,
+    };
+  });
+}
+
+// "Where it's dangerous": the water, creek and wetland places with the most chance of the
+// person being within HAZARD_REACH_M, at least SPOT_SEPARATION_M apart, most dangerous first.
+// These are for professionals (and for telling volunteers where NOT to go in), and they are a
+// different list from topSpots: a creek can matter a lot without being a likely place itself.
+//   [{ lat, lng, type: 'water' | 'creek' | 'wetland', name, streetName, nearbyProbability }]
+export function hazardSpots(area, prediction, count) {
+  const { hazard, hazardType } = prediction.grid;
+  if (!hazard) return [];
+  const origin = prediction.grid.origin || area.origin;
+  const candidates = [];
+  for (let i = 0; i < hazard.length; i++) if (hazard[i] >= HAZARD_MIN_CHANCE) candidates.push(i);
+  candidates.sort((a, b) => (hazard[b] - hazard[a]) || (a - b));
+  const chosen = [];
+  for (const cell of candidates) {
+    if (chosen.length >= count) break;
+    const x = ((cell % COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+    const y = (Math.floor(cell / COLS) + 0.5) * CELL_SIZE_M - GRID_RADIUS_M;
+    if (chosen.some((s) => Math.hypot(s.x - x, s.y - y) < SPOT_SEPARATION_M)) continue;
+    chosen.push({ x, y, cell });
+  }
+  return chosen.map((s) => {
+    const { lat, lng } = xyToLatLng(origin, s.x, s.y);
+    const a = toXY(area.origin, lat, lng);
+    const trap = nearestTrap(area, a.x, a.y, SPOT_TRAP_SEARCH_M);
+    const street = nearestNamedStreet(area, a.x, a.y);
+    return {
+      lat, lng,
+      type: HAZARD_CODES[hazardType[s.cell]],
+      name: trap && HAZARD_TYPES.includes(trap.type) ? trap.name : null,
+      streetName: street ? street.name : null,
+      nearbyProbability: hazard[s.cell],
     };
   });
 }

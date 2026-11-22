@@ -8,6 +8,7 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 3. `INTERFACES.md`: the contract between screen and engine.
 4. `CommitHistory.md`: every decision so far and a detailed log of each commit.
 5. `NATHAN.md`: Nathan's to-do list (TypeSafe key, Jev tuning, phone tests, UI review, tests).
+   - On branch `prior-v2` (Nathan's engine rewrite, Nov 22): `docs/PRIOR-V2.md` is the design note, and `BEN.md` lists every change made to BenStew's screen files and why.
 6. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team: who writes what

@@ -9,9 +9,21 @@
 //
 // No page (DOM) code lives here, so tools/make-fixture.js can also run it in Node.
 
+import { gridOriginFor } from './engine/grid.js';
+
 // ---- Settings ----------------------------------------------------------------
 
-export const DEFAULT_RADIUS_M = 3200; // ~2 miles around the last-seen point
+// The engine's map is a SQUARE reaching GRID_HALF_M each way from the case's grid origin (the
+// last-seen point rounded to 3 decimals; engine/grid.js). The download is a slightly bigger
+// square around that same point, so the whole map has data. (Until Nov 22 the download was a
+// circle of 3.2 km around wherever the phone happened to center it: the map's corners, and for
+// the Demo a third of the map, had no data at all.)
+export const GRID_HALF_M = 3200;        // must equal GRID_RADIUS_M in engine/grid.js
+export const DOWNLOAD_MARGIN_M = 200;   // extra ground beyond the map's edge
+export const DEFAULT_RADIUS_M = GRID_HALF_M + DOWNLOAD_MARGIN_M; // half the side of the download
+// "Save my home area" downloads a bigger square, so a last-seen point up to ~1 km from home is
+// still fully covered with no signal.
+export const HOME_RADIUS_M = GRID_HALF_M + 1000;
 
 // Overpass servers to try, in order. If the first is busy, we try the next one.
 const OVERPASS_URLS = [
@@ -45,44 +57,63 @@ const LANDUSE_TYPES = 'residential|commercial|retail|industrial|cemetery|recreat
 const LEISURE_TYPES = 'pitch|playground|garden|golf_course';
 const AMENITY_TYPES = 'parking|school';
 
-// Returns the Overpass QL text for one area. "out body geom" gives each way its tags,
-// its node ids AND the coordinates of those nodes, so one request is enough.
+// The square reaching halfM meters each way from (lat, lng): { south, west, north, east }.
+export function boxAround(lat, lng, halfM) {
+  const dLat = halfM / 111320;
+  const dLng = halfM / (111320 * Math.cos((lat * Math.PI) / 180));
+  const r6 = (x) => Math.round(x * 1e6) / 1e6;
+  return { south: r6(lat - dLat), west: r6(lng - dLng), north: r6(lat + dLat), east: r6(lng + dLng) };
+}
+
+// The download comes in TWO requests, so the map can appear before the big one finishes:
 //
-// Since the "prior v2" engine the same request also asks for the layers the walkers' 10 m
-// ground map needs (OsmData.layers, see INTERFACES.md): buildings, fences/walls/hedges, rail
-// lines, motorways, land use and bus stops. Buildings are by far the biggest part, so they
-// come back with NO tags ("out skel geom"): a way with geometry and no tags is a building.
-// Measured for Fremont (Nov 22): about +3.7 MB on the wire and noticeably more server time.
-// The engine still works without these layers (old saved areas), just with a rougher map.
-export function buildQuery(lat, lng, radiusM = DEFAULT_RADIUS_M) {
-  const around = `(around:${radiusM},${lat},${lng})`;
-  return `[out:json][timeout:120];
+//   1. buildQuery: every walkable street and path, and the "trap" features (creeks, water,
+//      woods, parks, including lakes and parks stored as relations). Enough for a full
+//      prediction. "out body geom" gives each way its tags, its node ids AND the coordinates
+//      of those nodes.
+//   2. buildLayersQuery: what the walkers' 10 m ground map uses to be more exact
+//      (OsmData.layers, see INTERFACES.md): buildings, fences/walls/hedges, rail lines,
+//      motorways, land use, bus stops. Buildings are by far the biggest part, so they come
+//      back with NO tags ("out skel geom"): a way with geometry and no tags is a building.
+//      Measured for Fremont on Nov 22: about 3.7 MB on the wire and close to a minute on a
+//      busy public server. When it arrives the app redraws the map ("refines" it).
+//
+// Both ask for a box (not a circle): boxes are quicker for the Overpass servers and match the
+// engine's square map.
+export function buildQuery(lat, lng, halfM = DEFAULT_RADIUS_M) {
+  const b = boxAround(lat, lng, halfM);
+  return `[out:json][timeout:90][bbox:${b.south},${b.west},${b.north},${b.east}];
 (
-  way${around}[highway~"^(${WALKABLE})$"];
+  way[highway~"^(${WALKABLE})$"];
 )->.walk;
 (
-  way${around}[waterway~"^(${CREEK_WATERWAYS.join('|')}|river)$"][tunnel!=culvert];
-  way${around}[natural~"^(wood|scrub|wetland|water)$"];
-  way${around}[landuse~"^(forest|meadow|grass)$"];
-  way${around}[leisure=park];
-  relation${around}[natural~"^(wood|scrub|wetland|water)$"];
-  relation${around}[landuse~"^(forest|meadow|grass)$"];
-  relation${around}[leisure=park];
+  way[waterway~"^(${CREEK_WATERWAYS.join('|')}|river)$"][tunnel!=culvert];
+  way[natural~"^(wood|scrub|wetland|water)$"];
+  way[landuse~"^(forest|meadow|grass)$"];
+  way[leisure=park];
+  relation[natural~"^(wood|scrub|wetland|water)$"];
+  relation[landuse~"^(forest|meadow|grass)$"];
+  relation[leisure=park];
 )->.trap;
-(
-  way${around}[barrier~"^(${BARRIER_TYPES})$"];
-  way${around}[railway~"^(${RAIL_TYPES})$"];
-  way${around}[highway~"^(${MOTORWAY_TYPES})$"];
-  way${around}[landuse~"^(${LANDUSE_TYPES})$"];
-  way${around}[leisure~"^(${LEISURE_TYPES})$"];
-  way${around}[amenity~"^(${AMENITY_TYPES})$"];
-)->.ground;
 .walk out body geom qt;
-.trap out body geom qt;
+.trap out body geom qt;`;
+}
+
+export function buildLayersQuery(lat, lng, halfM = DEFAULT_RADIUS_M) {
+  const b = boxAround(lat, lng, halfM);
+  return `[out:json][timeout:120][bbox:${b.south},${b.west},${b.north},${b.east}];
+(
+  way[barrier~"^(${BARRIER_TYPES})$"];
+  way[railway~"^(${RAIL_TYPES})$"];
+  way[highway~"^(${MOTORWAY_TYPES})$"];
+  way[landuse~"^(${LANDUSE_TYPES})$"];
+  way[leisure~"^(${LEISURE_TYPES})$"];
+  way[amenity~"^(${AMENITY_TYPES})$"];
+)->.ground;
 .ground out tags geom qt;
-way${around}[building];
+way[building];
 out skel geom qt;
-node${around}[highway=bus_stop];
+node[highway=bus_stop];
 out skel qt;`;
 }
 
@@ -146,7 +177,12 @@ export function parseOverpass(json, center, radiusM = DEFAULT_RADIUS_M) {
     });
   }
 
-  const osm = { center, radiusM, nodes: [...nodesById.values()], ways, features };
+  // `radiusM` is half the side of the downloaded square, and `bounds` is that square. (Areas
+  // saved before Nov 22 have no `bounds`: they were circles of radiusM around the center.)
+  const osm = {
+    center, radiusM, bounds: boxAround(center.lat, center.lng, radiusM),
+    nodes: [...nodesById.values()], ways, features,
+  };
   const layers = parseLayers(json, center);
   if (layers) osm.layers = layers; // only when the answer had them (older answers don't)
   return osm;
@@ -295,8 +331,9 @@ const r5 = (x) => Math.round(x * 1e5) / 1e5;
 // If the phone says it's offline, we stop at once instead of waiting through retries, and
 // after MAX_CONNECTION_FAILURES failed connections in a row we stop too (e.g. Wi-Fi with no
 // internet, which the phone can't detect). The error then has `offline: true`.
-export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {}, firstDelayMs = 3000 } = {}) {
-  const body = 'data=' + encodeURIComponent(buildQuery(lat, lng, radiusM));
+// `query` replaces the usual streets query (used for the second request, the ground layers).
+export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {}, firstDelayMs = 3000, query = null } = {}) {
+  const body = 'data=' + encodeURIComponent(query || buildQuery(lat, lng, radiusM));
   let lastError;
   let delayMs = firstDelayMs; // doubles after each failed try (tests pass a tiny one)
   let connectionFailures = 0;
@@ -417,7 +454,7 @@ export async function loadBundledArea(url = DEMO_AREA_URL) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Could not load ${url}`);
   const osm = await res.json();
-  return { osm, fromCache: false, savedAt: osm.savedAt || null };
+  return { osm, fromCache: false, savedAt: osm.savedAt || null, more: null };
 }
 
 // ---- Saved areas near a point -------------------------------------------------------
@@ -494,24 +531,83 @@ export function offlineError(err) {
 
 // ---- The one function app.js calls ----------------------------------------------
 
-// How far a saved area's center may be from the last-seen point and still be used.
-// The walkers need ~2 km around the last-seen point, and an area covers 3.2 km around its center.
-const NEAR_ONLINE_M = 1000;   // with signal: reuse a saved area only if it's this close
-const NEAR_OFFLINE_M = 2500;  // no signal: accept a looser fit rather than nothing
+// With no signal, a saved area this close to the last-seen point is used even if it doesn't
+// cover the whole map: a partly empty map beats none.
+const NEAR_OFFLINE_M = 2500;
+const COVER_SLACK_M = 60; // a saved area may fall this short of the map's edge and still count
 
-// Returns { osm, fromCache, savedAt }.
-// Order: a saved copy of this exact spot → a saved area close by → download (and save)
-// → if the download fails (no signal), any saved area that roughly covers the spot.
-// If saving fails (private browsing, full storage) the app still works, it just won't
-// have the area offline next time.
+// Does this saved area hold data for the whole map of a case whose grid origin is `center`?
+// Only areas saved as squares (with `bounds`) can: the old circles never reached the corners.
+export function coversGrid(osm, center) {
+  if (!osm || !osm.bounds) return false;
+  const need = boxAround(center.lat, center.lng, GRID_HALF_M - COVER_SLACK_M);
+  const b = osm.bounds;
+  return b.south <= need.south && b.north >= need.north && b.west <= need.west && b.east >= need.east;
+}
+
+// The saved area that covers the map around `center`, if any (the closest one wins).
+export async function findSavedAreaCovering(center) {
+  let best = null;
+  let bestD = Infinity;
+  for (const saved of await dbGetAll()) {
+    if (!saved || !coversGrid(saved.osm, center)) continue;
+    const d = distanceM(center, saved.osm.center);
+    if (d < bestD) { best = saved; bestD = d; }
+  }
+  return best;
+}
+
+// The second request: the ground layers for an area we already have streets for. Returns
+// { osm, savedAt } with osm.layers filled in (and saves it), or null if it can't be had right
+// now. Never throws: the map already works without the layers.
+export async function fetchLayers(osm, { attempts = 4, extraHeaders = {}, firstDelayMs = 3000 } = {}) {
+  try {
+    const json = await fetchOverpass(osm.center.lat, osm.center.lng, osm.radiusM, {
+      attempts, extraHeaders, firstDelayMs,
+      query: buildLayersQuery(osm.center.lat, osm.center.lng, osm.radiusM),
+    });
+    const layers = parseLayers(json, osm.center);
+    if (!layers) return null;
+    const better = { ...osm, layers };
+    const savedAt = new Date().toISOString();
+    try {
+      await dbPut(areaKey(osm.center.lat, osm.center.lng), { osm: better, savedAt });
+    } catch (err) {
+      console.warn('Could not save map data', err);
+    }
+    return { osm: better, savedAt };
+  } catch (err) {
+    console.warn('Ground layers not available yet', err);
+    return null;
+  }
+}
+
+// Returns { osm, fromCache, savedAt, more }.
+//
+// TWO-PHASE: `osm` holds the streets, creeks and parks, enough for a full prediction right
+// away. If the ground layers (buildings, land use, fences) aren't in it yet, `more` is a
+// promise that later gives { osm, savedAt } with them added, or null if they couldn't be
+// fetched; the screen then redraws. `more` is null when there is nothing more to wait for.
+//
+// Order: a saved copy that covers the whole map → download streets (and save) → if the
+// download fails (no signal), any saved area near the spot.
+// The download is centered on the case's grid origin (the last-seen point rounded to 3
+// decimals, about 100 m), so it lines up with the engine's map.
+// If saving fails (private browsing, full storage) the app still works, it just won't have
+// the area offline next time.
 // onProgress gets { stage: 'waiting' | 'download' | 'retry', ... } while downloading (see fetchOverpass).
 export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgress } = {}) {
-  const key = areaKey(lat, lng);
+  const center = gridOriginFor({ lastSeen: { lat, lng } });
+  const key = areaKey(center.lat, center.lng);
 
   try {
-    const saved = (await dbGet(key)) || (await findSavedAreaNear(lat, lng, NEAR_ONLINE_M));
-    if (saved && saved.osm && saved.osm.radiusM >= radiusM) {
-      return { osm: saved.osm, fromCache: true, savedAt: saved.savedAt };
+    let saved = await dbGet(key);
+    if (!saved || !coversGrid(saved.osm, center) || saved.osm.radiusM < radiusM) saved = await findSavedAreaCovering(center);
+    if (saved && saved.osm && (saved.osm.radiusM >= radiusM || coversGrid(saved.osm, center))) {
+      return {
+        osm: saved.osm, fromCache: true, savedAt: saved.savedAt,
+        more: saved.osm.layers ? null : fetchLayers(saved.osm),
+      };
     }
   } catch (err) {
     console.warn('Could not read saved map data', err);
@@ -519,18 +615,18 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgres
 
   let json;
   try {
-    json = await fetchOverpass(lat, lng, radiusM, { onProgress });
+    json = await fetchOverpass(center.lat, center.lng, radiusM, { onProgress });
   } catch (err) {
     const fallback = await findSavedAreaNear(lat, lng, NEAR_OFFLINE_M).catch(() => null);
-    if (fallback) return { osm: fallback.osm, fromCache: true, savedAt: fallback.savedAt };
+    if (fallback) return { osm: fallback.osm, fromCache: true, savedAt: fallback.savedAt, more: null };
     throw err; // err.offline is true when there was no connection
   }
-  const osm = parseOverpass(json, { lat, lng }, radiusM);
+  const osm = parseOverpass(json, center, radiusM);
   const savedAt = new Date().toISOString();
   try {
     await dbPut(key, { osm, savedAt });
   } catch (err) {
     console.warn('Could not save map data', err);
   }
-  return { osm, fromCache: false, savedAt };
+  return { osm, fromCache: false, savedAt, more: osm.layers ? null : fetchLayers(osm) };
 }

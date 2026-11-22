@@ -1,6 +1,6 @@
 // sw.js: the service worker. It lets FindThem open and work with no signal.
 // Bump CACHE_VERSION whenever any app file changes, so phones fetch the new copies.
-const CACHE_VERSION = 'v29';
+const CACHE_VERSION = 'v30';
 const SHELL_CACHE = 'findthem-shell-' + CACHE_VERSION;
 const TILE_CACHE = 'findthem-tiles'; // kept across versions; tiles don't change with our code
 const MAX_TILES = 2000;              // oldest tiles are deleted past this many
@@ -10,11 +10,12 @@ const SHELL_FILES = [
   './', 'index.html', 'style.css', 'app.js', 'data.js', 'i18n.js',
   'config.js', 'sync.js', 'report.js', 'quickread.js', 'manifest.json',
   'engine/index.js', 'engine/graph.js', 'engine/sim.js', 'engine/grid.js', 'engine/routes.js',
-  'engine/surface.js', 'engine/params.js', 'engine/calibrated.js',
+  'engine/surface.js', 'engine/params.js', 'engine/calibrated.js', 'engine/prior.js',
+  'engine/host.js', 'engine/worker.js',
   'lib/leaflet.js', 'lib/leaflet.css',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/apple-touch-icon.png',
-  // The Demo's Fremont streets and buildings (4.6 MB), so the Demo works offline even if it was never
+  // The Demo's Fremont streets and buildings (6.9 MB), so the Demo works offline even if it was never
   // pressed online. Worth it: the Demo is how judges and new users try the app.
   'tests/fixtures/demo-area.json'
 ];
