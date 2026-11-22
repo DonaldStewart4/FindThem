@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 7: bigger map zoom buttons
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `style.css`: Leaflet's zoom + and − are 44×44 px (were 30×30), the same as the location and search buttons below them. `sw.js` `v27` → `v28`.
+- **Why:** A tap-target scan at phone size (every visible button, link, input and summary, with all sections open) found only these under 44 px, apart from the map credits and the numbered markers (the same places are buttons in the list).
+- **Decisions:** None.
+- **How it was verified:** Browser pane at 375×812: zoom buttons 44×44; the four map controls stack without overlap (right edge 58 px) and the blue tap bar still starts at 62 px.
+- **Known issues / not done:** Not pushed.
+- **Next:** Push after BenStew's OK.
+
 ### Testing pass 6: the Demo's details no longer leak into a real search
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)

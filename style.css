@@ -507,6 +507,11 @@ h3 {
   cursor: pointer;
 }
 .locate-button[aria-pressed="true"] { background: #0b57d0; color: #fff; }
+/* Leaflet's zoom buttons are 30 px; make them the same big tap size as ours. */
+.leaflet-touch .leaflet-bar a.leaflet-control-zoom-in,
+.leaflet-touch .leaflet-bar a.leaflet-control-zoom-out,
+.leaflet-bar a.leaflet-control-zoom-in,
+.leaflet-bar a.leaflet-control-zoom-out { width: 44px; height: 44px; line-height: 44px; font-size: 24px; }
 .map-home {
   width: 28px;
   height: 28px;
