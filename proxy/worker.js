@@ -15,7 +15,7 @@
 // Shared checker, so the browser and the proxy clean drafts the same way.
 // (wrangler bundles these imports into the worker when deploying.)
 import { validateDraft, MAX_TEXT } from '../report.js';
-import { JEV_URL, buildJevRequest, jevToDraft, cleanPlaces } from './jev.js';
+import { JEV_URL, buildJevRequest, safeJevDraft, cleanPlaces } from './jev.js';
 import {
   voiceCapabilities, buildDeepgramRequest, deepgramText, buildElevenLabsRequest,
   MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
@@ -121,7 +121,8 @@ async function readReport(request, env) {
     return reply(env, 502, { error: 'upstream' });
   }
 
-  const draft = validateDraft(jevToDraft(jev && jev.answers, text, places));
+  // Jev's answers go through the safety layer (proxy/jev.js safeJevDraft) before anything is sent back.
+  const draft = validateDraft(safeJevDraft(jev && jev.answers, text, places));
   if (!draft) return reply(env, 502, { error: 'bad_response' });
   return reply(env, 200, draft);
 }

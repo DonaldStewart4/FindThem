@@ -9,6 +9,8 @@
 //   2. parseReport(): sends the text to our tiny LLM proxy (proxy/worker.js),
 //      which returns a ReportDraft (see INTERFACES.md section 5).
 //   3. validateDraft(): checks and cleans a draft so bad data never gets through.
+//      confineDraft(): holds a proxy draft to the person's own words and the places we sent,
+//      so the reader can't add text of its own (docs/AGENT-CONTRACT.md).
 //   4. draftToEvent(): turns a draft into a normal Event, but ONLY after the
 //      person has looked at the draft and tapped Confirm.
 //
@@ -34,6 +36,26 @@ const VOICE_LANGS = { en: 'en-US', es: 'es-ES', fr: 'fr-FR', zh: 'zh-CN', ja: 'j
 const KINDS = ['sighting', 'searched', 'message'];
 const RELIABILITIES = [0.3, 0.6, 0.9];
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// ---------- Draft schema (docs/AGENT-CONTRACT.md) ----------
+// Version 2 of ReportDraft adds two optional lists. Both are codes, never text, and both are
+// left out of the draft when empty (so a version-1 draft is still a valid version-2 draft).
+//   unsure: fields the reader could not answer with confidence. place / direction /
+//           minutesSince in this list are always empty; kind / reliability are a default
+//           value the person must check.
+//   flags:  safety warnings for the screen to show. They only ever add caution.
+export const DRAFT_SCHEMA = 2;
+export const UNSURE_FIELDS = ['kind', 'place', 'direction', 'minutesSince', 'reliability'];
+export const DRAFT_FLAGS = [
+  'emergency',    // hurt, fallen, in the water: call emergency services now
+  'water',        // the report mentions water (creek, lake, lagoon...): for professionals only
+  'vehicle',      // the person may be in a car, bus or train: tell the police, they could be far away
+  'conflict',     // the report says two different things (two places, "definitely" + "not sure"...),
+                  // or the two readers (Jev and the word rules) disagreed: those fields are left empty
+  'guess',        // a guess or worry about where they might be, not a sighting
+  'other_person', // it turned out to be someone else
+  'joke',         // reads like a joke or sarcasm: nothing filled in
+];
 
 // ---------- Voice bot (Deepgram + ElevenLabs, through the proxy) ----------
 // Used only when the proxy says it has the keys (GET /voice). Any failure here falls back
@@ -277,7 +299,7 @@ export function validateDraft(raw) {
   let minutes = numOrNull(raw.minutesSince);
   if (minutes !== null) minutes = Math.round(Math.min(Math.max(minutes, 0), 24 * 60));
 
-  return {
+  const draft = {
     kind,
     placeText: cleanText(raw.placeText, 200),
     lat,
@@ -287,6 +309,44 @@ export function validateDraft(raw) {
     reliability: snapReliability(raw.reliability),
     note: cleanText(raw.note, 300),
   };
+
+  // Version 2 lists: only known codes, in a fixed order, left out when empty.
+  const unsure = knownCodes(raw.unsure, UNSURE_FIELDS);
+  const flags = knownCodes(raw.flags, DRAFT_FLAGS);
+  // A field the reader wasn't sure about is always empty, so a guess can never sit in the form.
+  if (unsure.includes('place')) { draft.placeText = ''; draft.lat = null; draft.lng = null; }
+  if (unsure.includes('direction')) draft.direction = null;
+  if (unsure.includes('minutesSince')) draft.minutesSince = null;
+  if (unsure.length) draft.unsure = unsure;
+  if (flags.length) draft.flags = flags;
+  return draft;
+}
+
+// The codes from `list` that are in `allowed`, in allowed's order, each once.
+function knownCodes(list, allowed) {
+  return Array.isArray(list) ? allowed.filter((code) => list.includes(code)) : [];
+}
+
+// The reader may only point at things the report and the map already contain. This makes
+// sure a draft from the proxy can't carry any text of its own:
+//   - note is always the person's own words, whatever the proxy sent;
+//   - placeText must be one of the nearby place names the phone sent, and the pin is that
+//     place's own point (a name we didn't offer, or a pin with no name, is dropped).
+// So even a broken or tampered proxy can't put advice ("go into the creek") into the form.
+export function confineDraft(draft, text, places = []) {
+  const d = validateDraft(draft);
+  if (!d) return null;
+  d.note = cleanText(String(text || ''), 300);
+  const place = d.placeText ? places.find((p) => p && p.name === d.placeText) : null;
+  if (place && Number.isFinite(place.lat) && Number.isFinite(place.lng)) {
+    d.lat = place.lat;
+    d.lng = place.lng;
+  } else {
+    d.placeText = '';
+    d.lat = null;
+    d.lng = null;
+  }
+  return d;
 }
 
 // ---------- Talking to the proxy ----------
@@ -299,12 +359,13 @@ export async function parseReport(text, context = {}, lang = 'en') {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('offline');
   if (!proxyUrl) throw new Error('proxy_error');
 
+  const places = (context.places || []).slice(0, 60);
   const body = {
     text: String(text || '').slice(0, MAX_TEXT),
     lang,
     context: {
       lastSeen: context.lastSeen || null,
-      places: (context.places || []).slice(0, 60),
+      places,
     },
   };
 
@@ -332,7 +393,8 @@ export async function parseReport(text, context = {}, lang = 'en') {
   } catch (err) {
     throw new Error('bad_response');
   }
-  const draft = validateDraft(data);
+  // Checked, and held to the report's own words and the places we sent (confineDraft).
+  const draft = confineDraft(data, body.text, places);
   if (!draft) throw new Error('bad_response');
   return draft;
 }

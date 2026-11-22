@@ -57,8 +57,45 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
+- **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back; drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes; the contract for any future agent features is `docs/AGENT-CONTRACT.md` (a proposal until BenStew agrees).
 
 ## Log
+
+### Report box safety layer and agent contract
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan), worked on in its own worktree while `prior-v2` rewrites the engine
+- **What changed:**
+  - `docs/AGENT-CONTRACT.md` (new): the contract between an AI agent and the intelligence layer. Principle: the agent reads and proposes; only a confirmed, schema-valid event changes the map. Versioned schemas (`CaseInput` 1, `CaseDraft` 1, `ReportDraft` 2, `Event` 1, `AgentReply` 1); the functions `caseGaps` (ranked by how much each answer would change the map: mean total-variation distance over the possible answers, with fixed question codes), `validateCase`, `validateClue`, `proposeClue` (a preview, nothing written), `myAssignment`, `explain` (reason codes only); the exact sentences the agent says when it abstains; and what is built vs. proposed.
+  - `report.js`: `ReportDraft` v2. `validateDraft` keeps the optional `unsure` (fields the reader wasn't sure about) and `flags` (`emergency`, `water`, `vehicle`, `conflict`, `guess`, `other_person`, `joke`) lists, known codes only, left out when empty; a place / direction / time marked unsure is always emptied. New `confineDraft`, used by `parseReport`: the note is always the person's own words, and the place must be one of the names the phone sent, pinned at that place's own point, so a proxy answer can't carry any text of its own.
+  - `quickread.js` (the backup reader): `readSignals` finds water, vehicle, emergency, someone else, joke and guess words in all 5 languages, plus conflicts (two places, two directions, two times, "definitely" + "not sure"). `readLocally` leaves conflicting fields empty and lists them in `unsure`, turns jokes and sightings of someone else into messages, and adds `flags`. Also: "I see him", "definitely him", "lo veo", "je le vois" count as sightings; "je ne le trouve nulle part" no longer reads as "found".
+  - `proxy/jev.js`: `safeJevDraft`, now used by `proxy/worker.js`. An answer that isn't one of the options counts as no answer; a close call between Jev's top two options (`MIN_MARGIN` 0.15) or a soft disagreement with the word rules costs `CONFLICT_PENALTY` (0.25) of confidence; two answers in the report, or the two readers disagreeing about a place / direction / time (or sighting vs searched), leave the field empty; Jev's place, direction and time need words of that kind in the report ("interpret, don't invent"), and "certain" needs certain words; a joke, someone else, or (with no "saw" words) a guess, "he took the car" or "I can't find him" is never a sighting. The `kind` question's wording now says guesses, jokes and other people are messages. `jevToDraft` (Jev alone) now lists its below-`MIN_CONFIDENCE` fields in `unsure`.
+  - `bench/safety-cases.json` (new): 59 adversarial reports (20 en, 11 es, 10 fr, 9 zh, 9 ja) with expected outcomes. `bench/safety-eval.js` (new, `npm run safety-eval`): scores each as right / abstained / dangerous; `--local`, `--hostile`, `--hostile-details`, or Jev through the proxy. Exits 1 if anything is dangerous.
+  - `tests/safety.test.js` (new, 24 tests). `sw.js` cache v28 → v29. Notes in `PLAN.md`, `NATHAN.md`, `README.md`, `proxy/README.md`.
+- **Why:** Nathan's request: the AI agent is an intermediary assumed to be unreliable; it never sets probabilities or gives search advice; accuracy beats latency because wrong advice can cost a life.
+- **Decisions:**
+  - **No new Jev questions.** The safety checks are deterministic word rules shared by both readers, so they never depend on the AI being right. (Adding Jev questions for water / vehicle would also have changed the question list that `tests/jev.test.js` checks.) Only the wording of the `kind` options changed.
+  - **Disagreement empties a field instead of picking a winner.** For reliability the lower one wins.
+  - **"message" from the word rules isn't a vote,** because it's what they say when they find nothing.
+  - **Flags are codes, shown by the screen** (sentences proposed in the contract). The flags only add caution and never change the map.
+  - Not changed: `INTERFACES.md`, which needs BenStew's OK (the contract lists what to add), and `app.js` / `i18n.js`, which are BenStew's and would need the flag sentences in all 5 languages.
+  - `engine/`, `data.js` and `tests/fixtures/` were not touched (prior v2 is being rewritten on another branch).
+- **How it was verified:**
+  - `node --test`: 97 pass, 0 fail (the 73 existing tests unchanged, plus 24 new).
+  - `npm run safety-eval -- --local`: 55 right, 4 abstained, **0 dangerous**. The same scorer on `quickread.js` as it was at `439e868`: 16 right, 8 abstained, **35 dangerous**.
+  - `--hostile` (a fake Jev that is confidently wrong on everything): 1 dangerous, `es-typos`. Every word is misspelled, so nothing contradicts Jev's "searched".
+  - `--hostile-details` (right kind, invented details): 0 dangerous.
+  - A perfect Jev answer set on `bench/jev-cases.json` keeps 137/138 fields through the layer (tested ≥ 95%).
+  - `npm run jev-eval -- --local`: 96%, up from 95%, with wrong answers down from 3 to 2. One place is now left empty: "on Paseo Padre … toward the BART station" names two places.
+- **Known issues / not done:**
+  - **Jev's own dangerous rate is not measured yet:** the TypeSafe key is still missing.
+  - The screen doesn't show `flags` or highlight `unsure` fields yet.
+  - The word rules over-flag a little:
+    - French "car" ("because") reads as a vehicle;
+    - any "lake" or "creek" in a report gets the water flag;
+    - an intersection ("Walnut and Paseo Padre") counts as two places and is left empty.
+  - The test set was written alongside the rules, so it is not a held-out test. Reports written by someone else are needed.
+  - `caseGaps`, `validateCase`, `proposeClue`, `myAssignment` and `explain` are specified, not built.
+- **Next:** with the key in, `npm run safety-eval` through Jev, recording its dangerous count. BenStew: show the flags in the form (`i18n.js`, 5 languages), then fold `ReportDraft` v2 into `INTERFACES.md`.
 
 ### Prior v2, stage 1: design note
 - **Date:** 2026-11-22

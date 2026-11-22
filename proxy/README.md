@@ -12,7 +12,7 @@ Jev doesn't write text. `jev.js` asks it five multiple-choice questions about th
 | how sure | maybe / probably / definitely |
 | place | one of the nearby named places the app sends / none |
 
-Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in. The person always checks the draft and taps the button before anything reaches the map.
+Any answer below `MIN_CONFIDENCE` (0.5) is left empty, so the person fills it in. Before the draft is sent back, `safeJevDraft` cross-checks Jev against the report's own words (the same word rules as `quickread.js`): a field the report gives two answers for, or that the two readers disagree on, or that has no words in the report to back it, is left empty too; jokes, someone else, guesses and "he took the car" never become sightings; and safety flags (water, vehicle, emergency...) are added. See `docs/AGENT-CONTRACT.md`. The person always checks the draft and taps the button before anything reaches the map.
 
 ## Optional voice bot: Deepgram + ElevenLabs
 
