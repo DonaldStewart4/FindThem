@@ -26,6 +26,7 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - the app asks for location on start; searchers see each other as green dots in a shared search (rules published and tested on the live database)
 - commit emails switched to the GitHub noreply address
 - "What you know" is five numbered steps that fold into a summary after Find; the map redraws every 5 minutes as time passes (all phones in step)
+- full test pass in the browser (Nov 21, 9:17–9:40 PM): phone and laptop sizes, all 5 languages, two-tab shared search, database dropping out, offline, a brand-new area (Palo Alto, live download 35 s). Fixed 8 issues (see the "Testing pass" entries in `CommitHistory.md`)
 - laptop layout fixed: only the side panel scrolls; the loading bar no longer hides under the map search box
 - first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar
 

@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### PLAN.md: tonight's test pass noted
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `PLAN.md` status lists the browser test pass and points to the "Testing pass" entries.
+- **Why:** So the plan shows what was checked.
+- **Decisions:** None.
+- **How it was verified:** Final checks in this pass: offline (simulated in the page) the Demo ran in 0.5 s, the backup reader filled "saw her 10 min ago walking west" as 10 min / West, map search and sharing explained there's no internet and the share link still worked; a Japanese hand-off sheet included the English copy with the same times.
+- **Known issues / not done:** Still not tried on real phones (voice with a real mic, two phones sharing, GPS dots). Not pushed.
+- **Next:** Push after BenStew's OK.
+
 ### Testing pass 7: bigger map zoom buttons
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)
