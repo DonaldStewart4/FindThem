@@ -142,19 +142,31 @@
         <div id="sighting-form" class="sub-form" hidden>
           <div id="sighting-flags" class="flags" role="alert" hidden></div>
           <p id="sighting-check" class="note warn" hidden data-i18n="reportCheck"></p>
-          <p id="sighting-where" class="help" data-i18n="tapSighting"></p>
+          <!-- Opened by hand, one question at a time (Next / Back). From a report, all at once. -->
+          <p id="sighting-progress" class="step-progress" hidden></p>
+          <div class="sighting-step" data-step="1"><p id="sighting-where" class="help" data-i18n="tapSighting"></p></div>
+          <div class="sighting-step" data-step="2">
           <label for="sighting-minutes" data-i18n="sightingMinutes"></label>
           <input id="sighting-minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" value="0">
+          </div>
+          <div class="sighting-step" data-step="3">
           <label for="sighting-direction" data-i18n="sightingDirection"></label>
           <select id="sighting-direction"></select>
-          <fieldset>
+          </div>
+          <fieldset class="sighting-step" data-step="4">
             <legend data-i18n="sightingSure"></legend>
             <label class="choice"><input type="radio" name="sure" value="0.3"> <span data-i18n="sure_low"></span></label>
             <label class="choice"><input type="radio" name="sure" value="0.6" checked> <span data-i18n="sure_mid"></span></label>
             <label class="choice"><input type="radio" name="sure" value="0.9"> <span data-i18n="sure_high"></span></label>
           </fieldset>
+          <div class="sighting-step" data-step="5">
           <label for="sighting-note" data-i18n="sightingNote"></label>
           <input id="sighting-note" type="text" maxlength="200">
+          </div>
+          <div class="row step-nav">
+            <button id="sighting-back" class="big" type="button" data-i18n="stepBack"></button>
+            <button id="sighting-next" class="big primary" type="button" data-i18n="stepNext"></button>
+          </div>
           <button id="sighting-save" class="big primary" type="button" data-i18n="sightingSave"></button>
           <button id="sighting-cancel" class="big" type="button" data-i18n="cancel"></button>
         </div>
@@ -176,6 +188,7 @@
         <div id="message-flags" class="flags" role="alert" hidden></div>
         <div class="row message-row">
           <input id="message-text" type="text" maxlength="300" data-i18n-placeholder="messagePlaceholder" data-i18n-aria="messagesTitle">
+          <button id="message-voice" class="big mic-button" type="button" aria-pressed="false" data-i18n-aria="messageVoice">🎤</button>
           <button id="message-send" class="big" type="button" data-i18n="send"></button>
         </div>
 

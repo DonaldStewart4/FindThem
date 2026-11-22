@@ -873,3 +873,27 @@ button.found { border-color: #2e7d32; color: #1b5e20; }
 
 /* The "Check these first" place being searched right now. */
 #spots button.focused { outline: 3px solid #c5221f; outline-offset: 2px; background: #fdecea; }
+
+/* The always-there 🎤 on the map, and the one next to the message box. */
+.map-mic {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #c5221f;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.mic-button { flex: none; width: 52px; padding: 0; font-size: 22px; }
+.mic-button[aria-pressed="true"], .map-mic[aria-pressed="true"] { background: #fdecea; }
+
+/* One question at a time in the sighting form. */
+.step-progress { margin: 4px 0 8px; font-weight: 700; color: #444; }
+.sighting-step[hidden], .step-nav button[hidden], #sighting-save[hidden] { display: none; }
+.step-nav { gap: 8px; }
+.step-nav button { flex: 1; }
+/* While the map waits for a tap, the blue bar is at the bottom: the toggles and 🎤 step aside. */
+#map-wrap.picking .map-toggles, #map-wrap.picking .map-mic { display: none; }

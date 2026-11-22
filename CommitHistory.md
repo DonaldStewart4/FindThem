@@ -81,6 +81,20 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Mic on the map, mic for messages, sighting form one question at a time
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI list, items 4 and 8)
+- **What changed:**
+  - `app.js` `MapMic`: a round red 🎤 always on the map (bottom right). It opens the report box and starts listening (the same voice path as its Speak button: Deepgram through the proxy, else the phone's recognizer). The report still becomes a form the person checks.
+  - `app.js` `toggleMessageVoice()` + `index.html` `#message-voice`: a 🎤 next to the message box fills it by voice (Deepgram if available, else the phone); the person still taps Send.
+  - `index.html` + `app.js` `showSightingStep()`: the sighting form, when opened by hand, asks one question at a time with "Question n of 5", Next and Back: 1 where (tap the map: moves on by itself; Next refuses until a place is set), 2 how long ago, 3 which way, 4 how sure, 5 note, then Add. When a report filled it in, all fields still show at once so the person can check them together.
+  - `style.css`: mic buttons, step navigation; the toggles and 🎤 hide while the blue "tap the map" bar is showing. `i18n.js`: `stepNext`, `stepBack`, `stepOf`, `messageVoice`, `mapMic` in 5 languages. `sw.js` `v38` → `v40`.
+- **Why:** BenStew: "an always on speak with ai button on the map (a mic), same thing with report a sighting (should be a popup, one question at a time)" and "add transcriber button to messages".
+- **Decisions:** The one-question flow lives in the existing form card instead of a popup over the map, because question 1 needs a tap on the map. Never called a chatbot.
+- **How it was verified:** Browser pane at 375×812, Demo: "Report a sighting" showed only question 1 ("Question 1 of 5"), Next without a place said "Tap the map where they were seen"; a map tap moved to question 2; Next ×3 reached 5 with Add shown and Next hidden; Back went to 4; Add → "Sighting added. The map has been updated." Map 🎤 and message 🎤 present. `node --test` 230 pass, 0 fail.
+- **Known issues / not done:** The two 🎤 buttons weren't tried with a real microphone (the browser pane would ask for mic permission). Not pushed.
+- **Next:** Push.
+
 ### Tap a place to search just that one, with a map-app walking line
 - **Date:** 2026-11-22
 - **Stage:** Finishing (BenStew's UI list, items 2 and 11)

@@ -176,6 +176,10 @@ const els = {
   sightingNote: $('sighting-note'),
   sightingSave: $('sighting-save'),
   sightingCancel: $('sighting-cancel'),
+  sightingBack: $('sighting-back'),
+  sightingNext: $('sighting-next'),
+  sightingProgress: $('sighting-progress'),
+  messageVoice: $('message-voice'),
   sightingCheck: $('sighting-check'),
   reportOpen: $('report-open'),
   reportBox: $('report-box'),
@@ -487,6 +491,7 @@ function placeAt(point, label = '') {
     clearUnsure('place'); // the person has now said where
     els.sightingWhere.textContent = t('sightingPlaced');
     renderModeUI(); // the blue bar now says "placed, tap again to move it"
+    if (state.sightingStep === 1) showSightingStep(2); // one question at a time: on to "how long ago"
   } else if (state.mode === 'home') {
     setHomeDraft(point, label || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
     setMode(null);
@@ -1877,6 +1882,46 @@ function applySharedCase(caseDoc, events) {
 
 // Opens the sighting form, empty, or filled in from a report-box draft (which the person
 // then checks and fixes before tapping "Add sighting to the map").
+// The sighting form, one question at a time when opened by hand (step 1–5), or all at once
+// (step 0) when a report filled it in, so the person can check everything together.
+const SIGHTING_STEPS = 5;
+function showSightingStep(step) {
+  state.sightingStep = step;
+  document.querySelectorAll('.sighting-step').forEach((el) => {
+    el.hidden = step !== 0 && Number(el.dataset.step) !== step;
+  });
+  els.sightingProgress.hidden = step === 0;
+  els.sightingProgress.textContent = t('stepOf', { n: step, of: SIGHTING_STEPS });
+  els.sightingBack.hidden = step <= 1;
+  els.sightingNext.hidden = step === 0 || step === SIGHTING_STEPS;
+  els.sightingSave.hidden = step !== 0 && step !== SIGHTING_STEPS;
+}
+function nextSightingStep() {
+  if (state.sightingStep === 1 && !state.sightingDraft) { showStatus(t('tapSighting')); return; } // where first
+  showSightingStep(Math.min(SIGHTING_STEPS, state.sightingStep + 1));
+}
+
+// The 🎤 next to the message box: speak a message instead of typing it (Deepgram if the
+// proxy has it, otherwise the phone's own speech recognition). It only fills the box;
+// the person still taps Send.
+function toggleMessageVoice() {
+  if (state.stopMessageVoice) { state.stopMessageVoice(); return; }
+  const lang = i18n.getLanguage();
+  const done = () => { state.stopMessageVoice = null; els.messageVoice.setAttribute('aria-pressed', 'false'); };
+  const fail = (code) => { showStatus(t(VOICE_ERRORS[code] || 'voiceDenied'), { error: true }); done(); };
+  els.messageVoice.setAttribute('aria-pressed', 'true');
+  if (state.voiceCaps.listen && report.canRecord() && navigator.onLine !== false) {
+    state.stopMessageVoice = report.startRecording(async (blob) => {
+      try { els.messageText.value = await report.transcribe(blob, lang); } catch (err) { showStatus(t('voiceNoSpeech'), { error: true }); }
+      done();
+    }, fail);
+  } else if (report.isVoiceSupported()) {
+    state.stopMessageVoice = report.startVoice(lang, (text) => { els.messageText.value = text; }, fail, done);
+  } else {
+    fail('no_voice');
+  }
+}
+
 function openSightingForm({ draft = null } = {}) {
   if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
   state.sightingDraft = null;
@@ -1895,6 +1940,7 @@ function openSightingForm({ draft = null } = {}) {
   showFlags(els.sightingFlags, draft && draft.flags);
   markUnsure(draft && draft.minutesSince == null && !unsure.includes('minutesSince') ? [...unsure, 'minutesSince'] : unsure);
   els.sightingForm.hidden = false;
+  showSightingStep(draft ? 0 : 1); // by hand: one question at a time; from a report: all at once
   setMode('sighting');
   if (draft && draft.lat != null && draft.lng != null) {
     // The report named a place we could pin: show it; a tap on the map still moves it.
@@ -2257,6 +2303,30 @@ const LocateControl = L.Control.extend({
 const SEARCH_ICON = '<svg class="icon-search" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">'
   + '<circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/>'
   + '<line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+
+// ---- The 🎤 on the map: always there, speak a report from anywhere ----------------------
+// Opens the report box and starts listening (same as its Speak button). The report is still
+// turned into a form the person checks; nothing is added until they confirm.
+const MapMic = L.Control.extend({
+  options: { position: 'bottomright' },
+  onAdd() {
+    const button = L.DomUtil.create('button', 'map-mic');
+    button.type = 'button';
+    button.textContent = '🎤';
+    button.dataset.i18nAria = 'mapMic';
+    button.setAttribute('aria-label', t('mapMic'));
+    button.title = t('mapMic');
+    L.DomEvent.disableClickPropagation(button);
+    L.DomEvent.on(button, 'click', () => {
+      if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
+      if (els.panel.classList.contains('collapsed')) els.panelToggle.click();
+      if (els.reportOpen.getAttribute('aria-expanded') !== 'true') toggleReportBox();
+      els.reportOpen.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!state.stopVoice) toggleVoice();
+    });
+    return button;
+  },
+});
 
 // ---- Map toggles: "Their likely paths" (purple) and "Routes to search" (blue) ----------------
 // The purple streets start hidden: zoomed out they filled the whole map.
@@ -2995,6 +3065,7 @@ function start() {
   new LocateControl().addTo(map);
   new SearchControl().addTo(map);
   new MapToggles().addTo(map);
+  new MapMic().addTo(map);
   const region = i18n.detectRegion();
   state.emergencyNumber = i18n.emergencyNumber(region);
   els.callLink.href = 'tel:' + state.emergencyNumber;
@@ -3091,6 +3162,9 @@ function start() {
   els.messageSend.addEventListener('click', sendMessage);
   els.messageText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
   els.handoff.addEventListener('click', openHandoff);
+  els.sightingNext.addEventListener('click', nextSightingStep);
+  els.sightingBack.addEventListener('click', () => showSightingStep(Math.max(1, state.sightingStep - 1)));
+  els.messageVoice.addEventListener('click', toggleMessageVoice);
   els.barHandoff.addEventListener('click', openHandoff);
   els.barCase.addEventListener('click', () => {
     // Show "What you know": open the panel if it's hidden, open the steps, scroll to them.
