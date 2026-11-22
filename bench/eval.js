@@ -33,7 +33,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { readLocally } from '../quickread.js';
+import { readLocally, findIntersections } from '../quickread.js';
 import { validateDraft, MAX_TEXT } from '../report.js';
 import { buildJevRequest, cleanPlaces, cleanIntersections, safeJevDraft, minutesBucket, JEV_MODEL } from '../proxy/jev.js';
 
@@ -44,11 +44,28 @@ const SETS = {
   safety: './safety-cases.json',
   'blind-dev': './blind-dev.json',
   'blind-test': './blind-test.json',
+  'blind-2': './blind-2.json', // Nathan's second blind set (150): held-out, scored once with --final
 };
+const HELD_OUT = ['blind-test', 'blind-2'];
+// Tags reported on their own, and "code-switch" = the set's spanglish / mixed-script / mixed tags.
+const TAG_GROUPS = { 'code-switch': ['spanglish', 'mixed-script', 'mixed'] };
 
 export function loadSet(name) {
   if (!SETS[name]) throw new Error(`unknown set ${name}`);
-  return JSON.parse(readFileSync(new URL(SETS[name], import.meta.url), 'utf8'));
+  const data = JSON.parse(readFileSync(new URL(SETS[name], import.meta.url), 'utf8'));
+  // Street corners with no coordinates (blind-2 leaves them null: "the phone computes corners from
+  // OSM"): fill them the way the phone does, with findIntersections on the demo map.
+  if (Array.isArray(data.intersections) && data.intersections.some((c) => !Number.isFinite(c.lat) || !Number.isFinite(c.lng))) {
+    const osm = JSON.parse(readFileSync(new URL('../tests/fixtures/demo-area.json', import.meta.url), 'utf8'));
+    const corners = findIntersections(osm, data.places.map((p) => p.name), data.lastSeen);
+    data.cornersFilled = [];
+    data.intersections = data.intersections.map((c) => {
+      const found = corners.find((k) => k.name === c.name);
+      data.cornersFilled.push(`${c.name}: ${found ? `${found.lat.toFixed(6)}, ${found.lng.toFixed(6)}` : 'NOT FOUND (left out)'}`);
+      return found || null;
+    }).filter(Boolean);
+  }
+  return data;
 }
 
 // ---- One shape for the three case formats --------------------------------------------------------
@@ -208,6 +225,32 @@ export async function runSet(data, read) {
   return { totals, cases, results };
 }
 
+// The same counts for a subset of results (by language, by tag).
+export function summarize(results) {
+  const t = { cases: results.length, right: 0, empty: 0, wrong: 0, dangerous: 0, high: 0, medium: 0, low: 0 };
+  for (const r of results) {
+    for (const v of Object.values(r.fields)) t[v] += 1;
+    if (r.level) { t.dangerous += 1; t[r.level] += 1; }
+  }
+  return t;
+}
+export function breakdownTable(run, keyOf, title) {
+  const groups = {};
+  for (const r of run.results) for (const k of [].concat(keyOf(r))) (groups[k] ||= []).push(r);
+  const lines = [`| ${title} | Cases | Fields right | Empty | Wrong | Dangerous (high / medium / low) |`, '|---|---|---|---|---|---|'];
+  for (const [k, list] of Object.entries(groups).sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1))) {
+    const t = summarize(list);
+    const n = t.right + t.empty + t.wrong;
+    lines.push(`| ${k} | ${t.cases} | ${t.right}/${n} (${Math.round((100 * t.right) / n)}%) | ${t.empty} | ${t.wrong} | **${t.dangerous}** (${t.high} / ${t.medium} / ${t.low}) |`);
+  }
+  return lines.join('\n');
+}
+const tagsOf = (r) => {
+  const tags = r.c.tags || [];
+  const groups = Object.entries(TAG_GROUPS).filter(([, members]) => tags.some((t) => members.includes(t))).map(([g]) => g);
+  return [...tags, ...groups];
+};
+
 export function table(run) {
   const lines = ['| Field | Right | Empty | Wrong |', '|---|---|---|---|'];
   let r = 0; let e = 0; let w = 0;
@@ -230,9 +273,9 @@ async function main() {
   const setName = arg('--set', 'jev');
   const reader = arg('--reader', 'local');
   const show = args.includes('--show');
-  const testSet = setName === 'blind-test';
+  const testSet = HELD_OUT.includes(setName);
   if (testSet && !args.includes('--final')) {
-    console.error('blind-test is scored ONCE, at the end: add --final. It prints totals only.');
+    console.error(`${setName} is held out and scored ONCE: add --final. It prints totals only (and by language / tag).`);
     process.exit(2);
   }
   const data = loadSet(setName);
@@ -257,6 +300,11 @@ async function main() {
   }
   console.log(`${setName} (${data.cases.length} cases), reader: ${reader}${stats.models.size ? `, model ${[...stats.models].join(', ')}` : ''}`);
   console.log(table(run));
+  if (data.cornersFilled) console.log(`\nStreet corners with no coordinates, filled with findIntersections on tests/fixtures/demo-area.json:\n  ${data.cornersFilled.join('\n  ')}`);
+  if (args.includes('--by')) {
+    console.log(`\n${breakdownTable(run, (r) => r.c.lang, 'Language')}`);
+    console.log(`\n${breakdownTable(run, tagsOf, 'Tag')}`);
+  }
   if (reader === 'proxy') console.log(stats.replayMismatch.length ? `Replay check FAILED for: ${stats.replayMismatch.join(', ')}` : 'Replay check: saved answers reproduce every proxy draft.');
   if (show && !testSet) {
     for (const r of run.results) {
