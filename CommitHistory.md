@@ -59,6 +59,16 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Proxy deployed: PROXY_URL points at the live Worker
+- **Date:** 2026-11-21
+- **Stage:** Finishing (deploy and testing)
+- **What changed:** `config.js` `PROXY_URL` is now `https://findthem-proxy.findthem-evohacks.workers.dev`, the deployed Cloudflare Worker (`proxy/`). `sw.js` cache `v15` → `v16` so phones pick up the new config. `PLAN.md` "Left" item 2 updated.
+- **Why:** Finishing hosting (part 4 of the team plan) so the voice bot and the report box work on the live site.
+- **Decisions:** BenStew signed in with `npx wrangler login`, saved `DEEPGRAM_API_KEY` and `ELEVENLABS_API_KEY` as Worker secrets himself (keys never seen by the AI or written to the repo), and registered the account's workers.dev subdomain `findthem-evohacks`. `ALLOWED_ORIGIN` stays `https://donaldstewart4.github.io`, so only the live site can call it (localhost testing still uses `?proxy=` with the mock).
+- **How it was verified:** Against the live Worker with curl: `GET /voice` → `{"listen":true,"speak":true}`; another Origin → 403; `POST /listen` with a sentence spoken by macOS `say` → Deepgram returned it word for word; `POST /speak` in English → 7.7 KB `audio/mpeg`; in Spanish → 400 `unsupported_language`; `POST /` → 500 `no_key` (expected, no TypeSafe key yet). `node --test` passes.
+- **Known issues / not done:** `TYPESAFE_API_KEY` isn't set yet (Nathan is getting it, `NATHAN.md` item 1). Until then `POST /` returns 500 `no_key`, so a typed or spoken report shows "Couldn't read that report. Use the form instead." with the form; the form, voice input and read-back are unaffected. Not yet tried on a real phone with a real microphone.
+- **Next:** Nathan adds the TypeSafe key; BenStew tries voice on his iPhone.
+
 ### Add NATHAN.md: Nathan's to-do list
 - **Date:** 2026-11-21
 - **Stage:** Finishing (deploy and testing)

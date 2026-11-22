@@ -27,7 +27,7 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
-2. **Deploy the Jev proxy** (Nathan gets the TypeSafe key, see `NATHAN.md`; BenStew does Cloudflare; `proxy/README.md`), with the Deepgram and ElevenLabs keys as Worker secrets for the voice bot, and put its URL in `PROXY_URL` in `config.js`. `ALLOWED_ORIGIN` in `proxy/wrangler.toml` is already set to the Pages site.
+2. **Proxy deployed** at `https://findthem-proxy.findthem-evohacks.workers.dev` with the Deepgram and ElevenLabs keys; `PROXY_URL` is set. **Still needed:** the TypeSafe key (Nathan, `NATHAN.md`).
 3. **Test on two real phones:** sharing, **voice with a real microphone**, offline, and the speed of the Demo.
 4. Nathan's UI review (his full list is in `NATHAN.md`).
 5. **2–3 minute video**, then the **Devpost** write-up (description, setup steps, public repo link).

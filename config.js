@@ -12,7 +12,7 @@ export const FIREBASE_DB_URL = 'https://findthem-f4e5c-default-rtdb.firebaseio.c
 
 // PROXY_URL: the address of the deployed LLM proxy (proxy/README.md), used by the report
 // box. Also not a secret: the Jev (TypeSafe) key lives only inside the proxy.
-export const PROXY_URL = '';
+export const PROXY_URL = 'https://findthem-proxy.findthem-evohacks.workers.dev';
 // Example: 'https://findthem-proxy.yourname.workers.dev'
 
 // For testing on your own computer only:
