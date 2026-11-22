@@ -23,9 +23,10 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
     Paste the key when asked. It doesn't show on screen.
   - **Or:** hand the key to BenStew in person or through a password manager's share, and he runs the same `secret put` command.
 - [ ] **Never** put the key in the repo, `config.js`, a commit, a screenshot, a group chat or an AI chat. If it leaks, delete it on the TypeSafe site and make a new one.
-- [ ] Check that it works (replace the address with the one `npx wrangler deploy` printed):
+- The proxy is already deployed at `https://findthem-proxy.findthem-evohacks.workers.dev` with the voice keys; only `TYPESAFE_API_KEY` is missing. Until it's added, the report box fills in drafts with simple word rules on the phone (`quickread.js`) instead of Jev.
+- [ ] Check that it works:
   ```bash
-  curl -X POST https://findthem-proxy.<you>.workers.dev/ -H 'Origin: https://donaldstewart4.github.io' -H 'Content-Type: application/json' -d '{"text":"saw him by the lake 10 minutes ago walking east","lang":"en","context":{}}'
+  curl -X POST https://findthem-proxy.findthem-evohacks.workers.dev/ -H 'Origin: https://donaldstewart4.github.io' -H 'Content-Type: application/json' -d '{"text":"saw him by the lake 10 minutes ago walking east","lang":"en","context":{}}'
   ```
   You should get a JSON draft back with `"kind":"sighting"`.
 
@@ -44,6 +45,9 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
 - [ ] **Voice with a real mic:** tap Speak, say a report, and check the form fills in. On iPhone especially, check that recording works. In English, the form should be read back aloud; in other languages, nothing should be spoken.
 - [ ] **Offline:** open the app once, turn on airplane mode, reopen it. The Demo should still run, and messages should say "no internet", not "server busy".
 - [ ] **Direction arrow:** drag it with a finger on the map; the pill should change (Northeast, East…).
+- [ ] **Location and searcher dots:** the app should ask for location as soon as it opens. In a shared search, each phone should see the other as a green dot with their name ("Nathan (now)"). It updates every 30 s or after walking 25 m. Saying no to location should still let everything else work.
+- [ ] **Report box without Jev:** until the key is in, type or speak a report in each language. The form should fill in by itself, with a note that it was filled in on the phone. Check the fields it got wrong.
+- [ ] **Laptop:** open the site on a laptop. The page shouldn't scroll; only the left panel should.
 - [ ] **Speed:** time the Demo button on each phone.
 - [ ] Write down anything broken or confusing (phone model, browser, steps, screenshot) and send it to BenStew.
 
@@ -51,10 +55,10 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
 - [ ] Go through every screen on a phone as if a relative just went missing. Is it obvious what to tap first? Is any text too small, unclear or untranslated? Report anything confusing.
 
 ## 5. Tests and reliability
-- [ ] Run the tests and keep them green (64 pass right now):
+- [ ] Run the tests and keep them green (72 pass right now):
   ```bash
   node --test
   ```
 - [ ] Add a test for each bug found in step 3, if it can be tested without a phone.
 - [ ] Re-run the benchmark (`npm run bench`) **only if the engine changes**, and update the tables in `README.md` and `bench/results.md`.
-- [ ] Be ready to explain the tests you own (`tests/`, `bench/`), including any that AI helped write.
+- [ ] Be ready to explain the tests you own (`tests/`, `bench/`), including any that AI helped write. New tonight: `tests/quickread.test.js` (the backup reader), `tests/voice.test.js`, `tests/data.test.js` (offline), and `bench/jev-eval.js` with `bench/jev-cases.json`.

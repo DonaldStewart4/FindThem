@@ -59,6 +59,16 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### NATHAN.md brought up to date
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `NATHAN.md`: step 1 uses the real proxy address and says only `TYPESAFE_API_KEY` is missing (the backup word rules fill in drafts until then); step 3 adds phone checks for the location prompt and green searcher dots, the report box without Jev, and the laptop layout; step 5 says 72 tests and lists tonight's new test and bench files.
+- **Why:** BenStew asked whether NATHAN.md was updated; only step 2 had been.
+- **Decisions:** None.
+- **How it was verified:** Read through; docs only.
+- **Known issues / not done:** None.
+- **Next:** Video script and Devpost write-up.
+
 ### Report box backup reader on the phone, plus a 40-report scorer for Jev
 - **Date:** 2026-11-21
 - **Stage:** Finishing (part 1 of the team plan: everything that doesn't need the TypeSafe key)
