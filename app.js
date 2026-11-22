@@ -986,22 +986,82 @@ function drawStreets(osm) {
 // Uses a log scale, so a street with 10× more walkers is a few shades darker, not off the chart.
 // Only the two busiest shades are drawn: drawing every street walkers touched filled the
 // whole map with purple and hid the likely areas.
+// "Streets they most likely took": the busiest streets, drawn as ONE connected network that
+// starts at the last-seen point. Drawing only the busiest street pieces on their own left
+// floating fragments: where walkers split at a corner, the next piece drops below the cutoff
+// and the line stops, then reappears further on. So we keep the busiest pieces, then add
+// each one's most-walked way back to the last-seen point (display only; the engine is unchanged).
+const STREET_MIN_STEP = STREET_COLORS.length - 2;     // the 2 darkest color steps count as "busiest"
+const STREET_CONNECTOR_STEP = STREET_COLORS.length - 3; // connecting pieces are at least this dark
+// Walkers move over ground squares, and a street's count is the walkers on the square at its
+// middle, so two busy pieces can have an uncounted piece between them. The way back may cross
+// such gaps: a piece costs its length ÷ (walkers + STREET_GAP_COST).
+const STREET_GAP_COST = 0.5;
+
 function drawUsedStreets(area, prediction) {
   layers.used.clearLayers();
   const counts = prediction.sim.edgeCounts;
   const max = counts.reduce((m, c) => (c > m ? c : m), 0);
-  if (max === 0) return;
+  if (max === 0 || !state.lastSeen) return;
   const { nodes, edges } = area.graph;
-  counts.forEach((count, i) => {
-    if (count === 0) return;
-    const step = Math.min(STREET_COLORS.length - 1, Math.floor((Math.log(count + 1) / Math.log(max + 1)) * STREET_COLORS.length));
-    if (step < STREET_COLORS.length - 2) return; // not one of the busiest streets
-    const a = nodes[edges[i].a];
-    const b = nodes[edges[i].b];
-    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
-      color: STREET_COLORS[step], weight: 2 + step, opacity: 0.9, interactive: false,
-    }).addTo(layers.used);
+  // Color step 0..4 from how many walkers used a piece (log scale, so busy streets stand out).
+  const stepOf = (c) => Math.min(STREET_COLORS.length - 1, Math.floor((Math.log(c + 1) / Math.log(max + 1)) * STREET_COLORS.length));
+
+  // 1. The busiest pieces.
+  const busy = [];
+  counts.forEach((c, i) => { if (c > 0 && stepOf(c) >= STREET_MIN_STEP) busy.push(i); });
+
+  // 2. Where the walkers started: the street corner nearest the last-seen point.
+  const cosLat = Math.cos((state.lastSeen.lat * Math.PI) / 180);
+  let start = -1;
+  let bestD = Infinity;
+  nodes.forEach((n, i) => {
+    if (!n.edges.length) return;
+    const d = (n.lat - state.lastSeen.lat) ** 2 + ((n.lng - state.lastSeen.lng) * cosLat) ** 2;
+    if (d < bestD) { bestD = d; start = i; }
   });
+  if (start < 0) return;
+
+  // 3. From there, the most-walked way to every corner (Dijkstra; a street piece "costs" its
+  //    length divided by how many walkers were counted on it, so busy streets are preferred).
+  const dist = new Map([[start, 0]]);
+  const viaEdge = new Map(); // corner → the street piece we arrived by
+  const heap = [[0, start]];
+  const push = (item) => { heap.push(item); let i = heap.length - 1; while (i > 0) { const up = (i - 1) >> 1; if (heap[up][0] <= heap[i][0]) break; [heap[up], heap[i]] = [heap[i], heap[up]]; i = up; } };
+  const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1; const r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  while (heap.length) {
+    const [d, n] = pop();
+    if (d > dist.get(n)) continue; // an old, longer entry
+    for (const e of nodes[n].edges) {
+      const other = edges[e].a === n ? edges[e].b : edges[e].a;
+      const nd = d + (edges[e].length || 1) / ((counts[e] || 0) + STREET_GAP_COST);
+      if (nd < (dist.has(other) ? dist.get(other) : Infinity)) { dist.set(other, nd); viaEdge.set(other, e); push([nd, other]); }
+    }
+  }
+
+  // 4. Each busy piece plus its way back to the start.
+  const draw = new Set(busy);
+  const traced = new Set([start]);
+  for (const e of busy) {
+    const { a, b } = edges[e];
+    let n = (dist.get(a) ?? Infinity) <= (dist.get(b) ?? Infinity) ? a : b; // the end nearer the start
+    while (!traced.has(n) && viaEdge.has(n)) {
+      traced.add(n);
+      const pe = viaEdge.get(n);
+      draw.add(pe);
+      n = edges[pe].a === n ? edges[pe].b : edges[pe].a;
+    }
+  }
+
+  // 5. Draw: darker and thicker where more walkers went; connecting pieces never fade out.
+  for (const e of draw) {
+    const step = Math.max(stepOf(counts[e]), STREET_CONNECTOR_STEP);
+    const a = nodes[edges[e].a];
+    const b = nodes[edges[e].b];
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+      color: STREET_COLORS[step], weight: 2 + step, opacity: 0.9, interactive: false, lineCap: 'round',
+    }).addTo(layers.used);
+  }
 }
 
 // The "where they likely are" layer. A plain heatmap turned the whole area blue, which
