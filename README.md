@@ -77,7 +77,9 @@ The same case and seed always give the same map, so every phone computes the ide
 | **The new prior** | **0.99 km²** | **41%** | **0.92 km²** |
 | ISRID statistics map alone (upper bound) | 1.03 km² | 42% | 0.90 km² |
 
-The statistics map is the recipe that placed the true locations, so it is an upper bound, and the new prior is 95% that map: being close to it is partly by construction. What the test does show is that the first engine was worse than plain rings and the new one is better than both. Told the wrong time (gone 100 minutes, app told 60) the new prior's median goes from 1.63 to 1.69 km². The full report, with charts, the calibration table, sensitivity and limits: [`bench/prior-report.md`](bench/prior-report.md) and `bench/prior-report.html`.
+The statistics map is the recipe that placed the true locations, so it is an upper bound, and the new prior is 95% that map: being close to it is partly by construction. What the test does show is that the first engine was worse than plain rings and the new one is better than both. Told the wrong time (gone 100 minutes, app told 60) the new prior's median goes from 1.63 to 1.69 km². **A real-world check.** `docs/research/cases-public.csv` holds 161 real cases of people with dementia who walked away and were found, collected from public news and police reports. They were never used to tune anything; `bench/real-cases.js` compares the model with them. The data leans toward long and fatal searches (43% deaths) and is missing the quick nearby finds, so it cannot test the first hour. What it shows: real urban finds match the ISRID urban column the model is tuned to (41% at a structure, 35% on a road, n = 17), and 43% of deaths were in water or a drainage, which the hazard layer flags. Against the model: 28% of real cases were beyond the map's 3.2 km (57% of the urban ones), suburban and rural cases look nothing like the urban column, and 29% of deaths were in woods, which the hazard layer does not flag.
+
+The full report, with charts, the calibration table, sensitivity, the real-world check and limits: [`bench/prior-report.md`](bench/prior-report.md) and `bench/prior-report.html`.
 
 ## Benchmark
 
@@ -145,10 +147,11 @@ The translations were written by AI and haven't been checked by native speakers 
 | `proxy/` | Tiny Cloudflare Worker that holds the API keys as secrets: asks Jev about a report (`jev.js`) and returns form data only; optional voice bot with Deepgram and ElevenLabs (`voice.js`) |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added, searcher positions checked |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
-| `bench/` | `prior-eval.js` + `prior-report.js` (the evaluation of the map: `prior-report.md`, `prior-report.html`), `benchmark.js` (the search simulation below) and `results.md` (its latest output), `phone-budget.js` (time and memory), `old-engine/` (a frozen copy of the first engine, for comparison only) |
-| `tools/` | `calibrate.js` (fits the walkers to ISRID), `make-fixture.js` (rebuild the Fremont data), `data/fremont-wide.json.gz` (a wider Fremont map for calibration and evaluation; never loaded by the app), `browser/` (checks that drive a headless Chrome), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
+| `bench/` | `prior-eval.js` + `prior-report.js` (the evaluation of the map: `prior-report.md`, `prior-report.html`), `real-cases.js` + `real-cases-maps.js` (the check against real cases), `benchmark.js` (the search simulation below) and `results.md` (its latest output), `phone-budget.js` (time and memory), `old-engine/` (a frozen copy of the first engine, for comparison only) |
+| `tools/` | `calibrate.js` (fits the walkers to ISRID), `make-public-cases.js` (makes the public copy of the real-case data), `make-fixture.js` (rebuild the Fremont data), `data/fremont-wide.json.gz` (a wider Fremont map for calibration and evaluation; never loaded by the app), `browser/` (checks that drive a headless Chrome), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
 | `ShortPlan.md`, `PLAN.md`, `INTERFACES.md`, `CommitHistory.md`, `ROADMAP.md` | Plans, the engine contract, the decision log, and future plans |
 | `docs/PRIOR-V2.md`, `BEN.md` | The design of the engine rewrite, and what it changed in the screen files |
+| `docs/research/` | 161 real news-reported cases: `cases-public.csv` (sources given as publisher + month + an id; the copy with URLs is never committed), `REPORT.md`, `DATA_DICTIONARY.md`, `CASES-PUBLIC.md` |
 
 No frameworks and no build step: plain HTML, CSS and JavaScript. The only online parts are the Firebase database (sharing) and the AI proxy (report box). The prediction always runs on the phone.
 
@@ -222,6 +225,7 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - The statistics behind the map are published summaries (ISRID: 336 urban dementia cases for distance, 223 for where people were found; 11 for the dispersion angle), not case records, and the walking-speed study is of people with cognitive impairment, not all with a dementia diagnosis.
 - Nothing has been validated on real searches. The evaluation's "true" locations are drawn from the same published statistics the map is built from; the benchmark is a simulation.
 - The model fits ISRID's distances but not its mobility hours (see Calibration above).
+- It uses ISRID's *urban* statistics everywhere. Real suburban and rural cases look different (more woods and water, fewer structures), and the hazard layer knows water but not woods or brush, where 29% of the deaths in our real-case data were found.
 - The map reaches 3.2 km from the last-seen point. Beyond that the app only says how likely it is that the person is off the map.
 - Elevation is not used, and the sea is not handled (on a coast it would be treated as plain ground).
 - For a few minutes after starting a search in a new area, a phone still waiting for the buildings download shows a rougher map than one that has them.
@@ -240,6 +244,7 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - Street and terrain data from the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API).
 - Address search from [Nominatim](https://nominatim.org/), one request at a time.
 - Map library: [Leaflet](https://leafletjs.com/).
+- Real cases for the held-out check: public news, police and coroner reports from the US, UK, Canada, Australia and New Zealand, cited in `docs/research/cases-public.csv` by publisher and month.
 - Lost-person statistics: Robert Koester, *Lost Person Behavior*, dementia chapter (ISRID): distances, find locations, track offset, dispersion angle, mobility, "66% cross or depart from a road" (https://www.dbs-sar.com/LPB/Dementia.pdf).
 - Walking speed: Toots, Taylor, Lord, Close (2019), *J Alzheimers Dis* 71(s1): usual gait speed 0.62 ± 0.23 m/s in 309 older adults with cognitive impairment.
 - Rowe et al. (2011), *BMC Geriatrics* 11:28, on people with dementia missing in the community (53% of those on foot found within 1 mile; deaths mostly in unpopulated areas).

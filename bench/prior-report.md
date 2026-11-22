@@ -9,6 +9,7 @@ Made by `node bench/prior-eval.js` and `node bench/prior-report.js` on 2026-11-2
 - **The evaluation chose a walkers' share of 0.05.** With true locations placed from ISRID statistics alone, the walkers add little to a map with no clues. They still decide what a direction, a familiar place, a sighting or a search does to the map, which this evaluation cannot score.
 - **Calibration fits the urban distances** (26.4 / 49.9 / 80.5% within 0.3 / 1.1 / 3.2 km on held-out starts; ISRID 25 / 50 / 75) **and does not fit the mobility hours**: the model's median is 2.65 h against ISRID's 0.25 h. Both are reported as they came out.
 - **Phone budget (cold replay under 2,000 ms with the processor slowed four times): met for first-hour cases**, 886 to 1432 ms in Chrome for the Demo and for 75-minute cases with 7 searches and 3 sightings. Older cases are slower because the walkers have walked longer: 1197 ms for a case 4 hours old, 1775 ms for a case 12 hours old. These timings move by about ±30% with what else the laptop is doing.
+- **Against 161 real news-reported cases (never used for tuning), the picture is mixed.** Real urban finds match the ISRID urban column the model is tuned to (41% structure, 35% road, n = 17), and 43% of deaths were in water or drainage, which the hazard layer flags. But 28% of real cases were beyond the map's 3.2 km (the walkers say 19%), suburban and rural cases look nothing like the urban column, and 29% of deaths were in woods, which the hazard layer does not flag. The data leans toward long and fatal searches and cannot test the first hour.
 
 ## Evidence
 
@@ -245,6 +246,91 @@ One number changed at a time, ±50% (DATA numbers ±20%), kept inside its range;
 | Walkers, a case at 45 min / 2 h / the 12 h cap | 2.2 MB / 3.4 MB / 15.4 MB |
 | Ground map; one familiar-place field | 1.6 MB; 1.6 MB |
 | Map data in memory (the Demo's 6.9 MB file) | about 23 MB, plus about 29 MB for the street network; twice that with the worker's copy |
+
+## Real-world check: 161 news-reported cases
+
+**These cases were never used for calibration.** They are 161 resolved cases of people with dementia who left a home or care facility on foot, collected from public news, police and coroner reports with both the last-seen place and the found place described (`docs/research/cases-public.csv`; method in `docs/research/REPORT.md`). 85 have a usable distance, 73 a time missing, 41 both. 24 are urban, 73 suburban, 64 rural (the researcher's judgment).
+
+**Their biases, which shape everything below:**
+- **News reports long, dramatic and fatal searches.** 43% of these cases ended in death; ISRID's urban table has 6%. Distances and times here lean long, and woods and water are over-represented.
+- **Quick nearby finds are missing.** The largest reason candidates were rejected (318 of them) was "found safe nearby" with no place given. Short distances are under-represented.
+- Journalists round distances ("about a mile"), and only 14 cases have both points located to street level.
+- This is not an urban sample, while the model is tuned to ISRID's urban column.
+
+### 1. Distance from the last-seen point
+
+Bins are cut at the ISRID urban quartile distances, so the ISRID urban curve has 25% in each. Cases located only to a neighborhood (±1–2 km) are shown with the two near bins merged.
+
+|  | n | Within 0.3 km | 0.3 to 1.1 km | 1.1 to 3.2 km | Beyond 3.2 km | Within 1.1 km (merged) | Median |
+|---|---|---|---|---|---|---|---|
+| **Model:** ISRID urban curve (what the statistics map uses) | – | 25% | 25% | 25% | 25% | 50% | – |
+| **Model:** ISRID temperate curve (the alternative for open country) | – | 25% | 28% | 26% | 22% | 53% | – |
+| **Model:** Calibrated walkers, held-out Fremont starts | – | 26% | 23% | 31% | 19% | 50% | – |
+| Real: All cases with a distance | 85 | 15% | 34% | 22% | 28% | 49% | 1.16 km |
+| Real: Strict cases | 77 | 14% | 36% | 22% | 27% | 51% | 1.07 km |
+| Real: Both points known to street level | 14 | 7% | 36% | 14% | 43% | 43% | 1.62 km |
+| Real: Distance stated in the article | 41 | 20% | 46% | 22% | 12% | 66% | 0.8 km |
+| Real: Located to a neighborhood only (±1–2 km) | 30 | (merged) | (merged) | 27% | 43% | 30% | 2.5 km |
+| Real: Setting: urban | 14 | 7% | 14% | 21% | 57% | 21% | 4.72 km |
+| Real: Setting: suburban | 43 | 14% | 35% | 23% | 28% | 49% | 1.5 km |
+| Real: Setting: rural | 28 | 21% | 43% | 21% | 14% | 64% | 0.61 km |
+| Real: Found alive | 49 | 16% | 41% | 16% | 27% | 57% | 0.8 km |
+| Real: Found deceased | 36 | 14% | 25% | 31% | 31% | 39% | 1.88 km |
+
+- **Near:** 15% of real cases are within 0.3 km, against 25% in ISRID and 26% for the walkers. That is the direction the missing quick finds would push it, so it is not evidence against the model.
+- **Far:** 28% of real cases are beyond 3.2 km, against 25% in ISRID urban and 19% for the walkers. The walkers put too few people far out, by ISRID's own measure and by this one.
+- **By setting, the real cases run opposite to what the urban column suggests:** urban cases are the farthest (median 4.72 km, 57% beyond 3.2 km, n = 14), suburban in between (median 1.5 km, n = 43), rural the nearest (median 0.61 km, n = 28). With n = 14 and news selection this is weak, but it argues against trusting the map's 3.2 km reach in a city.
+
+### 2. Distance by time missing
+
+Real cases that report both a time and a distance (41), against the model's distance at the bin's median time. "Statistics map" is its rule (the smaller of the ISRID end distance and pace × t); "walkers" are the calibrated walkers on held-out Fremont starts, run for 12 hours at most. Kilometers at 25% / 50% / 75%.
+
+| Time missing | n | Median time | Real cases | Model: statistics map | Model: walkers |
+|---|---|---|---|---|---|
+| up to 3 hours | 2 | 2 h | 0.9 / 3.22 / 3.22 | 0.3 / 0.87 / 1.65 | 0.25 / 0.82 / 1.48 |
+| 3 to 12 hours | 9 | 6 h | 0.4 / 0.8 / 1.62 | 0.3 / 1.1 / 2.8 | 0.38 / 1.65 / 3.13 |
+| 12 to 24 hours | 11 | 16 h | 0.61 / 1.88 / 4.83 | 0.3 / 1.1 / 3.2 | 0.43 / 2.16 / 4.5 (at the 12 h cap) |
+| more than a day | 19 | 82 h | 1.74 / 3.06 / 8.27 | 0.3 / 1.1 / 3.2 | 0.43 / 2.16 / 4.5 (at the 12 h cap) |
+
+Half of the real cases with a time were missing for more than 21 hours (25% / 50% / 75%: 8 / 21 / 56 h), far beyond the first hour the app is built for, and only 2 are in the first three hours. So this data cannot test the first hour. From 3 to 12 hours the real median (0.8 km) is below the model's (1.1 km for the statistics map, 1.65 km for the walkers); beyond 12 hours it is above (1.88 and 3.06 km against 1.1 km). The model stops growing once it reaches the ISRID end distances. People still missing after a day are a selected, farther group, and the model has no way to say "still missing after a day means farther".
+
+### 3. Where people were found
+
+|  | n | structure | road | linear | field | water | drainage | woods | brush |
+|---|---|---|---|---|---|---|---|---|---|
+| **Model:** ISRID urban (the calibration target) | 223 | 35% | 36% | 9% | 6% | 6% | 4% | 3% | 1% |
+| **Model:** ISRID temperate | 207 | 20% | 18% | 9% | 14% | 7% | 9% | 17% | 6% |
+| **Model:** Calibrated walkers, held-out Fremont starts | 14400 | 38% | 38% | 9% | 2% | 5% | 8% | 0% | 0% |
+| Real: All real cases | 146 | 10% | 15% | 7% | 6% | 21% | 8% | 27% | 8% |
+| Real: Found alive | 81 | 12% | 22% | 7% | 6% | 9% | 7% | 25% | 11% |
+| Real: Found deceased | 65 | 6% | 6% | 6% | 6% | 35% | 8% | 29% | 3% |
+| Real: Setting: urban | 17 | 41% | 35% | 0% | 0% | 18% | 0% | 6% | 0% |
+| Real: Setting: suburban | 69 | 10% | 14% | 6% | 4% | 25% | 10% | 23% | 7% |
+| Real: Setting: rural | 60 | 0% | 10% | 10% | 10% | 17% | 7% | 37% | 10% |
+
+- **Urban real cases match ISRID's urban column:** 41% at a structure and 35% on a road (n = 17), against 35% and 36%. That supports the column the model is tuned to, for cities.
+- **Suburban and rural real cases do not:** woods 23% and 37%, water 25% and 17%, structures 10% and 0%. Part of that is the news bias (woods and water searches are the ones reported), but the app uses the urban column everywhere, and for a suburb with open land that is probably wrong. ISRID's temperate column is already in `engine/prior.js`; choosing the column by setting is the obvious next step.
+- The walkers' mix (0% woods, 0% brush) reflects Fremont, where there is almost none of either near the start points.
+
+### 4. Where the deceased were found, against the hazard layer
+
+The hazard layer flags water, creeks and drainage channels, and wetland, where the person is likely to be within 150 m.
+
+| Deceased, by where found (n = 65) | structure | road | linear | field | water | drainage | woods | brush |
+|---|---|---|---|---|---|---|---|---|
+| Share | 6% | 6% | 6% | 6% | 35% | 8% | 29% | 3% |
+| Flagged by the hazard layer? | no | no | no | no | yes | yes | no | no |
+
+- **43% of deaths were in water or a drainage**, the kinds of place the hazard layer flags; among people found alive it is 16%. Of all water and drainage finds, 68% were deaths, against 35% of finds anywhere else. Flagging water is well aimed.
+- **29% of deaths were in woods, which the hazard layer does not flag** (brush 3%, fields 6%). The data doesn't give causes of death, but these are not drownings. A hazard layer that only knows water misses about 57% of where the deaths in this data happened.
+- **The deceased were found farther out, not nearer:** median 1.88 km (n = 36) against 0.8 km for those found alive (n = 49); 31% of deaths were within 0.8 km. Rowe et al. (2011) found 50% of deaths within 0.5 mile. The news bias toward long searches may explain the gap; either way, the hazard layer follows the likely area outward rather than assuming deaths are near home, which this data supports.
+
+### What the real cases change
+
+- Nothing here was used to tune anything, and the model's numbers above are unchanged by it.
+- They support: the urban find-location column for cities; flagging water.
+- They question: the 3.2 km map in cities (57% of urban cases beyond it); using the urban column for suburbs and open country; a hazard layer without woods and brush; the far tail of the walkers.
+- They cannot test: the first hour, which is what the app is for.
 
 ## Honest limits
 

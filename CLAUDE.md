@@ -36,6 +36,7 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
 - Must-haves by the deadline: routes for searchers, messaging between searchers, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Never call the report box a "chatbot"** anywhere in the UI. Jev only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine. Jev answers multiple-choice questions with a confidence; answers below `MIN_CONFIDENCE` are left empty for the person to fill in. When Jev can't answer, `quickread.js` fills the same draft with simple word rules on the phone; the same confirm step applies.
 - Demo and tuning area: **Fremont, CA** (Central Park / Lake Elizabeth). Skip `waterway=pressurised` (underground pipes) when finding creeks.
+- **Real-case data and privacy.** `docs/research/` holds 161 real news-reported cases. The research files with source URLs (`cases.csv`, `cases2.csv`, `cases.geojson`, `sources-private.csv`) are git-ignored and must **never** be committed: the URLs often contain the missing person's name and this repo is public. Commit only `docs/research/cases-public.csv`, made by `node tools/make-public-cases.js`. Use the cases **only as a held-out check** (`bench/real-cases.js`), never for calibration.
 
 ## Every commit
 - Add an entry to the top of the Log in `CommitHistory.md` **in the same commit**, using the template in that file.

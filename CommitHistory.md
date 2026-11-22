@@ -61,6 +61,37 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Real-world check: 161 real cases as a held-out test (public copy only)
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), after stage 4
+- **What changed:**
+  - **Privacy first.** Nathan added real-case research data under `docs/research/` (161 news-reported cases of people with dementia who walked away and were found). Its source URLs often contain the person's name and this repo is public, so:
+    - `.gitignore` (in the stage 4 commit) ignores the files with URLs: `docs/research/cases.csv`, `cases2.csv`, `cases*.geojson`, and `sources-private.csv`.
+    - New `tools/make-public-cases.js` writes `docs/research/cases-public.csv`: the same rows, with `source_urls` replaced by `sources` = publisher + case month + a source id (`wfmj.com 2023-07 [S0042]`). The id → URL list goes to the git-ignored `sources-private.csv`. The tool refuses to write if the public file would contain anything that looks like a URL, a piece of a source URL, or a house number with a street.
+    - Committed: `cases-public.csv`, `REPORT.md` and `DATA_DICTIONARY.md` (neither has a URL or a name), and a new `docs/research/CASES-PUBLIC.md` explaining the public copy.
+  - **New `bench/real-cases.js`:** compares the model with the real cases, with no network: distance from the last-seen point in bins cut at the ISRID urban quartiles (all, strict, street-level, stated in the article, neighborhood-only with the near bins merged, by setting, by outcome); distance by time missing; find-type mix; where the deceased were found against what the hazard layer flags. Writes `bench/real-cases-results.json`.
+  - **New `bench/real-cases-maps.js`** (needs the internet): for the 18 cases with both points located to street level, downloads that town's streets and water (cached in the git-ignored `bench/.cache/`) and scores the prior on the real found place. **Not finished at the time of this commit**: the public map servers were answering one request in several minutes. If `bench/real-cases-maps.json` appears in a later commit, the report gains a section 5.
+  - `bench/prior-report.js`: a new section "Real-world check" with two charts, and a verdict line. `bench/prior-report.md` and `.html` regenerated.
+  - `README.md`: a paragraph on the real-world check, two limits, files and sources. `CLAUDE.md`: the privacy rule for the case data.
+- **Why:** Nathan asked for the real cases to be used only as a held-out check, never for calibration, with the biases stated, and for nothing with a source URL to reach the public repo.
+- **Decisions:**
+  - **Nothing in the model was changed because of this data.** `tools/calibrate.js` does not read it.
+  - The public file keeps everything except the URLs (town, month, age, place descriptions without house numbers, points rounded to about 110 m), as the research file's own privacy rules describe. Source ids are assigned in file order and are not stable across rebuilds.
+  - Bins at the ISRID urban quartile distances (0.3 / 1.1 / 3.2 km), so "25% in each" is what ISRID urban predicts and the neighborhood-precision cases can still be used with the two near bins merged.
+  - `docs/research/FREMONT.md`, `OUTREACH.md`, `hazards.geojson` and `docs/INTAKE-SPEC.md` were in the working folder too. They are not part of this request and were **left uncommitted**.
+- **How it was verified:** `node tools/make-public-cases.js`: 161 cases, 207 distinct sources; `grep -c http docs/research/cases-public.csv` gives 0; `git check-ignore` confirms the four private files are ignored. `node bench/real-cases.js` output:
+  - Distance (85 cases): 15% within 0.3 km, 34% from 0.3 to 1.1, 22% from 1.1 to 3.2, 28% beyond 3.2 km; ISRID urban says 25% each; the calibrated walkers 26 / 24 / 31 / 20%. Urban cases (n = 14): median 4.72 km, 57% beyond 3.2 km. Suburban (43): median 1.5 km. Rural (28): 0.61 km.
+  - Time: half the cases with a time were missing more than 21 hours; only 2 of the 41 with both a time and a distance are within three hours.
+  - Find type: real urban cases 41% structure and 35% road (n = 17; ISRID urban 35 and 36); suburban woods 23%, water 25%; rural woods 37%.
+  - Deceased (70; 65 with a find type): 43% in water or a drainage, 29% in woods. 68% of water and drainage finds were deaths, against 35% elsewhere. Median distance 1.88 km against 0.8 km for those found alive.
+  - `node --test`: 103 pass (no engine code changed).
+- **Known issues / not done:**
+  - The data cannot test the first hour, which is what the app is for.
+  - What it questions and nobody has acted on: a 3.2 km map in cities; the urban ISRID column used for suburbs and open country (the temperate column is already in `engine/prior.js`); a hazard layer with no woods or brush; the walkers' thin far tail.
+  - `bench/real-cases-maps.js` had scored 1 of 18 cases when this was committed.
+  - The research file's own caveats apply: `setting` is a judgment, distances are rounded by journalists, 38% of cases could not be geocoded.
+- **Next:** Let the map run finish and add its table; decide with Nathan whether to pick the ISRID column by setting and add woods to the hazard layer (both would need a re-run of calibration and evaluation).
+
 ### Prior v2, stage 4: calibration, evaluation and the report
 - **Date:** 2026-11-22
 - **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 4 of 4
