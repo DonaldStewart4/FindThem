@@ -50,11 +50,11 @@ const SAW = [
 ];
 // "Searched the park", "revisamos", "on a fouillé": a place was checked.
 const SEARCHED = [
-  /\b(searched|checked|looked (in|at|around|through)|went through|swept|cleared)\b/,
-  /\b(buscamos|busque|revisamos|revise|recorrimos)\b/,
-  /\b(cherche|fouille|verifie|inspecte)\b/,
-  /(找过|搜过|搜了|找了|查过|查了|检查了|检查过)/,
-  /(探した|捜した|探しました|捜しました|確認した|確認しました|見回った)/,
+  /\b(searched|checked|looked (in|at|around|through)|went through|swept|cleared|walked (all of|the whole|the length of|up and down|every))\b/,
+  /\b(buscamos|busque|revisamos|revise|recorrimos|recorri|caminamos todo|caminamos toda)\b/,
+  /\b(cherche|fouille|verifie|inspecte|parcouru|ratisse)\b/,
+  /(找过|搜过|搜了|找了|查过|查了|检查了|检查过|走遍|从头到尾)/,
+  /(探した|捜した|探しました|捜しました|確認した|確認しました|見回った|端から端まで|歩いたけど|を一周)/,
 ];
 
 // "Has anyone seen him?": a question to the others, not a sighting.
@@ -198,9 +198,29 @@ const SECOND_HAND = [
   /(说|听说|据说|据)/,
   /(って言|と言って|そうです|らしい|だって|によると|見たって)/,
 ];
+// Someone other than the reporter is the one who saw: "the mailman saw her", "posted they saw",
+// "he was seen", Spanish "vio / vieron" (he / they saw; "vi" is I saw), French "l'a vue" ("je
+// l'ai vue" is I saw), "邻居…看到", "近所の人が…見た".
+const THIRD_PERSON_SEER = [
+  /\b((someone|somebody|a (neighbor|neighbour|man|woman|lady|guy|jogger|driver|mailman|postman|kid|friend|cashier)|my (neighbor|neighbour|son|daughter|friend|wife|husband|brother|sister|mom|dad|uncle|aunt)|the (mailman|postman|neighbor|neighbour|driver|guard|cashier|bus driver)|people|others)\b[^.!?]{0,40}\b(saw|seen|spotted|noticed)\b|\b(was|were) (seen|spotted)\b|\b(posted|texted|messaged)\b)/,
+  /\b(vio|vieron|lo vio|la vio|lo vieron|la vieron|ha visto|han visto)\b/,
+  /((il|elle|on|quelqu'un|le facteur|la factrice|un voisin|une voisine|un monsieur|une dame|mon voisin|ma voisine|les gens) (l'a|les a|a) (vu|vue|apercu|apercue)|\bl'a (vu|vue)\b)/,
+  /((邻居|邮递员|快递员|有人|别人|朋友|他们|保安|司机|店员|路人)[^，。！？,.!?]{0,30}(看到|看见|见到))/,
+  /((さん|屋さん|の人|誰か|友達|息子|娘|夫|妻|運転手|店員)(が|も)[^。！!]{0,20}(見|目撃))/,
+];
+// The reporter's own seeing: "I saw", "vi", "j'ai vu", "我看到", "私が見た".
+const FIRST_PERSON_SEER = [
+  /\b(i|we|i've|we've|i have|we have)( just| also)? (saw|seen|see|spotted|noticed|found)\b/,
+  /\b(vi|vimos|lo vi|la vi|lo veo|la veo|acabo de ver|he visto|hemos visto)\b/,
+  /(j'ai vu|je l'ai vu|je l'ai vue|nous avons vu|je (le|la) vois|j'ai apercu)/,
+  /((我|我们)[^，。！？,.!?]{0,30}(看到|看见|见到|发现))/,
+  /((私|僕|俺|わたし|自分)(が|は|も))/,
+];
 export function readSecondHand(text) {
   const p = plain(text);
-  return any(SECOND_HAND, p) && (any(SAW, p) || any(SAW, lower(text)));
+  const saw = any(SAW, p) || any(SAW, lower(text)) || any(THIRD_PERSON_SEER, p);
+  if (!saw) return false;
+  return any(SECOND_HAND, p) || (any(THIRD_PERSON_SEER, p) && !any(FIRST_PERSON_SEER, p));
 }
 
 export function readReliability(text) {
@@ -219,6 +239,28 @@ const STREET_SUFFIX = /\s+(parkway|pkwy|street|st|avenue|ave|road|rd|boulevard|b
 
 // The nearby place whose name appears in the report (the longest match wins, so
 // "Fremont Central Park" beats "Central Park"). places = [{ name, lat, lng }].
+// Evidence that something was searched: a search verb ("searched", "buscamos", "找过", "探した"), or
+// a named place or one-of-a-kind place ("no sign of him on Kearney Street", "nobody at the lake").
+export function hasSearchEvidence(text, places = []) {
+  if (any(SEARCHED, plain(text)) || any(SEARCHED, lower(text))) return true;
+  return readAllPlaces(text, places).length > 0 || Boolean(readFeaturePlace(text, places));
+}
+
+// How strong the evidence for a named place is. Strong: the full name ("Walnut Avenue"), a short
+// name of 7+ letters ("Stevenson", "Paseo Padre"), or a short name next to a street word ("calle
+// Walnut", "Walnut St", "Walnut街"). Weak: a short, everyday word alone ("walnut", "bart"): it is
+// left empty and marked unsure, for the person to pin (caution rule, Nathan, Nov 22).
+const STREET_WORD_AFTER = /^\s*(st\b|street|ave\b|avenue|blvd|boulevard|rd\b|road|dr\b|drive|way\b|pkwy|parkway|calle\b|街|路|通り|大道|大街)/;
+const STREET_WORD_BEFORE = /(\b(calle|avenida|av|rue|boulevard|bd)\.?\s*)$/;
+export function placeIsStrong(text, place) {
+  const l = plain(text);
+  return placeMentions(text, [place]).some((m) => {
+    const full = plain(place.name).trim();
+    if (m.key === full || m.key.length >= 7) return true;
+    return STREET_WORD_AFTER.test(l.slice(m.at + m.key.length)) || STREET_WORD_BEFORE.test(l.slice(0, m.at));
+  });
+}
+
 // (Only places where the person was count: not "toward X" or "from X", see placeMentions.)
 export function readPlace(text, places = []) {
   const found = readAllPlaces(text, places);
@@ -429,6 +471,12 @@ const OTHER_PERSON = [
   /(ce n'etait pas (lui|elle)|c'etait pas (lui|elle)|pas (lui|elle)\b|quelqu'un d'autre|une autre personne|fausse alerte)/,
   /(不是他|不是她|另一个人|别人|认错|虚惊)/,
   /(彼じゃな|彼女じゃな|別の人|別人|人違い|違う人|本人じゃな|本人ではな)/,
+  // "It wasn't Dad / Mom / Grandpa...", in all 5 languages.
+  /\b((wasn'?t|was not|isn'?t|is not|not) (my |our )?(dad|mom|mum|father|mother|grandpa|grandma|grandfather|grandmother|husband|wife))\b/,
+  /\b(no (era|es) (mi |nuestro |nuestra )?(papa|mama|padre|madre|abuelo|abuela|esposo|esposa))\b/,
+  /(ce n'etait pas|c'etait pas|ce n'est pas|c'est pas) (mon |ma |notre )?(pere|mere|papa|maman|grand-pere|grand-mere|mari|femme)/,
+  /(不是(我|我们)?(爸|妈|爸爸|妈妈|父亲|母亲|爷爷|奶奶|外公|外婆|老公|老婆))/,
+  /((父|母|祖父|祖母|おじいちゃん|おばあちゃん|お父さん|お母さん|夫|妻)(じゃな|ではな|ではありま))/,
 ];
 // Reads like a joke or sarcasm.
 const JOKE = [
@@ -648,7 +696,18 @@ export function readLocally(text, context = {}) {
   // A water word only adds the water flag: it never stops a sighting from being pinned.
   let place = null;
   if (!joke && conflicts.has('place')) unsure.add('place');
-  else if (!joke) place = readIntersection(note, places, intersections) || readPlace(note, places) || readFeaturePlace(note, places);
+  else if (!joke) {
+    const corner = readIntersection(note, places, intersections);
+    const named = corner ? null : readPlace(note, places);
+    place = corner || (named && placeIsStrong(note, named) ? named : null) || (named ? null : readFeaturePlace(note, places));
+    if (named && !place) unsure.add('place'); // a weak name ("walnut" alone): the person pins it
+  }
+
+  // Caution: "searched" needs real evidence, a search verb or "not found" at a named place.
+  // "She's gone, she's not here" is panic, not a search: a message.
+  if (kind === 'searched' && !hasSearchEvidence(note, places)) { kind = 'message'; unsure.add('kind'); }
+  // Caution: a sighting told without a "saw" verb is marked unsure, for the person to check.
+  if (kind === 'sighting' && !sawWords) unsure.add('kind');
 
   let direction = null;
   let minutesSince = null;

@@ -61,6 +61,41 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Blind-test failure categories, and a cautious backup reader
+- **Date:** 2026-11-22
+- **Stage:** Finishing (report readers), branch `agent-contract` (Nathan)
+- **What changed:** blind-test was spent, so its 5 dangerous cases were opened. Each category was fixed, never a single case:
+
+  | Case | Reader | Level | Category | Fix |
+  |---|---|---|---|---|
+  | en-06 "SHE'S GONE … NOW SHES NOT HERE" | backup and Jev | medium | panic read as "searched" | "searched" needs search evidence (a search verb, or a place), in both readers (`hasSearchEvidence`); otherwise a message, kind unsure |
+  | en-11 "someone on nextdoor posted they saw…" | backup | medium | second-hand without a "says" word | `THIRD_PERSON_SEER` / `FIRST_PERSON_SEER`: someone else seeing ("the mailman saw", "posted", "was seen", es "vio / vieron", fr "l'a vue", zh "邻居…看到", ja "近所の人が…見") = maybe (0.3), unless the reporter also saw |
+  | fr-18 "Le facteur l'a vue…" | backup | high | same | same |
+  | ja-11 "…父じゃなかった" (it wasn't dad) | backup | high | "it wasn't" + a family word | `OTHER_PERSON` knows dad / mom / grandpa / grandma / husband / wife in 5 languages |
+
+  - Also, as a category: searching by walking a street ("walked all of", "端から端まで", "走遍", "parcouru") counts as a search verb.
+  - **Caution rule (Nathan):** a high-danger field is filled only on strong evidence, otherwise it's left empty and marked unsure.
+    - **place:** the full name, a short name of 7+ letters, or a short name next to a street word ("calle Walnut"); "walnut" or "bart" alone is left for the person;
+    - **kind:** a sighting with no "saw" verb is kept but marked unsure; "searched" without evidence becomes a message.
+  - Fields the caution rule emptied (backup reader, against the code before it): **18 in all**, 15 of them right, 1 wrong, 2 not scored. No field went from right to wrong.
+    - jev-cases 1 (a kind)
+    - safety 1 (a kind)
+    - blind-dev 13 (3 places, 10 kinds)
+    - blind-test 3 (1 place, 2 kinds)
+  - `tests/categories.test.js`: +4 tests, on new sentences. `sw.js` v32.
+- **Why:** Nathan: list the 5 dangerous blind-test cases, fix categories, and make the backup reader cautious.
+- **Decisions:**
+  - **"The lake" still pins Lake Elizabeth** when it's the only lake: Nathan's earlier rule, and uniqueness is the same evidence a person would use.
+  - **A presence sighting stays a sighting with kind unsure** (not a message), so a real sighting isn't dropped.
+  - **blind-test numbers are no longer held-out:** they were looked at. The honest number for the pitch is blind-2.
+- **How it was verified:**
+  - `node --test`: 129 pass.
+  - Dangerous is 0 on every set, for both readers. Backup reader: jev 98%, safety 99%, blind-dev 92%, blind-test 84% (it was 82%, with 4 dangerous). Jev through the layer: 100% / 97% / 95% / 94%.
+  - Live: the pinned `jev-1.14.0` answers through the local proxy (HTTP 200, `_jev.model` = `jev-1.14.0`).
+- **Known issues / not done:** blind-test can't measure these fixes honestly any more.
+- **Next:** the `/say` conversation layer, then blind-2 (once).
+
+
 ### Pin Jev to jev-1.14.0
 - **Date:** 2026-11-22
 - **Stage:** Finishing (Jev), branch `agent-contract` (Nathan's decision)

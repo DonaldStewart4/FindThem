@@ -4,7 +4,7 @@
 // Written with Claude Code; Nathan reviews.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readLocally, readSignals, readAllPlaces, hasWord, readFound } from '../quickread.js';
+import { readLocally, readSignals, readAllPlaces, hasWord, readFound, readSecondHand, readKind } from '../quickread.js';
 import { safeJevDraft, placeSupported, MINUTE_OPTION } from '../proxy/jev.js';
 import { scoreDraft } from '../bench/eval.js';
 
@@ -101,4 +101,56 @@ test('scorer: acceptable answers count as right; buckets; a message\'s fields ne
   assert.equal(scoreDraft(c, { ...draft, kind: 'message', direction: 'W' }).level, null, 'a message moves nothing');
   const searched = { expect: { kind: 'searched', place: 'Kearney Street', direction: null, minutes: 40, reliability: null }, danger: 'medium' };
   assert.equal(scoreDraft(searched, { kind: 'searched', placeText: 'Kearney Street', lat: 1, lng: 1, direction: null, minutesSince: 30, reliability: 0.6 }).fields.minutes, 'right', '40 and 30 are both the 30 bucket');
+});
+
+// ---- Categories found on blind-test (opened after it was spent, Nov 22) ------------------------
+
+test('panic is not a search: "she\'s gone, she\'s not here" is a message, for both readers', () => {
+  const searchedJev = { kind: pick('searched'), place: pick('none'), direction: pick('unknown'), minutes: pick('unknown'), sure: { score: 1, confidence: 0.9 } };
+  for (const text of ["HE'S GONE, HE WAS ON THE COUCH AND NOW HE'S NOT HERE", 'Se fue, no está en la casa, ayúdenme', "Elle a disparu, elle n'est pas là", '他不见了，不在家里', 'いなくなった、家にいない']) {
+    const d = readLocally(text, { places: PLACES });
+    assert.equal(d.kind, 'message', text);
+    assert.equal(safeJevDraft(searchedJev, text, PLACES).kind, 'message', `${text} (Jev said searched)`);
+  }
+  // A real search still counts, with or without a named place.
+  assert.equal(readLocally('Searched the whole house and the garage, nothing', { places: PLACES }).kind, 'searched');
+  assert.equal(readLocally('No sign of him on Kearney Street', { places: PLACES }).kind, 'searched');
+  assert.equal(readLocally('We walked all of Liberty Street, nobody', { places: PLACES }).kind, 'searched');
+  assert.equal(readKind('リバティ通りを端から端まで歩いたけど誰もいない'), 'searched');
+  assert.notEqual(readKind('一周前に家を出た'), 'searched', 'Chinese/Japanese 一周 (a week / one lap) alone is not a search');
+});
+
+test('second-hand includes someone else as the seer, without a "says" word', () => {
+  for (const text of ['The bus driver saw her near Liberty Street', 'Someone posted on the group chat that they saw an old man by the lake', 'He was seen on Walnut Avenue',
+    'El cartero la vio en Liberty Street', 'Une voisine l\'a vue sur Liberty Street', '快递员在Liberty Street看到她', '近所の人がリバティ通りで見かけた']) {
+    assert.ok(readSecondHand(text), text);
+    assert.equal(readLocally(text, { places: PLACES }).reliability, 0.3, text);
+  }
+  for (const text of ['I saw her on Liberty Street', 'La vi en Liberty Street', "Je l'ai vue sur Liberty Street", '我在Liberty Street看到她']) {
+    assert.ok(!readSecondHand(text), text);
+  }
+});
+
+test('"it wasn\'t Dad / Mom / Grandpa" in 5 languages means someone else', () => {
+  for (const text of ['Saw an old man by the lake but it was not my dad', 'Vi a una señora en el parque pero no era mi mamá', "J'ai vu un monsieur au parc mais ce n'était pas mon père",
+    '在公园看到一个老人，但不是我爸', '公園でおばあさんを見かけたけど、母じゃなかった']) {
+    assert.ok(readSignals(text, PLACES).flags.includes('other_person'), text);
+    assert.equal(readLocally(text, { places: PLACES }).kind, 'message', text);
+  }
+});
+
+test('caution: a place or kind is filled only on strong evidence; otherwise empty and marked unsure', () => {
+  // A short everyday word alone is weak: left for the person.
+  const weak = readLocally('I saw her walking on walnut', { places: PLACES });
+  assert.equal(weak.placeText, '');
+  assert.ok(weak.unsure.includes('place'));
+  // The full name, a long short-name, or a short name next to a street word is strong.
+  assert.equal(readLocally('I saw her on Walnut Avenue', { places: PLACES }).placeText, 'Walnut Avenue');
+  assert.equal(readLocally('I saw her on Kearney', { places: PLACES }).placeText, 'Kearney Street');
+  assert.equal(readLocally('La vi en la calle Walnut', { places: PLACES }).placeText, 'Walnut Avenue');
+  // A sighting with no "saw" verb is kept, but the kind is marked unsure.
+  const presence = readLocally('An old woman is sitting on the steps at Liberty Street', { places: PLACES });
+  assert.equal(presence.kind, 'sighting');
+  assert.ok(presence.unsure.includes('kind'));
+  assert.ok(!(readLocally('I saw her on Liberty Street', { places: PLACES }).unsure || []).includes('kind'));
 });

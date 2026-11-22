@@ -26,7 +26,7 @@
 //
 // This file has no Cloudflare or browser code, so tests/jev.test.js runs it in Node.
 
-import { readLocally, readSignals, PLACE_WORDS, hasWord, MAX_INTERSECTIONS } from '../quickread.js';
+import { readLocally, readSignals, PLACE_WORDS, hasWord, MAX_INTERSECTIONS, hasSearchEvidence } from '../quickread.js';
 import { UNSURE_FIELDS, DRAFT_FLAGS } from '../report.js';
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone';
@@ -362,6 +362,10 @@ export function safeJevDraft(answers, text, places, { intersections = [], lang =
   const notSighting = joke || flags.has('other_person') || signals.found
     || (noSawWords && (flags.has('guess') || flags.has('vehicle') || signals.notSeen));
   if (jevKind === 'sighting' && notSighting) penalties.kind = HARD;
+  //    Nor is "she's gone, she's not here" a search: Jev's "searched" needs the same evidence as the
+  //    word rules' (a search verb, or a place), else it's a message.
+  const searchNeedsEvidence = jevKind === 'searched' && local.kind !== 'searched' && !hasSearchEvidence(text, places);
+  if (searchNeedsEvidence) penalties.kind = HARD;
   if (joke) Object.keys(penalties).forEach((k) => { penalties[k] = HARD; });
 
   const draft = buildDraft(answers, text, [...places, ...intersections], penalties, minConfidence);
@@ -372,7 +376,7 @@ export function safeJevDraft(answers, text, places, { intersections = [], lang =
     draft.lat = corner.lat;
     draft.lng = corner.lng;
   }
-  if (unsure.has('kind') && notSighting) draft.kind = 'message'; // a message never moves the map
+  if (unsure.has('kind') && (notSighting || searchNeedsEvidence)) draft.kind = 'message'; // a message never moves the map
 
   // 5. "How sure": "definitely" + "not sure" → "maybe". "Certain" moves the map the most, so
   //    it needs certain words in the report too; otherwise it drops to "probably". And if the
