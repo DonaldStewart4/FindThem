@@ -66,6 +66,31 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### blind-2 scored once: the honest number for the pitch
+- **Date:** 2026-11-22
+- **Stage:** Finishing (evaluation), branch `agent-contract` (Nathan)
+- **What changed:**
+  - `bench/blind-2-results.md` (new): the full output, both readers, by language and by tag.
+  - `docs/REPORT-2026-11-22.md` (new): the overnight report.
+  - `docs/AGENT-CONTRACT.md`: the blind-2 result.
+  - `bench/jev-answers.json`: Jev's blind-2 answers (saved by the one run).
+- **Why:** Nathan: score blind-2 once with both readers, after the pin, the cautious backup reader and `/say`, and treat it as the honest number.
+- **Decisions:**
+  - **Street corners:** the 2 corners' null coordinates were filled with `findIntersections` on `tests/fixtures/demo-area.json`, not scored by name only.
+  - **"code-switch":** the set has no such tag; it was reported as the union of `spanglish`, `mixed-script` and `mixed`.
+  - **No tuning:** the dangerous cases were listed by category after scoring, and nothing was tuned on them.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-2 --reader local --final --by`: 429/564 (76%), 95 empty, 40 wrong, **7 dangerous** (7 high).
+  - `--reader proxy` (`jev-1.14.0` via `wrangler dev`): 479/564 (85%), 77 empty, 8 wrong, **3 dangerous** (3 high).
+  - The replay check passed. `node --test`: 141 pass.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - Jev: 3 cases, all two-in-one;
+    - backup reader: 7, in five categories (two-in-one; "nord ouest" with a space; mid-sentence corrections; "just saw … 5 minutes ago"; a spoken question without "?").
+  - blind-2 is spent.
+- **Next:** a new held-out set (two-in-one especially); the screen work in `docs/AGENT-CONTRACT.md` and `docs/REPLIES.md`; an `LLM_API_KEY` for `/say`.
+
+
 ### Search-leader replies: POST /say, generated but constrained
 - **Date:** 2026-11-22
 - **Stage:** Finishing (conversation layer), branch `agent-contract` (Nathan)

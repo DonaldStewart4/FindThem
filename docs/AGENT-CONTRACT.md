@@ -377,6 +377,17 @@ Scored on commit `4c3a77f`, after all tuning, with nobody having looked at the c
 - Jev through the layer holds up much better: 95% → 93%, 0 → 1 dangerous, and that one is medium (a wrong direction or time, or too-high certainty; no wrong place).
 - blind-test is now **spent**. Any further tuning needs a new held-out set written by someone who hasn't seen the readers.
 
+### The honest number, round 2: blind-2 (150 reports), scored once on Nov 22
+
+Scored after the caution rules and the blind-test category fixes, on commit `3bc7fdb`. The street corners were filled with `findIntersections` on the demo map. Full tables are in `bench/blind-2-results.md`; the summary is in `docs/REPORT-2026-11-22.md`.
+
+| blind-2 (150) | Right | Empty | Wrong | Dangerous |
+|---|---|---|---|---|
+| Backup reader | 429/564 (76%) | 95 | 40 | **7** (high 7) |
+| Jev (`jev-1.14.0`) through the safety layer | 479/564 (85%) | 77 | 8 | **3** (high 3) |
+
+All 3 of Jev's dangerous cases are "two reports in one message". blind-2 is spent too.
+
 "Before" means after the API fixes above, but before any tuning. "Jev" means Jev through the safety layer, exactly as the proxy returns it, with model `jev-1.14.0`.
 
 ## Screen work to show the flags (for the `app.js` session)
