@@ -20,7 +20,7 @@
 6. **Talk and report.**
    - A shared message feed.
    - A report box: type or speak "saw him by the lake 10 min ago"; it becomes a sighting once you confirm it. A voice bot reads the form back (English).
-7. **Update as you go.** Searched routes and sightings shift the map for everyone.
+7. **Update as you go.** Searched routes, sightings and every 5 minutes that pass shift the map for everyone.
 8. **Hand off to police.** One tap gives a sheet of what was searched, what was seen, and what's left.
 
 ## How it works (lightly)

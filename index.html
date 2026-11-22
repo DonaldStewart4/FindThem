@@ -169,15 +169,18 @@
         <button id="handoff" class="big" type="button" data-i18n="handoffButton"></button>
       </div>
 
-      <h2 data-i18n="lastSeenTitle"></h2>
+      <!-- What you know: numbered steps. Folds up after Find (tap the title to change something). -->
+      <details id="case-inputs" open>
+      <summary><span data-i18n="caseInputsTitle"></span> <span id="case-recap" class="recap"></span></summary>
+      <h2 class="step" data-i18n="lastSeenTitle"></h2>
       <button id="set-last-seen" class="big" type="button" aria-pressed="false"></button>
       <p id="last-seen-done" class="done-note" hidden data-i18n="lastSeenDone"></p>
 
-      <label for="minutes" data-i18n="minutesLabel"></label>
+      <label for="minutes" class="step" data-i18n="minutesLabel"></label>
       <input id="minutes" type="number" inputmode="numeric" min="1" max="1440" step="1">
 
       <!-- Direction: turned with the arrow on the map. The hidden dropdown just holds the value. -->
-      <p class="field-label" data-i18n="directionLabel"></p>
+      <p class="field-label step" data-i18n="directionLabel"></p>
       <div class="row direction-row">
         <span id="direction-pill" class="pill"></span>
         <button id="direction-unknown" class="small" type="button" data-i18n="dirDontKnow"></button>
@@ -186,20 +189,21 @@
       <select id="direction" hidden></select>
 
       <fieldset id="mobility">
-        <legend data-i18n="mobilityLabel"></legend>
+        <legend class="step" data-i18n="mobilityLabel"></legend>
         <label class="choice"><input type="radio" name="mobility" value="normal" checked> <span data-i18n="mob_normal"></span></label>
         <label class="choice"><input type="radio" name="mobility" value="slow"> <span data-i18n="mob_slow"></span></label>
         <label class="choice"><input type="radio" name="mobility" value="walker"> <span data-i18n="mob_walker"></span></label>
       </fieldset>
 
       <fieldset id="familiar">
-        <legend data-i18n="familiarLabel"></legend>
+        <legend class="step" data-i18n="familiarLabel"></legend>
         <p class="help" data-i18n="familiarHint"></p>
         <ul id="familiar-list"></ul>
         <button id="add-familiar" class="big" type="button" aria-pressed="false"></button>
       </fieldset>
 
       <button id="run" class="big primary" type="button" data-i18n="run"></button>
+      </details>
 
       <div class="row">
         <button id="demo" class="big" type="button" data-i18n="demo"></button>

@@ -55,9 +55,25 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - **Save my home area:** from an address search (Nominatim), a map tap, or GPS.
   - **Deploy:** GitHub Pages, **live at https://donaldstewart4.github.io/FindThem/ since 2026-11-21**. The repo is public.
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
+- **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Numbered "What you know" steps that fold up; map redraws every 5 minutes
+- **Date:** 2026-11-21
+- **Stage:** Finishing (UI feedback)
+- **What changed:**
+  - `index.html`: the inputs (last seen, minutes, direction, how they walk, familiar places, Find) are wrapped in `<details id="case-inputs">` with the title "What you know about them" and a one-line recap. Each step's heading has class `step`.
+  - `style.css`: a CSS counter numbers the `step` headings "1." to "5." (no new text needed in any language). The recap only shows while folded.
+  - `app.js`: after a successful Find (or Demo, or joining a link), the steps fold up and `renderCaseRecap()` shows "Seen 45 min ago · Northeast · Slowly. Tap to change." They open again when the person needs them (setting the last-seen point or a familiar place, or minutes missing). **Time-aware map:** `state.minutesAt` is the moment the minutes value was true (set when Find is tapped). Every 30 s `onClockTick()` checks whether 5 minutes have passed; if so, `ageMinutes()` adds 5 per step to the minutes field, moves `minutesAt` forward, and `recompute()` redraws the map, with a status line "Map updated: it's now about 50 minutes since they were last seen." Constants `TIME_STEP_MIN` (5), `CLOCK_CHECK_MS` (30 s), `MAX_MINUTES` (1440). In a shared search the case in Firebase and the share link carry `minutesAt` (link field `t`), joiners count from it (older links: from `startedAt`), and re-runs keep the clock, so every phone redraws at the same 5-minute steps with the same numbers.
+  - `i18n.js`: `caseInputsTitle`, `caseRecap`, `mapAged` in 5 languages. `sw.js` `v19` → `v20`.
+  - Docs: `README.md` (steps fold; the map keeps up with time; the limit is now "up to 5 minutes behind"), `ShortPlan.md` step 7, `ROADMAP.md` (time-aware map removed: it's built), `INTERFACES.md` known limits (`minutesAt`), `PLAN.md`, Project context.
+- **Why:** BenStew: "make this collapsible, once you enter it. Also keep redoing the map every 5 minutes", and "number the steps inside the collapsible area".
+- **Decisions:** The time-aware map was a roadmap item; BenStew asked for it directly, so it's moved off the roadmap. Done in the screen, not as a new event type: the engine is unchanged, and phones stay in step because they share `minutesAt` (`INTERFACES.md` said a new event type would be needed; a shared start time turned out to be enough). Steps of 5 minutes rather than every minute, so the map doesn't redraw constantly. The numbers come from CSS, so the five languages' text didn't change.
+- **How it was verified:** `node --test`: 72/72. Browser pane: the five headings show "1." to "5."; open before the Demo, folded after with "Seen 45 min ago · Northeast · Slowly. Tap to change."; with the page clock moved 6 minutes ahead, within 30 s the minutes went 45 → 50, the recap and status updated, and the top-spot chances changed (Stevenson Common 18% → 17%, Fitzsimmons Common 5% → 8%).
+- **Known issues / not done:** Two phones redrawing in step wasn't tried with real phones. Phones whose clocks disagree may redraw a few seconds apart. Not pushed yet.
+- **Next:** Push; video script and Devpost write-up.
 
 ### Docs check: every .md file matches what's live
 - **Date:** 2026-11-21

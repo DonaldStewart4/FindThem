@@ -781,3 +781,9 @@ button.small {
   text-align: center;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
+
+/* ---- "What you know": numbered steps that fold up after Find ---- */
+#case-inputs { counter-reset: step; padding-bottom: 12px; }
+#case-inputs .step::before { counter-increment: step; content: counter(step) ". "; } /* 1. 2. 3. ... */
+#case-inputs[open] .recap { display: none; }  /* the short summary only shows while folded */
+.recap { display: block; margin-top: 4px; font-weight: 400; font-size: 16px; color: #444; }

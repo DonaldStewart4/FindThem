@@ -18,8 +18,8 @@ Built for EvoHacks II (theme: social good).
 
 0. **Call 911 first.** The red banner is always on screen and is a tap-to-call link with your country's emergency number. "First steps" also has a script of what to tell the dispatcher.
 1. **Check the house and yard.** A 2-minute checklist: closets, under beds, bathrooms, garage, parked cars, shed, neighbors' yards. In search-and-rescue data, many are found close to home or even inside it.
-2. **Enter what you know.** Tap the map where they were last seen, or search for the address or place with the magnifying glass (a blue bar on the map says when it is waiting for your tap), then add minutes since, the direction they were heading (turn the red arrow on the map), how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church).
-3. **See the map.**
+2. **Enter what you know.** Tap the map where they were last seen, or search for the address or place with the magnifying glass (a blue bar on the map says when it is waiting for your tap), then add minutes since, the direction they were heading (turn the red arrow on the map), how they walk (normal / slowly / walker or cane), and up to 3 familiar places (old home, old job, church). The five numbered steps fold into one summary line after **Find** ("Seen 45 min ago · Northeast · Slowly"); tap it to change something.
+3. **See the map.** It keeps up with time: every 5 minutes the minutes since last seen go up by 5 and the map is redrawn, since they may have walked further. In a shared search every phone counts from the same moment, so all maps match.
    - the likely areas: **red** is the smallest area with a 1-in-4 chance they're inside, **orange** brings it to 1 in 2, **yellow** to 4 in 5. Search red first. (A plain heatmap made the whole area one blue blur that told nobody where to go.)
    - the streets most simulated walkers took, in purple
    - dashed rings at 0.5, 1 and 1.5 miles
@@ -201,7 +201,7 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - In a shared search, each phone's position (rounded to about 1 m) and the name you typed go to our Firebase database, where anyone with the search link can see them. Positions are only shown as dots; they're overwritten as you move, not kept as a trail.
 - Report-box text leaves the phone and goes to TypeSafe (Jev), with nearby place names but no coordinates. (The backup word rules run on the phone and send nothing.) Spoken reports also go to Google or Apple to be turned into text, or, with the voice bot set up, the recording goes to Deepgram and the read-back sentence (which can include a place name) to ElevenLabs. The app asks people to leave out names and medical details.
 - Voice input needs signal. In Firefox it only works through the voice bot (Deepgram), since Firefox has no built-in speech recognition. Deepgram was tested with a recorded sentence, not yet with a real phone's microphone.
-- The map doesn't grow with time after the search starts (the minutes are fixed when the search is created).
+- The map grows with time in 5-minute steps, so it can be up to 5 minutes behind. Phones whose clocks disagree by more than a few seconds may redraw a few seconds apart.
 
 ## Data and credits
 

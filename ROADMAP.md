@@ -49,7 +49,6 @@ Encryption for medical and location data, clear consent controls for families, a
 - **Not built:** accounts, encryption, automatic expiry and deletion of old searches, and consent screens.
 
 ### Search tools from the game plan we didn't get to
-- **Time-aware map:** the reachable area grows minute by minute after the search starts (today the minutes are fixed when the search is created).
 - **"No one here" clues:** "the camera on Oak St saw nobody" lowers that street.
 - **Coverage from searchers' GPS trails** instead of typed minutes, with lower detection at night.
 - **Doorbell-camera list:** homes along the likeliest routes whose cameras a neighbor could check.

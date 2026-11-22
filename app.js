@@ -94,7 +94,15 @@ const state = {
   searcherId: '',          // random id for this phone's position in a shared search
   searchers: {},           // { id: { lat, lng, at, name } } everyone's position in the shared search
   lastPosSent: null,       // { lat, lng, at } the position we last shared
+  minutesAt: null,         // the time (ms) at which "minutes since last seen" had the typed value
 };
+
+// The map keeps up with time: every 5 minutes, "minutes since last seen" goes up by 5 and
+// the map is redrawn, since they may have walked further. In a shared search every phone
+// counts from the same moment (minutesAt in the shared case), so all maps stay the same.
+const TIME_STEP_MIN = 5;
+const CLOCK_CHECK_MS = 30 * 1000; // how often we check whether 5 minutes have passed
+const MAX_MINUTES = 1440;         // same limit as the minutes field
 
 // Sharing my position with the others in a shared search (never used by the engine).
 const POSITION_SEND_MS = 30 * 1000;  // share at most every 30 s while standing still...
@@ -132,6 +140,8 @@ const els = {
   callText: $('call-text'),
   callButton: $('call-button'),
   firstSteps: $('first-steps'),
+  caseInputs: $('case-inputs'),   // the numbered "What you know" steps (folds up after Find)
+  caseRecap: $('case-recap'),
   status: $('status'),
   panel: $('panel'),
   panelToggle: $('panel-toggle'),
@@ -423,6 +433,7 @@ function placeAt(point, label = '') {
 //     search 🔍" and pulses (tapping it again cancels)
 function setMode(mode) {
   state.mode = mode;
+  if (mode === 'lastSeen' || mode === 'familiar') els.caseInputs.open = true; // their buttons are inside
   renderModeUI();
 }
 
@@ -600,10 +611,19 @@ function setBusy(busy) {
 // requestAnimationFrame: that one never fires while the tab or app is in the background.
 const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 30));
 
-async function runPrediction({ useDemoData = false } = {}) {
+// keepClock: keep counting time from state.minutesAt (when joining a shared search, or
+// re-running one). Otherwise the minutes typed in are "as of now".
+async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
   if (!state.lastSeen) { showStatus(t('needLastSeen'), { error: true }); setMode('lastSeen'); return; }
+  if (!(Number(els.minutes.value) > 0)) {
+    els.caseInputs.open = true;
+    showStatus(t('needMinutes'), { error: true });
+    els.minutes.focus();
+    return;
+  }
+  if (keepClock || state.searchId) ageMinutes(); // catch up on time that already passed
+  else state.minutesAt = Date.now();
   const caseInput = readCase();
-  if (!(caseInput.minutes > 0)) { showStatus(t('needMinutes'), { error: true }); els.minutes.focus(); return; }
 
   setBusy(true);
   let savedNotice = null;
@@ -641,6 +661,8 @@ async function runPrediction({ useDemoData = false } = {}) {
     state.selectedArea = null;
     recompute();
     els.firstSteps.open = false; // first steps are done once a search is running
+    els.caseInputs.open = false; // fold "What you know" so the results are right there
+    renderCaseRecap();
     showProgress(100);
     await new Promise((resolve) => setTimeout(resolve, 300)); // let the full bar show for a moment
     hideProgress();
@@ -649,6 +671,37 @@ async function runPrediction({ useDemoData = false } = {}) {
     hideProgress();
     setBusy(false);
   }
+}
+
+// Adds the 5-minute steps that have passed since state.minutesAt to the minutes field.
+// Returns true if the minutes changed.
+function ageMinutes() {
+  if (!state.minutesAt) return false;
+  const stepMs = TIME_STEP_MIN * 60 * 1000;
+  const steps = Math.floor((Date.now() - state.minutesAt) / stepMs);
+  if (steps < 1) return false;
+  els.minutes.value = Math.min(MAX_MINUTES, Number(els.minutes.value) + steps * TIME_STEP_MIN);
+  state.minutesAt += steps * stepMs;
+  return true;
+}
+
+// Every 30 s: if another 5 minutes have passed, redraw the map for the new time.
+function onClockTick() {
+  if (!state.prediction || !areaCache.area || els.run.disabled) return; // no map yet, or busy
+  if (!ageMinutes()) return;
+  recompute();
+  renderCaseRecap();
+  showStatus(t('mapAged', { minutes: els.minutes.value }));
+}
+
+// The one-line summary shown while "What you know" is folded up.
+function renderCaseRecap() {
+  const dir = els.direction.value;
+  els.caseRecap.textContent = t('caseRecap', {
+    minutes: els.minutes.value,
+    direction: dir ? t('dir_' + dir) : t('dirUnknown'),
+    walk: t('mob_' + readMobility()),
+  });
 }
 
 // Runs the engine on the current case + all events, then redraws every result.
@@ -1593,6 +1646,7 @@ function encodeCase(c) {
   const packed = {
     la: +c.lastSeen.lat.toFixed(6), ln: +c.lastSeen.lng.toFixed(6), m: c.minutes, d: c.direction,
     mo: c.mobility, s: c.seed, f: c.familiarPlaces.map((p) => [+p.lat.toFixed(6), +p.lng.toFixed(6), p.label]),
+    t: c.minutesAt || undefined, // when the minutes were counted from (keeps every phone's map in step)
   };
   const bytes = new TextEncoder().encode(JSON.stringify(packed));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1604,6 +1658,7 @@ function decodeCase(text) {
   return {
     lastSeen: { lat: p.la, lng: p.ln }, minutes: p.m, direction: p.d || null, mobility: p.mo || 'normal',
     seed: p.s >>> 0, familiarPlaces: (p.f || []).map(([lat, lng, label]) => ({ lat, lng, label: label || '' })),
+    minutesAt: Number(p.t) || null,
   };
 }
 
@@ -1612,7 +1667,7 @@ function decodeCase(text) {
 function shareLink() {
   const params = new URLSearchParams();
   if (state.searchId) params.set('s', state.searchId);
-  params.set('c', encodeCase(readCase()));
+  params.set('c', encodeCase({ ...readCase(), minutesAt: state.minutesAt }));
   params.set('a', state.areaSource);
   return `${location.origin}${location.pathname}${location.search}#${params}`;
 }
@@ -1638,7 +1693,7 @@ async function shareSearch() {
   let offlineNote = false; // true when there was no signal, so the link isn't live yet
   if (!state.searchId && sync.isConfigured()) {
     const id = sync.newSearchId();
-    const caseDoc = { ...readCase(), area: state.areaSource, startedBy: state.myName, startedAt: state.caseStartedAt };
+    const caseDoc = { ...readCase(), minutesAt: state.minutesAt, area: state.areaSource, startedBy: state.myName, startedAt: state.caseStartedAt };
     const result = await sync.createSearch(id, caseDoc);
     if (result.ok) {
       const local = state.events;
@@ -1750,11 +1805,13 @@ async function joinFromLink() {
   if (!caseInput) return false;
 
   applyCase(caseInput);
+  // Count time from the same moment as the phone that shared it (older links: when it started).
+  state.minutesAt = caseInput.minutesAt || caseInput.startedAt || Date.now();
   state.events = [];
   state.areaSource = params.get('a') === 'demo' ? 'demo' : 'live'; // before startLive saves the link
   if (searchId && sync.isConfigured()) startLive(searchId);
   els.firstSteps.open = false;
-  await runPrediction({ useDemoData: params.get('a') === 'demo' });
+  await runPrediction({ useDemoData: params.get('a') === 'demo', keepClock: true });
   if (state.searchId) showStatus(t('joinedSearch'));
   return true;
 }
@@ -1902,6 +1959,7 @@ function applyLanguage(code) {
   buildDirectionOptions(els.sightingDirection);
   renderFamiliarList();
   renderModeUI();
+  renderCaseRecap();
   els.callText.textContent = t('callFirst', { number: state.emergencyNumber });
   els.callButton.textContent = t('call911Title', { number: state.emergencyNumber });
   els.panelToggle.textContent = els.panel.classList.contains('collapsed') ? t('showPanel') : t('hidePanel');
@@ -2025,6 +2083,7 @@ function start() {
   remember('searcherId', state.searcherId);
   startLocation({ auto: true });
   setInterval(renderSearchers, 60 * 1000); // ages the "x min ago" labels and hides old dots
+  setInterval(onClockTick, CLOCK_CHECK_MS); // redraws the map every 5 minutes as time passes
 
   setMode('lastSeen');
   joinFromLink().then((joined) => { if (joined) setMode(null); });

@@ -245,5 +245,5 @@ Every phone downloads `case` + `events` and calls `replay`. Only events are ever
 
 ## Known limits of this contract
 
-- `minutes` is fixed when the search is created, so the map doesn't grow as time passes. A "time-aware map" would need an extra event type.
+- Time: the shared `case` also carries `minutesAt` (ms), the moment its `minutes` value was true. Every 5 minutes after that, the screen adds 5 to `minutes` and calls `replay` again (no new event type). All phones count from the same `minutesAt`, so their maps match; the engine itself doesn't change.
 - There are no accounts: anyone with a search link can read and add events.
