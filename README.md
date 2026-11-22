@@ -23,7 +23,7 @@ Built for EvoHacks II (theme: social good).
    - the likely areas: **red** is the smallest area with a 1-in-4 chance they're inside, **orange** brings it to 1 in 2, **yellow** to 4 in 5. Search red first. (A plain heatmap made the whole area one blue blur that told nobody where to go.)
    - the streets most simulated walkers took, in purple
    - dashed rings at 0.5, 1 and 1.5 miles
-   - **Check these first:** the top 3 places (8 when expanded), each with a reason such as "Creek 130 ft off Main St – 12% of walkers". Water and wetland spots are marked "leave this to professionals".
+   - **Check these first:** the top 3 places (8 when expanded), each with a reason and its chance right now, such as "Creek 130 ft off Main St – 12% chance they are here". Water and wetland spots are marked "leave this to professionals".
 4. **Next areas to search.** Areas A, B and C are the best places for the next searcher, each with its chance and a walking route. Open one, search it, and tap **Searched, nobody found** with the minutes spent.
 5. **Share the search.** Enter your name and tap **Share this search**. Everyone who opens the link sees the same live map: searched areas, sightings and messages appear for everyone within about a second. The app asks for the phone's location when it opens, so each searcher also shows up as a green dot with their name (updated every 30 s or after 25 m; hidden after 15 minutes without an update). Saying no is fine: the app works without it.
 6. **Report a sighting**, either:

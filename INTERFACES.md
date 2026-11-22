@@ -182,7 +182,7 @@ Spot = {
 }
 ```
 
-The screen turns a `Spot` into translated text ("Creek 130 ft off Main St – 12% of walkers"). The engine never builds user-facing strings.
+The screen turns a `Spot` into translated text ("Creek 130 ft off Main St – 12% chance they are here", from `probability`, so it follows searches and sightings; `walkerShare` is no longer shown). The engine never builds user-facing strings.
 
 ## 3. Tunable constants
 

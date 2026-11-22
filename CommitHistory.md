@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 3: spots show their chance now, not "% of walkers"
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `app.js`: each "Check these first" spot shows its current chance with the areas' wording ("45% chance they are here", from `spot.probability`) instead of "x% of walkers" (`walkerShare`). `i18n.js`: the now-unused `spotShare` removed from all 5 languages. `README.md` and `INTERFACES.md` examples updated. `sw.js` `v22` → `v23`.
+- **Why:** Found in a two-tab shared-search test: after a sighting the #1 spot read "Near Davis Street – 0% of walkers" (the first walkers never went there; the sighting did), which a family would read as "0% chance". The walker share also never changes after a search. The chance follows both, and it's the number the hand-off sheet already shows.
+- **Decisions:** Reused the existing `areaChance` text, so no new translations. Kept `walkerShare` in the engine's `Spot` (tests use it), just not shown.
+- **How it was verified:** Two tabs on `tools/mock-firebase.py`: tab A ran the Demo, shared, marked Area A searched (→ 21%) and sent "Checking the lake path now"; tab B opened the link and showed the same areas and the message; tab B typed "Saw him 5 minutes ago near Stevenson Boulevard heading north, pretty sure" → backup reader filled 5 min, N → added; tab A's map updated to the same numbers within a second. After the change, spots read "Near Davis Street – 45% chance they are here", "… 8%", "… 6%". A full reload of the shared link rebuilt the same map from the database. `node --test` 73/73.
+- **Known issues / not done:** Not pushed. (Not a bug: opening the same link again in a tab only changes the `#` part, so the page doesn't reload or update; a real reload does.)
+- **Next:** Offline and laptop checks.
+
 ### Testing pass 2: "Check these first" always runs from most to least likely
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)

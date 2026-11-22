@@ -968,7 +968,9 @@ function renderSpots() {
     title.textContent = spotTitle(spot);
     const share = document.createElement('span');
     share.className = 'spot-share';
-    share.textContent = t('spotShare', { pct: i18n.formatPercent(spot.walkerShare) });
+    // The chance right now (it follows searches and sightings), not the share of the first
+    // walkers: after a sighting, the best spot can have 0% of the original walkers.
+    share.textContent = t('areaChance', { pct: i18n.formatPercent(spot.probability) });
     text.append(title, share);
     if (spot.hazard) {
       const hazard = document.createElement('span');
