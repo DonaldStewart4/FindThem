@@ -106,6 +106,15 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - Pair fix: in 80 random partial-accept re-plans, broken pairs went from 25 to 0 and lone holders from 5 to 0. Report fix: the report-box test files pass 92 of 92 and every benchmark score is unchanged.
 - **Known issues / not done:** not run on a real phone; the live Firebase rules still need publishing (see `UPDATESBYNATE.md`); a stale partner can still be awaited by the planner (the screen filters searchers not seen for 15 minutes); the rest of `docs/AUDIT.md` is open.
 - **Next:** push 2: the remaining important findings, then the safe minor ones.
+### "Streets they most likely took" is one connected network from the last-seen point
+- **Date:** 2026-11-22
+- **Stage:** Finishing (UI feedback, after Nathan's release merge)
+- **What changed:** `app.js` `drawUsedStreets()`: still picks the busiest street pieces (the two darkest of the five color steps), then finds the most-walked way from the street corner nearest the last-seen point to every corner (Dijkstra over the whole street network; a piece costs its length ÷ (walkers on it + 0.5), so busy streets are strongly preferred but a gap can be crossed) and adds each busy piece's way back to the start. Connecting pieces are drawn at least medium purple; round line ends. New constants `STREET_MIN_STEP`, `STREET_CONNECTOR_STEP`, `STREET_GAP_COST`. `sw.js` `v34` → `v35`.
+- **Why:** BenStew (screenshot of a live search near Irvington): the purple lines were floating fragments that started and stopped mid-street. Each piece was drawn only if enough walkers were counted on it. Since the prior-v2 engine, walkers move over ground squares and a street's count is the walkers on the square at its middle, so busy pieces can be genuinely unconnected, and where walkers split the count falls under the cutoff.
+- **Decisions:** Display only: the engine and its numbers are unchanged. The search may cross streets with no counted walkers (cost length ÷ 0.5) so every busy piece links back; rejected: lowering the cutoff (more streets, still gaps). First written before Nathan's 30-commit release reached `main`; rebased onto it, with the Dijkstra widened from used streets only to all streets because of the new ground walkers.
+- **How it was verified:** On top of Nathan's release: `node --test` 231 tests, 230 pass, 0 fail (1 skipped). Browser pane, Demo at 1280×800 zoomed in: the purple lines run continuously from the corner nearest the last-seen point out along the streets, with no floating pieces; the planner's blue routes are unaffected.
+- **Known issues / not done:** Not checked on BenStew's exact Irvington search (needs a live download).
+- **Next:** Push.
 
 ### Release: all four branches merged; planner routes, Found, corrections and report flags on the screen; woods hazard
 - **Date:** 2026-11-22
