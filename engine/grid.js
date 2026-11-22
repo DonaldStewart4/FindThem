@@ -325,6 +325,9 @@ export function topSpots(area, prediction, count) {
     }
     chosen.push({ x, y, probability });
   }
+  // Picked by their single best square, but listed by the total chance around them, so
+  // "Check these first" always goes from most to least likely. (Stable sort: ties keep order.)
+  chosen.sort((a, b) => b.probability - a.probability);
 
   const nWalkers = prediction.sim.nWalkers || prediction.sim.endpoints.length || 1;
   return chosen.map((s) => {

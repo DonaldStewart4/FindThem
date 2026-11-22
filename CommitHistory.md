@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 2: "Check these first" always runs from most to least likely
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `engine/grid.js` `topSpots()`: spots are still picked by their single best square (same places, same spacing), but now sorted by the total chance around each before returning. `tests/engine.test.js`: new test that spots come out in descending order at 45, 55 and 90 minutes. `sw.js` `v21` → `v22`.
+- **Why:** Found while testing: after the map aged to 55 minutes, the Demo listed "1. … 15%" above "2. … 17%", and the hand-off sheet had "7. … 0%" above "8. … 1%". The list was ordered by each spot's peak square, but shows the total around it.
+- **Decisions:** Sort, rather than change how spots are chosen, so the places themselves don't move. `bench/benchmark.js` doesn't use `topSpots`, so the benchmark numbers are unaffected and weren't re-run.
+- **How it was verified:** Before: Demo at 55 min gave totals 15.8, 16.2, 6.1, 7.2… After: descending. `node --test` 73/73. Also checked all 5 languages at phone width (no untranslated, empty or overflowing text in the panel, banner or legend; spots, areas, recap and status switch language).
+- **Known issues / not done:** Not pushed.
+- **Next:** Shared search with two tabs; offline.
+
 ### Testing pass 1: hand-off time after the map ages, step numbers, search names
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)

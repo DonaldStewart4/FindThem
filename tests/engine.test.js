@@ -209,3 +209,14 @@ test('routeFor and replay cope with an unknown area id', () => {
   near1(sum(pred.grid.p));
   assert.equal(engine.routeFor(area, pred, 'nonsense').points.length, 0);
 });
+
+test('topSpots are listed from most to least likely (by the total chance around each)', () => {
+  // A later minute count once produced 15.8% listed above 16.2%.
+  for (const minutes of [45, 55, 90]) {
+    const pred = engine.replay(area, { ...CASE, minutes }, []);
+    const spots = engine.topSpots(area, pred, 8);
+    for (let i = 1; i < spots.length; i++) {
+      assert.ok(spots[i - 1].probability >= spots[i].probability, `minutes ${minutes}: spot ${i} > spot ${i - 1}`);
+    }
+  }
+});
