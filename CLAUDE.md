@@ -7,7 +7,8 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 2. `PLAN.md`: the merged build plan (original build prompt + EvoHacks II game plan + the team's planning doc). Scope, team, file layout, schedule.
 3. `INTERFACES.md`: the contract between screen and engine.
 4. `CommitHistory.md`: every decision so far and a detailed log of each commit.
-5. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
+5. `NATHAN.md`: Nathan's to-do list (TypeSafe key, Jev tuning, phone tests, UI review, tests).
+6. `README.md`: what the app is, who built what, how AI was used, setup and deploy. `ROADMAP.md`: future plans. **Don't build roadmap items**, and don't add placeholder code or fake buttons for them.
 
 ## Team: who writes what
 The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's TypeSafe AI's Jev model, used only in the report box (see below).

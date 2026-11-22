@@ -59,6 +59,17 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Add NATHAN.md: Nathan's to-do list
+- **Date:** 2026-11-21
+- **Stage:** Finishing (deploy and testing)
+- **What changed:** New `NATHAN.md` lists what BenStew would like Nathan to do before the freeze, in order: (1) get the TypeSafe AI API key and put it into the Cloudflare Worker as the `TYPESAFE_API_KEY` secret, with a curl check; (2) tune the Jev questions in `proxy/jev.js` and `MIN_CONFIDENCE` with real reports in all 5 languages; (3) two-phone tests (sharing, real-mic voice, English-only read-back, airplane mode, the direction arrow, Demo speed); (4) a UI review; (5) keep `node --test` green, add tests for bugs found, re-run the benchmark only if the engine changes. `PLAN.md` "Left" now says Nathan gets the TypeSafe key and points to `NATHAN.md`; its test count is corrected from 48 to 64. `CLAUDE.md` "Read first" lists `NATHAN.md`.
+- **Why:** BenStew doesn't have a TypeSafe key, so getting one moves to Nathan; BenStew asked for one file with everything Nathan should do.
+- **Decisions:** The key itself is never written anywhere in the repo. The preferred hand-off is BenStew adding Nathan as a member of the Cloudflare account so Nathan runs `wrangler secret put` himself; the fallback is handing it over in person or via a password manager share. Not chat, screenshots or `config.js`.
+- **How it was verified:** Checked the curl body against `proxy/worker.js` (`text`, `lang`, `context`). Docs only; no app files changed, so no cache bump.
+- **Known issues / not done:** No TypeSafe key yet, so the real Jev path is still untested.
+- **Next:** Nathan gets the key; BenStew finishes the other Worker secrets, deploys, and sends the Worker URL for `PROXY_URL` in `config.js`.
+
+
 ### ElevenLabs read-back is English only
 
 - **Date:** 2026-11-21
