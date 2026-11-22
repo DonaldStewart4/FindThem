@@ -284,9 +284,11 @@ button:disabled { opacity: 0.5; }
 
 /* Wider screens: put the panel on the left so the map stays big. */
 @media (min-width: 900px) {
-  body { display: grid; grid-template-columns: 420px 1fr; grid-template-rows: auto 1fr; }
+  /* minmax(0, 1fr): the second row is exactly the space left under the banner. A plain 1fr
+     grows to fit the panel's content, which made the whole page scroll on laptops. */
+  body { display: grid; grid-template-columns: 420px 1fr; grid-template-rows: auto minmax(0, 1fr); }
   #banner { grid-column: 1 / -1; }
-  #panel { grid-row: 2; grid-column: 1; max-height: none; border-top: 0; border-right: 2px solid var(--line); }
+  #panel { grid-row: 2; grid-column: 1; max-height: none; min-height: 0; border-top: 0; border-right: 2px solid var(--line); }
   #map-wrap { grid-row: 2; grid-column: 2; }
 }
 
@@ -611,6 +613,7 @@ button.big[aria-pressed="true"] { animation: pulse 1.4s ease-in-out infinite; }
 #legend.folded .legend-title::after { content: ' ▸'; }
 /* While the map waits for a tap, the panel gets shorter so there's more map to tap on. */
 body.picking #panel { max-height: 38dvh; }
+@media (min-width: 900px) { body.picking #panel { max-height: none; } } /* side panel: no need to shrink */
 #legend p { margin: 1px 0; display: flex; align-items: center; gap: 6px; }
 #legend .legend-title { font-weight: 700; }
 .swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }

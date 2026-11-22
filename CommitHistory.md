@@ -59,6 +59,16 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Laptop layout: the page no longer scrolls, only the side panel does
+- **Date:** 2026-11-21
+- **Stage:** Finishing (quality check)
+- **What changed:** `style.css`, wide-screen layout (900 px and up): the body grid's second row is `minmax(0, 1fr)` instead of `1fr`, and `#panel` gets `min-height: 0`. The phone-only "shorter panel while tapping the map" rule (`body.picking #panel { max-height: 38dvh }`) is now cancelled on wide screens. `sw.js` cache `v16` → `v17`.
+- **Why:** BenStew reported that on a laptop the whole page scrolled. A plain `1fr` grid row grows to fit its content, so the side panel's full list (1,900 px) stretched the page to about 1,950 px in an 850 px window: the map and banner scrolled away with it. Separately, the phone rule shrank the laptop side panel to 38% of the height while tapping the map.
+- **Decisions:** Fixed in CSS only; the phone layout (flex column) is untouched.
+- **How it was verified:** Browser pane at 1440×850: page height 850 (was 1,952), panel 798 px with its own scroll, the same while tapping the map. At 375×812 (phone): page 812, panel 447 → 309 px while tapping, as before.
+- **Known issues / not done:** Not checked in Safari or Firefox on a laptop.
+- **Next:** Push, then check the live site on BenStew's laptop.
+
 ### Proxy deployed: PROXY_URL points at the live Worker
 - **Date:** 2026-11-21
 - **Stage:** Finishing (deploy and testing)
