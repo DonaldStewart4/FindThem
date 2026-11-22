@@ -101,6 +101,8 @@
 
       <!-- Results: hidden until the first run. -->
       <div id="results" hidden>
+        <!-- The person was found: shown on every phone of the search; the tasks are then hidden. -->
+        <div id="found-banner" class="found-banner" role="alert" hidden></div>
         <h2 data-i18n="checkFirst"></h2>
         <ol id="spots"></ol>
         <button id="more-spots" class="link-button" type="button" hidden></button>
@@ -114,7 +116,16 @@
           <p class="help" data-i18n="locationSharedNote"></p>
           <button id="share" class="big primary" type="button" data-i18n="shareSearch"></button>
           <p id="live-status" class="note" role="status"></p>
+          <!-- Shown when this search was started on another version of the map engine. -->
+          <p id="version-warning" class="note warn" role="alert" hidden data-i18n="versionMismatch"></p>
           <input id="share-link" type="text" readonly hidden data-i18n-aria="copyThisLink">
+        </div>
+
+        <!-- Search leader: one short, fixed sentence (replies.js templates; no AI writes it). -->
+        <div id="leader" class="leader" hidden>
+          <strong data-i18n="leaderLabel"></strong>
+          <p id="leader-line" class="leader-line" aria-live="polite"></p>
+          <div id="leader-warnings" class="leader-warnings" role="alert" hidden></div>
         </div>
 
         <!-- Report box: type or speak a report; it fills in the sighting form or a message,
@@ -129,12 +140,15 @@
             <button id="report-read" class="big primary" type="button" data-i18n="reportRead"></button>
           </div>
           <p id="report-status" class="help" role="status"></p>
+          <!-- Safety warnings read from the report (water, vehicle, emergency...). Never auto-hidden. -->
+          <div id="report-flags" class="flags" role="alert" hidden></div>
           <p class="note" data-i18n="reportPrivacy"></p>
         </div>
 
         <!-- Sighting: tap the map, fill in the form, and the map updates. -->
         <button id="report-sighting" class="big" type="button" aria-pressed="false" data-i18n="sightingStart"></button>
         <div id="sighting-form" class="sub-form" hidden>
+          <div id="sighting-flags" class="flags" role="alert" hidden></div>
           <p id="sighting-check" class="note warn" hidden data-i18n="reportCheck"></p>
           <p id="sighting-where" class="help" data-i18n="tapSighting"></p>
           <label for="sighting-minutes" data-i18n="sightingMinutes"></label>
@@ -153,14 +167,21 @@
           <button id="sighting-cancel" class="big" type="button" data-i18n="cancel"></button>
         </div>
 
-        <!-- Next areas: sectors chosen by the engine, each with a walking route. -->
-        <h2 data-i18n="nextAreasTitle"></h2>
-        <p class="help" data-i18n="nextAreasHint"></p>
+        <!-- Your next task: up to three ranked routes from the search planner (engine/planner),
+             each with its warnings. Taking one tells the others, so nobody doubles up. -->
+        <h2 data-i18n="tasksTitle"></h2>
+        <p class="help" data-i18n="tasksHint"></p>
+        <p id="task-note" class="help" hidden></p>
         <ol id="areas"></ol>
+        <ul id="unfilled" class="unfilled" hidden></ul>
+        <p id="plan-measures" class="help" hidden></p>
+        <!-- Always there during a search: ends it for everyone and drops a pin. -->
+        <button id="found-button" class="big found" type="button" data-i18n="foundButton"></button>
 
         <!-- Messages between everyone on the search (an event of type 'message'). -->
         <h2 data-i18n="messagesTitle"></h2>
         <ol id="messages"></ol>
+        <div id="message-flags" class="flags" role="alert" hidden></div>
         <div class="row message-row">
           <input id="message-text" type="text" maxlength="300" data-i18n-placeholder="messagePlaceholder" data-i18n-aria="messagesTitle">
           <button id="message-send" class="big" type="button" data-i18n="send"></button>

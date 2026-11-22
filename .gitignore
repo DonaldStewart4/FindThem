@@ -14,3 +14,24 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Real-case research data WITH source URLs. The URLs often contain the missing person's name
+# and this repo is public: NEVER commit these. The public copy is docs/research/cases-public.csv
+# (made by tools/make-public-cases.js: each URL replaced by publisher + month + a source id).
+docs/research/cases.csv
+docs/research/cases2.csv
+docs/research/cases*.geojson
+docs/research/cases/cases.csv
+docs/research/cases/cases2.csv
+docs/research/cases/*.geojson
+docs/research/**/sources-private.csv
+sources-private.csv
+# Map downloads cached by bench/real-cases.js (one per real case location).
+bench/.cache/
+# Wrangler's local dev state (created by `npx wrangler dev` in proxy/)
+.wrangler/
+# The Fremont research notes WITH the links to articles about real missing people (the copy
+# in git, FREMONT.md, has those links removed). Team contact drafts stay private too.
+docs/research/FREMONT-private.md
+docs/research/OUTREACH.md
+docs/research/contacts.csv

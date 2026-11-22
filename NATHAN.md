@@ -39,6 +39,8 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
 - [ ] Add your own real-sounding reports to `bench/jev-cases.json`, the way a panicking family member would type or say them. Jev's support for other languages isn't documented, so note what fails.
 - [ ] Adjust the question wording and `MIN_CONFIDENCE` (now 0.5) so wrong answers get left empty rather than guessed.
 - [ ] Keep `tests/jev.test.js` passing, and add a test for anything you change.
+- [ ] **Decide: pin the Jev model.** `jev-latest` moved to `jev-1.14.0` (Oct 14, 2026); the thresholds and question wording were tuned on 1.14.0 on Nov 22. Pinning `JEV_MODEL = 'jev-1.14.0'` in `proxy/jev.js` keeps them valid; staying on the alias means re-running `npm run eval -- --set blind-dev --reader proxy` whenever TypeSafe ships a release.
+- [x] Run the safety scorer through Jev and record its **dangerous** count (done Nov 22: 0 on jev-cases, safety-cases and blind-dev; see `docs/AGENT-CONTRACT.md`)
 
 ## 3. Test on two real phones (one iPhone, one Android if possible)
 - [ ] **Sharing:** start a search on phone A, open the share link on phone B, and check that searched areas, sightings and messages show up on both.

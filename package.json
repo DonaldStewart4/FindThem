@@ -5,6 +5,9 @@
   "scripts": {
     "test": "node --test",
     "bench": "node bench/benchmark.js",
-    "jev-eval": "node bench/jev-eval.js"
+    "jev-eval": "node bench/jev-eval.js",
+    "planner-eval": "node bench/planner-eval.js",
+    "safety-eval": "node bench/safety-eval.js",
+    "eval": "node bench/eval.js"
   }
 }
