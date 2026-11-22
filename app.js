@@ -516,8 +516,16 @@ function setMode(mode) {
 // The text each mode shows in the blue bar.
 const MODE_PROMPTS = { lastSeen: 'tapLastSeenOrSearch', familiar: 'tapFamiliarOrSearch', sighting: 'tapSighting', home: 'homeTapPrompt', found: 'tapFound' };
 
+// Full-screen panel on phones (see the panel button). Anything that needs a tap on the map
+// (last-seen point, familiar place, sighting, home) brings the map back.
+function setPanelFull(full) {
+  document.body.classList.toggle('panel-full', full);
+  setTimeout(() => map.invalidateSize(), 0);
+}
+
 function renderModeUI() {
   const mode = state.mode;
+  if (mode && document.body.classList.contains('panel-full')) setPanelFull(false);
   els.setLastSeen.setAttribute('aria-pressed', String(mode === 'lastSeen'));
   els.addFamiliar.setAttribute('aria-pressed', String(mode === 'familiar'));
   els.reportSighting.setAttribute('aria-pressed', String(mode === 'sighting'));
@@ -3109,6 +3117,9 @@ function start() {
   els.foundButton.addEventListener('click', onFoundButton);
   els.panelToggle.addEventListener('click', () => {
     const collapsed = els.panel.classList.toggle('collapsed');
+    // On a phone, "Show panel" opens it full screen (the map hides); "Hide panel" gives the
+    // whole screen back to the map. On a laptop the panel is a side column, so no change.
+    setPanelFull(!collapsed);
     els.panelToggle.setAttribute('aria-expanded', String(!collapsed));
     els.panelToggle.textContent = collapsed ? t('showPanel') : t('hidePanel');
     setTimeout(() => map.invalidateSize(), 0); // the map got bigger or smaller

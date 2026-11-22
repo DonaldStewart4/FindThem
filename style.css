@@ -897,3 +897,9 @@ button.found { border-color: #2e7d32; color: #1b5e20; }
 .step-nav button { flex: 1; }
 /* While the map waits for a tap, the blue bar is at the bottom: the toggles and 🎤 step aside. */
 #map-wrap.picking .map-toggles, #map-wrap.picking .map-mic { display: none; }
+
+/* Phones: "Show panel" makes the panel full screen; the map comes back with "Hide panel". */
+@media (max-width: 899px) {
+  body.panel-full #map-wrap { display: none; }
+  body.panel-full #panel { flex: 1 1 auto; max-height: none; min-height: 0; }
+}

@@ -81,6 +81,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Phones: "Show panel" opens the panel full screen
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI feedback)
+- **What changed:** `app.js`: the panel button now also toggles `body.panel-full` (`setPanelFull()`): on a phone, "Show panel" makes the panel fill the screen under the red bar and hides the map; "Hide panel" gives the whole screen to the map. Anything that needs a map tap (last-seen point, familiar place, sighting, home) turns full screen off by itself (`renderModeUI`). `style.css`: the full-screen rule, phones only (below 900 px; the laptop side panel is unchanged). `sw.js` `v40` → `v41`.
+- **Why:** BenStew: on the phone "Show panel" only brought the panel up to about 2/5 of the screen; it should be full screen.
+- **Decisions:** The first screen when the app opens is unchanged (map on top, panel below), so the map and the 911 bar are visible straight away.
+- **How it was verified:** Browser pane at 375×812, Demo: Hide panel → panel 46 px (just the button), map full; Show panel → panel 764 px (everything under the red bar), map hidden; "Report a sighting" → map back (panel 309 px while waiting for the tap) and drawn correctly. `node --test` 230 pass, 0 fail.
+- **Known issues / not done:** Not pushed.
+- **Next:** Push.
+
 ### Mic on the map, mic for messages, sighting form one question at a time
 - **Date:** 2026-11-22
 - **Stage:** Finishing (BenStew's UI list, items 4 and 8)
