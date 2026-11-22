@@ -35,7 +35,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { readLocally } from '../quickread.js';
 import { validateDraft, MAX_TEXT } from '../report.js';
-import { buildJevRequest, cleanPlaces, cleanIntersections, safeJevDraft, minutesBucket } from '../proxy/jev.js';
+import { buildJevRequest, cleanPlaces, cleanIntersections, safeJevDraft, minutesBucket, JEV_MODEL } from '../proxy/jev.js';
 
 const ORIGIN = 'https://donaldstewart4.github.io';
 const CACHE = new URL('./jev-answers.json', import.meta.url);
@@ -178,6 +178,7 @@ async function readWithProxy(proxy, c, data, cache, stats) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error === 'no_key' ? 'the proxy has no TYPESAFE_API_KEY' : `HTTP ${res.status} ${body.error || ''}`);
   if (body._jev) {
+    if (body._jev.model !== JEV_MODEL) throw new Error(`Jev answered as ${body._jev.model}, pinned ${JEV_MODEL}`);
     const { key } = jevRequestFor(c, data);
     cache[key] = { model: body._jev.model, answers: body._jev.answers };
     stats.models.add(body._jev.model);

@@ -61,6 +61,27 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Pin Jev to jev-1.14.0
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev), branch `agent-contract` (Nathan's decision)
+- **What changed:**
+  - `proxy/jev.js`: `JEV_MODEL = 'jev-1.14.0'` (was the alias `jev-latest`).
+  - `proxy/worker.js`: a Jev response whose `model` is anything else, or missing, returns `502 model_mismatch`, so the phone reads the report with the backup rules.
+  - `tests/jev-api.test.js`: a new test that the proxy refuses `jev-1.15.0`, `jev-1.13.0`, `jev-latest` and a response with no `model`.
+  - `tests/jev.test.js`:
+    - the model assertion is now `'jev-1.14.0'`;
+    - the fake Jev response carries `model`, as the real API always does.
+  - `bench/eval.js` stops if a live answer comes from another model.
+  - `bench/jev-answers.json` re-keyed to the pinned request: 234 answers, all from `jev-1.14.0`. The 348 answers to earlier wordings were dropped; they are still in git history.
+- **Why:** the wording, `MIN_CONFIDENCE` and the safety rules were tuned on 1.14.0. The alias moves without notice.
+- **Decisions:** missing `model` counts as a mismatch: TypeSafe's docs say every response has it.
+- **How it was verified:**
+  - `node --test`: 125 pass.
+  - Replay scores identical before and after re-keying: jev 100%, safety 97%, blind-dev 95%, blind-test 93% / 1 dangerous.
+- **Known issues / not done:** a new TypeSafe release needs a deliberate re-tune and re-pin.
+- **Next:** blind-test failure categories.
+
+
 ### Blind-test scored once: the honest number
 - **Date:** 2026-11-22
 - **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)

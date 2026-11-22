@@ -15,7 +15,7 @@
 // Shared checker, so the browser and the proxy clean drafts the same way.
 // (wrangler bundles these imports into the worker when deploying.)
 import { validateDraft, MAX_TEXT } from '../report.js';
-import { JEV_URL, buildJevRequest, safeJevDraft, cleanPlaces, cleanIntersections } from './jev.js';
+import { JEV_URL, JEV_MODEL, buildJevRequest, safeJevDraft, cleanPlaces, cleanIntersections } from './jev.js';
 import {
   voiceCapabilities, buildDeepgramRequest, deepgramText, buildElevenLabsRequest,
   MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
@@ -122,6 +122,9 @@ async function readReport(request, env) {
   } catch (err) {
     return reply(env, 502, { error: 'upstream' });
   }
+  // Only the pinned model's answers are used: the thresholds were tuned on it. Anything else (or a
+  // response that doesn't say) is an error, and the phone reads the report with its backup rules.
+  if (!jev || jev.model !== JEV_MODEL) return reply(env, 502, { error: 'model_mismatch' });
 
   // Jev's answers go through the safety layer (proxy/jev.js safeJevDraft) before anything is sent back.
   const draft = validateDraft(safeJevDraft(jev && jev.answers, text, places, { intersections, lang }));

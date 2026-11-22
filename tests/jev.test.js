@@ -25,7 +25,7 @@ test('cleanPlaces drops bad entries, duplicates and the reserved name "none", an
 
 test('buildJevRequest asks five questions, with the places plus "none" as place options', () => {
   const req = buildJevRequest('saw him by the lake', 'en', PLACES);
-  assert.equal(req.model, 'jev-latest');
+  assert.equal(req.model, 'jev-1.14.0'); // pinned on Nov 22 (was 'jev-latest')
   assert.deepEqual(Object.keys(req.questions).sort(), ['direction', 'kind', 'minutes', 'place', 'sure']);
   assert.equal(req.questions.sure.type, 'score');
   assert.equal(req.questions.sure.criteria.length, 3);
@@ -81,7 +81,7 @@ test('worker: calls Jev with the key, retries once when busy, returns a checked 
   globalThis.fetch = async (url, opts) => {
     calls.push({ url, auth: opts.headers.Authorization, body: JSON.parse(opts.body) });
     if (calls.length === 1) return { ok: false, status: 529 }; // busy the first time
-    return { ok: true, status: 200, json: async () => ({ answers: { kind: pick('sighting'), direction: pick('NE'), minutes: pick(MINUTE_OPTION[15]), place: pick('none'), sure: { score: 1, confidence: 0.9 } } }) };
+    return { ok: true, status: 200, json: async () => ({ model: 'jev-1.14.0', answers: { kind: pick('sighting'), direction: pick('NE'), minutes: pick(MINUTE_OPTION[15]), place: pick('none'), sure: { score: 1, confidence: 0.9 } } }) };
   };
   try {
     const request = new Request('https://proxy.example/', {

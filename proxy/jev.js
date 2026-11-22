@@ -30,7 +30,10 @@ import { readLocally, readSignals, PLACE_WORDS, hasWord, MAX_INTERSECTIONS } fro
 import { UNSURE_FIELDS, DRAFT_FLAGS } from '../report.js';
 
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone';
-export const JEV_MODEL = 'jev-latest';
+// Pinned (Nathan, Nov 22): the question wording, MIN_CONFIDENCE and the safety rules were tuned on
+// jev-1.14.0. The alias 'jev-latest' moves when TypeSafe ships a release, which could change answers
+// without any change here. proxy/worker.js refuses an answer from any other model version.
+export const JEV_MODEL = 'jev-1.14.0';
 export const MIN_CONFIDENCE = 0.5; // below this, an answer is treated as "not sure" → left empty
 export const MAX_PLACES = 60;      // nearby named places offered as choices
 export const MIN_MARGIN = 0.15;    // top option must beat the runner-up by this much, or it's a conflict

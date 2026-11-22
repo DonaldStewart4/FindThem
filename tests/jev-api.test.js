@@ -14,7 +14,7 @@ const CORNERS = [{ name: 'Paseo Padre Parkway & Stevenson Boulevard', streets: [
 
 test('request: the documented endpoint, model and top-level fields', () => {
   assert.equal(JEV_URL, 'https://api.typesafe.ai/v1/systemone');
-  assert.equal(JEV_MODEL, 'jev-latest');
+  assert.equal(JEV_MODEL, 'jev-1.14.0'); // pinned: the tuning was done on this version
   const req = buildJevRequest('saw him by the lake', 'en', PLACES, CORNERS);
   assert.deepEqual(Object.keys(req).sort(), ['model', 'questions', 'state']);
 });
@@ -68,4 +68,29 @@ test('score: the most likely level, never above the rounded mean, ties to the lo
   assert.equal(scoreLevel({ score: 1.2, probabilities: { 0: 0.4, 1: 0, 2: 0.6 } }, 3), 1, '40% maybe / 60% certain is not "certain"');
   assert.equal(scoreLevel({ score: 1.0, probabilities: { 0: 0.45, 1: 0.1, 2: 0.45 } }, 3), 0, 'a tie goes to the lower level');
   assert.equal(scoreLevel({ score: 2.2 }, 3), 2, 'no probabilities: the rounded mean, capped');
+});
+
+test('pinned model: the proxy refuses an answer from any other Jev version (and one that does not say)', async () => {
+  const { default: worker } = await import('../proxy/worker.js');
+  const realFetch = globalThis.fetch;
+  const answers = { kind: { type: 'choice', choice: 'sighting', confidence: 0.9, probabilities: { sighting: 0.9 } } };
+  const call = async (model) => {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => (model === undefined ? { answers } : { model, answers }) });
+    const request = new Request('https://proxy.example/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://site.example' },
+      body: JSON.stringify({ text: 'saw him by the lake', lang: 'en', context: { places: PLACES } }),
+    });
+    const res = await worker.fetch(request, { TYPESAFE_API_KEY: 'k', ALLOWED_ORIGIN: '*' });
+    return { status: res.status, body: await res.json() };
+  };
+  try {
+    assert.equal((await call('jev-1.14.0')).status, 200);
+    for (const model of ['jev-1.15.0', 'jev-1.13.0', 'jev-latest', undefined]) {
+      const r = await call(model);
+      assert.equal(r.status, 502, String(model));
+      assert.equal(r.body.error, 'model_mismatch', String(model));
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
