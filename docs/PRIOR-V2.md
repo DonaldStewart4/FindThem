@@ -93,3 +93,16 @@ Every tunable constant carries one of:
 - **DATA**: a published number, never tuned (sensitivity ±20%).
 - **EXPERT**: a described behavior whose number we chose.
 - **ASSUMPTION**: our choice, tuned by `tools/calibrate.js` (sensitivity ±50%).
+
+## As built (added after stage 4)
+
+The note above was written before any code. What changed along the way:
+
+- **Positions are kept at 25 m, not 10 m.** Each walker-minute is 4 bytes: a 16-bit square of the 25 m map and a 16-bit running total of exposure to the public. The 10 m ground map is still what the walkers walk on.
+- **Tired walkers step off the road.** ISRID says urban subjects are found "in structures or walking along roads", so in the model a road find can only happen by being noticed. That ties the spotting rate to the 36% road finds, and the same rate is the "still missing" evidence.
+- **The blend came out at 5% walkers, 95% statistics map**, by evaluation on the calibration start points. With no clues and ISRID-drawn truths, the walkers add little.
+- **Goal-seekers have their own share.** When a case lists familiar places, 25% of the map (`SHARE_GOAL`, an assumption) goes to walkers heading there, outside the blend, because the statistics map can't express it.
+- **Mobility hours are not fitted.** The fitted "minutes of mobility" is so long (median 19 h, at the low limit of its spread) that walkers almost never stop from tiredness: they stop by being noticed (37%), at a structure (26%), stuck in terrain (8%), in water (3%), or by leaving the map (17%). ISRID's mobility sample says half stop within 15 minutes. The report shows the mismatch.
+- **Downloads are squares in two phases**, centered on the grid origin, so the whole map has data and the first map doesn't wait for buildings.
+- **The engine runs in a Web Worker**, warmed up at page load; walkers are simulated in 15-minute blocks.
+- Evaluation, calibration table, sensitivity, limits: `bench/prior-report.md`.

@@ -1,12 +1,19 @@
 // A brand-new area: a live Overpass download in two phases. The map must appear from the
 // streets alone, then sharpen when the buildings arrive.
-import { Tab, sleep } from './cdp.mjs';
+import { Tab, sleep, closeAllTabs } from './cdp.mjs';
+await closeAllTabs(9333);
 const tab = await Tab.open(9333);
 await tab.send('Network.enable'); await tab.send('Network.setBypassServiceWorker', { bypass: true });
 const requests = [];
 const orig = tab.ws.onmessage;
 tab.ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.method === 'Network.requestWillBeSent' && /interpreter/.test(m.params.request.url)) requests.push({ at: Date.now(), url: m.params.request.url, kind: /building/.test(m.params.request.postData || '') ? 'layers' : 'streets' }); orig(e); };
 await tab.go('http://localhost:8000/?db=http://localhost:9000');
+// Forget any area saved by an earlier run, so this is a real download. (Pass --keep to test
+// the other path: a saved area that covers the map is reused at once, with nothing to refine.)
+if (!process.argv.includes('--keep')) {
+  await tab.eval(`new Promise((ok) => { const q = indexedDB.deleteDatabase('findthem'); q.onsuccess = q.onerror = q.onblocked = () => ok(true); })`);
+  await tab.go('http://localhost:8000/?db=http://localhost:9000');
+}
 await tab.waitFor('!!document.getElementById("demo")'); await sleep(1500);
 // Tap the middle of the map: that sets the last-seen point (the map opens on central Fremont).
 const box = await tab.eval('(() => { const r = document.getElementById("map").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()');

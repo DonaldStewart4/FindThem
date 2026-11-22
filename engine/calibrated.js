@@ -1,5 +1,27 @@
 // engine/calibrated.js — WRITTEN BY tools/calibrate.js. Do not edit by hand.
 // The same content is in engine/calibrated.json; this copy exists because browsers on older
-// phones cannot import a .json file as a module.
-// Not calibrated yet: the engine uses the defaults in params.js.
-export default { params: {} };
+// phones cannot import a .json file as a module. These values override the defaults in params.js.
+export default {
+  "note": "Fitted by tools/calibrate.js on 2026-11-22 to the ISRID urban dementia statistics, on 24 Fremont start points. Score 44.25 -> 4.06 (lower is closer).",
+  "params": {
+    "MOBILE_MEDIAN_MIN": 1146,
+    "MOBILE_SIGMA": 0.5,
+    "SHARE_WANDER": 0.1465,
+    "SHARE_STAYER": 0.1709,
+    "STAYER_MOBILE_MEDIAN_MIN": 14.77,
+    "TURN_SCALE_DEG": 47.61,
+    "WANDER_TURN_SCALE_DEG": 63.05,
+    "COURSE_SCALE_DEG": 50.67,
+    "ROAD_STICK": 5.205,
+    "OPEN_BOOST": 1.24,
+    "P_STRUCT_STEP": 0.000445,
+    "P_STRUCT_STAYER": 1,
+    "P_WATER_ENTER": 0.3564,
+    "P_CREEK_STUCK": 0.03082,
+    "P_WOODS_STUCK": 0.001274,
+    "P_BRUSH_STUCK": 0.003291,
+    "SPOT_RATE_PER_MIN": 0.01024,
+    "SHARE_DIRECTION": 0.6826,
+    "BLEND_WALKERS": 0.05
+  }
+};

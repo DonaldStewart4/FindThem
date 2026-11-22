@@ -13,6 +13,8 @@ This is a guide to help focus the search, not a guarantee.
 Built for EvoHacks II (theme: social good).
 
 > **Status (Nov 21, 2026, night):** live at **https://donaldstewart4.github.io/FindThem/**. Everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. **Live sharing runs on our real Firebase database**, including each searcher's position on the map. **The proxy is deployed** on Cloudflare with the Deepgram and ElevenLabs keys; the TypeSafe key for Jev is still to come, so until then the report box fills in forms with the backup word rules on the phone. The benchmark is done (below). Not yet tried on real phones: voice with a real microphone, and two phones sharing.
+>
+> **Branch `prior-v2` (Nov 22):** the prediction engine was rewritten ("prior v2", by Nathan with Claude Code) and this README describes that branch: the sections "How the prediction works", "How good is the map?" and "Benchmark" below. It is not merged or deployed yet; the live site still runs the first engine.
 
 ## What it does
 
@@ -44,20 +46,40 @@ Built for EvoHacks II (theme: social good).
 
 ## How the prediction works
 
-1. **Simulated walkers.** 5,000 virtual walkers start where the person was last seen and move along the real OpenStreetMap streets, following patterns from search-and-rescue studies of lost people with dementia:
-   - **They walk in a straight line until they get stuck.** They strongly prefer going straight at intersections and stop at dead ends.
-   - **Most are found close by:** a median of about 0.8 km from the last-seen point, about 89% within 1 mile. Each walker gets a random "give up" distance that matches this.
-   - **They're usually found just off the road.** A walker that stops within 30 m of a creek, drainage, brush, woods or water usually ends up in it.
-   - **Familiar places pull, and speed matters** (normal, slow, or with a walker or cane).
-2. **A probability map.** Where the walkers stop becomes the starting map on a grid of 25 m squares.
-3. **Updates from the search (Bayesian search theory).** When an area is searched and nobody is found, its chance drops by how likely the searchers were to spot the person there (1 − e^(−coverage), Koopman's formula), and every other area rises. A sighting reruns walkers from where they were seen and blends that in, weighted by how sure the person is.
-4. **What to search next.** Each searcher's next area is the one where their minutes add the most chance of finding the person.
+The map answers one question: **where is this person probably, this many minutes after they were last seen?** It is built the way a search planner works, from published statistics on lost people with dementia (Koester's *Lost Person Behavior*, the ISRID database), on the real ground around the last-seen point.
 
-**Calibration check.** The research numbers are straight-line distances, but people walk along winding streets. On the Fremont map, over five different start points with no time limit, the walkers end up a median of about **0.74 km** away in a straight line, with about **89% within 1 mile**. The research says ~0.8 km and 89%. `tests/engine.test.js` re-checks this every time the tests run.
+1. **A ground map.** OpenStreetMap is turned into 10 m squares: roads, paths, buildings, fences, rail lines, water, creeks and drainage channels, yards, parking lots, parks. Buildings, fences and rail can't be walked through; a road over a creek is a bridge.
+2. **An ISRID statistics map.** In towns, a quarter of people with dementia are found within 0.3 km, half within 1.1 km, three quarters within 3.2 km. 35% are found at a structure, 36% on a road, 9% on a path, 6% in water, 4% in a drainage. Those two tables, limited by how far a person could have walked in the time so far, give every square a chance.
+3. **5,000 simulated walkers.** Each has its own walking speed (0.62 ± 0.23 m/s, a published figure), its own share of time spent moving, and a kind: keeps one course, wanders, stays near buildings, or heads for a familiar place. A third keep to roads; the rest are willing to leave them. Where each walker is, minute by minute, is kept.
+4. **Still missing.** A person walking a busy road for half an hour would probably have been noticed. Nobody has reported them, so walkers who spent long on busy roads count for less.
+5. **The blend.** The map is the statistics map and the walkers together. How much each counts was set by evaluation, not by hand: 95% statistics map, 5% walkers. When the case lists familiar places, a quarter of the map goes to walkers heading there.
+6. **Not on this map.** The map reaches 3.2 km. The chance that the person is beyond it is worked out and kept apart (near 0 in the first hour, about 23% after many hours), instead of being hidden.
+7. **Updates from the search (Bayesian search theory).** When an area is searched and nobody is found, its chance drops by how likely the searchers were to spot the person there (1 − e^(−coverage), Koopman's formula), and everything else rises. The engine knows when each search happened: a search doesn't count against someone who walked in afterwards. A sighting starts new walkers from that point, spreads as the minutes pass, and is blended in by how sure the reporter is.
+8. **Where it's dangerous.** A second layer scores water, creeks and drainage channels by how likely the person is to be within 150 m. Spots and areas beside them say so: look from the bank, don't go in.
+9. **What to search next.** Each searcher's next area is the one where their minutes add the most chance of finding the person.
 
-**Speed.** A full prediction takes about 0.1 s on a laptop. After a search or sighting, the update takes a fraction of a second.
+**Calibration.** The walkers' free numbers were fitted by `tools/calibrate.js` to the urban ISRID statistics on 24 Fremont start points, then checked on 24 others it never saw. On those: 26% / 50% / 81% found within 0.3 / 1.1 / 3.2 km (ISRID: 25 / 50 / 75), 38% at a structure (35), 38% on a road (36), 9% on a path (9), 5% in water (6), 8% in a drainage (4). It does **not** fit ISRID's mobility hours (the model's median is 2.7 h of mobility, ISRID's is 0.25 h): the two published samples disagree with each other at the published walking speed, and we fitted the larger one, distance. Every tunable number is labeled DATA, EXPERT or ASSUMPTION with its source in `engine/params.js` and `engine/prior.js`.
 
-The same case and seed always give the same map, so every phone computes the identical map by itself from the shared list of events. All the tuning numbers are named constants at the top of the engine files.
+**Speed.** The engine runs in a background worker, so the page never freezes. A first map takes about 0.3 s on a laptop, and 0.9 to 1.5 s in Chrome with the processor slowed four times to stand in for a phone. The 5-minute clock tick takes a few milliseconds, or about a tenth of a second when it starts a new 15-minute block of walking.
+
+**Two-phase download.** For a new area the first map appears from the streets alone; buildings and land use arrive in a second download and the map sharpens when they do.
+
+The same case and seed always give the same map, so every phone computes the identical map by itself from the shared list of events. The grid is anchored to the case's last-seen point, so two phones always mean the same ground by the same area.
+
+## How good is the map?
+
+`bench/prior-eval.js` tests the map with no clues on 60 Fremont start points that calibration never saw. The "true" locations are placed from ISRID statistics only, never by our walkers: 6,000 cases. The score is how much ground is searched before reaching the person, most likely squares first.
+
+| Map | Median ground searched (where people end up) | Found within 0.5 km² | Median, 60 min after last seen |
+|---|---|---|---|
+| Distance rings around the last-seen point | 1.30 km² | 39% | 1.21 km² |
+| The first engine, as its app drew it | 2.54 km² | 21% | 2.06 km² |
+| **The new prior** | **0.99 km²** | **41%** | **0.92 km²** |
+| ISRID statistics map alone (upper bound) | 1.03 km² | 42% | 0.90 km² |
+
+The statistics map is the recipe that placed the true locations, so it is an upper bound, and the new prior is 95% that map: being close to it is partly by construction. What the test does show is that the first engine was worse than plain rings and the new one is better than both. Told the wrong time (gone 100 minutes, app told 60) the new prior's median goes from 1.63 to 1.69 km². **A real-world check.** `docs/research/cases-public.csv` holds 161 real cases of people with dementia who walked away and were found, collected from public news and police reports. They were never used to tune anything; `bench/real-cases.js` compares the model with them. The data leans toward long and fatal searches (43% deaths) and is missing the quick nearby finds, so it cannot test the first hour. What it shows: real urban finds match the ISRID urban column the model is tuned to (41% at a structure, 35% on a road, n = 17), and 43% of deaths were in water or a drainage, which the hazard layer flags. Against the model: 28% of real cases were beyond the map's 3.2 km (57% of the urban ones), suburban and rural cases look nothing like the urban column, and 29% of deaths were in woods, which the hazard layer does not flag.
+
+The full report, with charts, the calibration table, sensitivity, the real-world check and limits: [`bench/prior-report.md`](bench/prior-report.md) and `bench/prior-report.html`.
 
 ## Benchmark
 
@@ -65,10 +87,10 @@ Does FindThem help volunteers find someone sooner? We simulated **1,000 cases** 
 
 | Strategy | Found after 500 searcher-min | Found after 1,500 searcher-min | Found after 3,000 searcher-min |
 |---|---|---|---|
-| Volunteers searching on their own | 8% ±2 | 21% ±3 | 34% ±3 |
-| Coordinated ring sweep | 18% ±2 | 29% ±3 | 35% ±3 |
-| **FindThem allocation** | **31% ±3** | **54% ±3** | **70% ±3** |
-| **FindThem + one sighting** | **52% ±3** | **77% ±3** | **87% ±2** |
+| Volunteers searching on their own | 8% ±2 | 19% ±2 | 34% ±3 |
+| Coordinated ring sweep | 18% ±2 | 28% ±3 | 35% ±3 |
+| **FindThem allocation** | **20% ±2** | **40% ±3** | **54% ±3** |
+| FindThem + one sighting | 69% ±3 | 86% ±2 | 92% ±2 |
 
 - **On their own:** each volunteer picks nearby areas at random, with no shared record.
 - **Ring sweep:** coordinated, nearest areas first, each searched once.
@@ -77,7 +99,11 @@ Does FindThem help volunteers find someone sooner? We simulated **1,000 cases** 
 
 1,500 searcher-minutes is about 6 volunteers for 4 hours. ± is a 95% margin.
 
-**Limits:** the simulated "real" people come from our own walker model, run with different settings than the app assumes (twistier or straighter walking, giving up sooner or later). Real people and real searches are messier. This shows how much a shared record and the probability map *could* help; it is not field-tested. The ring sweep searches each area only once, which is why it levels off.
+**Limits:**
+- The simulated "real" people are walkers, not real cases. Since the engine rewrite they come from a **different model** than the app uses: the first engine's street-only walkers (kept in `bench/old-engine/`), with two sets of settings. Before the rewrite both sides shared one walker model, which flattered the app: the same table then read 31% / 54% / 70% for FindThem. The fair comparison at 1,500 searcher-minutes is **40% against 28%** for a coordinated ring sweep.
+- The "+ one sighting" row is optimistic: the sighting is placed on the straight line toward the person's true end point. Read it as "a good sighting helps a lot", not as a number.
+- The ring sweep searches each area only once, which is why it levels off. The ± margins treat the 1,000 cases as independent, but they come from 10 setups, so the true margins are wider.
+- Real people and real searches are messier. This shows how much a shared record and the probability map *could* help; it is not field-tested.
 
 Run it yourself: `npm run bench` (about a minute; writes `bench/results.md`).
 
@@ -94,8 +120,9 @@ The translations were written by AI and haven't been checked by native speakers 
 | Who | Part | AI use |
 |---|---|---|
 | **BenStew** | Screen and hosting: the page, map, inputs, data loading, live sharing, messages, report box, offline mode, translations | Built with Claude Code (Anthropic's AI coding assistant), with BenStew directing and reviewing. Several screen files and the test servers were written by Claude Code sessions. |
-| **BenStew** | The engine (`engine/`): walkers, probability grid, Bayes updates, allocation, routes | Built with Claude Code, with BenStew directing. The official EvoHacks 2 rules encourage AI use. |
+| **BenStew** | The first engine (`engine/`): walkers on the street network, probability grid, Bayes updates, allocation, routes | Built with Claude Code, with BenStew directing. The official EvoHacks 2 rules encourage AI use. |
 | **Nathan** | Tests, debugging, speed (`tests/`, `bench/`); tuning the Jev questions | AI may help write tests; Nathan reviews and explains them. |
+| **Nathan** | The engine rewrite on branch `prior-v2` ("prior v2"): ground map, walkers as particles, ISRID statistics map, calibration, evaluation, hazard layer, the engine in a worker | Built with Claude Code from Nathan's audit and brief, in four reviewed stages. Claude Code also made the changes this needed in the screen files (`BEN.md` lists them). |
 
 **AI inside the app:** only the report box uses an AI: **Jev**, a model from TypeSafe AI, reached through our own small proxy. Jev doesn't write text; it answers five multiple-choice questions about a report (what kind, which way, how long ago, how sure, which nearby place), each with a confidence. Anything it isn't confident about is left empty for the person to fill in, and nothing is added until the person checks the form and taps the button. It never sets the probabilities, and the word "chatbot" never appears in the app. The optional **voice bot** adds two speech services through the same proxy: **Deepgram** (speech → text) and **ElevenLabs** (reading the filled-in form back aloud). They only turn speech into text and text into speech; Jev still fills the form, and the person still confirms it.
 
@@ -114,15 +141,17 @@ The translations were written by AI and haven't been checked by native speakers 
 | `quickread.js` | The report box's backup reader: simple word rules in 5 languages, used on the phone when Jev can't answer |
 | `i18n.js` | Every on-screen word in 5 languages, emergency numbers, units |
 | `config.js` | The Firebase and proxy addresses (not secrets) |
-| `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `sim.js` (walkers), `grid.js` (probability map, Bayes updates, next areas, top spots), `routes.js` (walking routes), `index.js` (what the app imports) |
+| `engine/` | The prediction engine: `graph.js` (street network, nearby creeks/parks), `surface.js` (10 m ground map), `sim.js` (walkers), `prior.js` (ISRID statistics map), `grid.js` (probability map, Bayes updates, hazard layer, next areas, top spots), `routes.js` (walking routes), `params.js` (every tunable number, labeled), `calibrated.js` / `.json` (fitted values, written by `tools/calibrate.js`), `host.js` + `worker.js` (the engine in a background worker), `index.js` (what the app imports) |
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map), stored here rather than loaded from the internet |
 | `proxy/` | Tiny Cloudflare Worker that holds the API keys as secrets: asks Jev about a report (`jev.js`) and returns form data only; optional voice bot with Deepgram and ElevenLabs (`voice.js`) |
 | `firebase-rules.json` | Database rules: no listing searches, events can only be added, searcher positions checked |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
-| `bench/` | `benchmark.js` (the search simulation above) and `results.md` (its latest output) |
-| `tools/` | `make-fixture.js` (rebuild the Fremont data), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
+| `bench/` | `prior-eval.js` + `prior-report.js` (the evaluation of the map: `prior-report.md`, `prior-report.html`), `real-cases.js` + `real-cases-maps.js` (the check against real cases), `benchmark.js` (the search simulation below) and `results.md` (its latest output), `phone-budget.js` (time and memory), `old-engine/` (a frozen copy of the first engine, for comparison only) |
+| `tools/` | `calibrate.js` (fits the walkers to ISRID), `make-public-cases.js` (makes the public copy of the real-case data), `make-fixture.js` (rebuild the Fremont data), `data/fremont-wide.json.gz` (a wider Fremont map for calibration and evaluation; never loaded by the app), `browser/` (checks that drive a headless Chrome), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
 | `ShortPlan.md`, `PLAN.md`, `INTERFACES.md`, `CommitHistory.md`, `ROADMAP.md` | Plans, the engine contract, the decision log, and future plans |
+| `docs/PRIOR-V2.md`, `BEN.md` | The design of the engine rewrite, and what it changed in the screen files |
+| `docs/research/` | 161 real news-reported cases: `cases-public.csv` (sources given as publisher + month + an id; the copy with URLs is never committed), `REPORT.md`, `DATA_DICTIONARY.md`, `CASES-PUBLIC.md` |
 
 No frameworks and no build step: plain HTML, CSS and JavaScript. The only online parts are the Firebase database (sharing) and the AI proxy (report box). The prediction always runs on the phone.
 
@@ -193,8 +222,13 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 
 ## Limits
 
-- The search-and-rescue data behind the patterns is small, old and mostly rural (87 Virginia cases in Koester's study).
-- Nothing has been validated on real searches; the benchmark is a simulation.
+- The statistics behind the map are published summaries (ISRID: 336 urban dementia cases for distance, 223 for where people were found; 11 for the dispersion angle), not case records, and the walking-speed study is of people with cognitive impairment, not all with a dementia diagnosis.
+- Nothing has been validated on real searches. The evaluation's "true" locations are drawn from the same published statistics the map is built from; the benchmark is a simulation.
+- The model fits ISRID's distances but not its mobility hours (see Calibration above).
+- It uses ISRID's *urban* statistics everywhere. Real suburban and rural cases look different (more woods and water, fewer structures), and the hazard layer knows water but not woods or brush, where 29% of the deaths in our real-case data were found.
+- The map reaches 3.2 km from the last-seen point. Beyond that the app only says how likely it is that the person is off the map.
+- Elevation is not used, and the sea is not handled (on a coast it would be treated as plain ground).
+- For a few minutes after starting a search in a new area, a phone still waiting for the buildings download shows a rougher map than one that has them.
 - Untrained volunteers should not go into water or dense brush; the app flags those for professionals.
 - Browser GPS only works while the page is open.
 - Anyone with a search link can see and add to that search. There are no accounts yet.
@@ -210,4 +244,10 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - Street and terrain data from the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API).
 - Address search from [Nominatim](https://nominatim.org/), one request at a time.
 - Map library: [Leaflet](https://leafletjs.com/).
-- Behavior patterns from published search-and-rescue research on lost persons with dementia, including Robert Koester's lost-person behavior studies. Search theory: B. O. Koopman's detection model and Bayesian search theory.
+- Real cases for the held-out check: public news, police and coroner reports from the US, UK, Canada, Australia and New Zealand, cited in `docs/research/cases-public.csv` by publisher and month.
+- Lost-person statistics: Robert Koester, *Lost Person Behavior*, dementia chapter (ISRID): distances, find locations, track offset, dispersion angle, mobility, "66% cross or depart from a road" (https://www.dbs-sar.com/LPB/Dementia.pdf).
+- Walking speed: Toots, Taylor, Lord, Close (2019), *J Alzheimers Dis* 71(s1): usual gait speed 0.62 ± 0.23 m/s in 309 older adults with cognitive impairment.
+- Rowe et al. (2011), *BMC Geriatrics* 11:28, on people with dementia missing in the community (53% of those on foot found within 1 mile; deaths mostly in unpopulated areas).
+- Scoring: Sava, Twardy, Koester, Sonwalkar (2016), "Evaluating Lost Person Behavior Models", *Transactions in GIS* 20(1).
+- Search theory: B. O. Koopman's detection model and Bayesian search theory; sweep widths from Koester, Cooper, Frost, Robe (2004), "Sweep Width Estimation for Ground Search and Rescue".
+- Terrain speed factors from Soule and Goldman (1972), *J Appl Physiol* 32(5).

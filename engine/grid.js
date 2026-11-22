@@ -201,11 +201,12 @@ function goalsFor(surface, places, lastSeen, from) {
   return goals;
 }
 
-// Walkers are simulated in half-hour blocks, so the 5-minute clock ticks of the app reuse the
-// same run instead of starting over each time. (A walker's path doesn't depend on how long the
-// run is, so a longer block changes nothing that was already on the map.)
+// Walkers are simulated in 15-minute blocks, so the 5-minute clock ticks of the app mostly
+// reuse the same run instead of starting over each time. (A walker's path doesn't depend on
+// how long the run is, so a longer block changes nothing that was already on the map.)
+const HORIZON_BLOCK_MIN = 15; // ASSUMPTION: a trade between wasted walking and re-runs
 function horizonFor(minutes) {
-  return Math.min(PARAMS.MAX_SIM_MINUTES, Math.max(30, Math.ceil(minutes / 30) * 30));
+  return Math.min(PARAMS.MAX_SIM_MINUTES, Math.max(HORIZON_BLOCK_MIN, Math.ceil(minutes / HORIZON_BLOCK_MIN) * HORIZON_BLOCK_MIN));
 }
 
 // ---- The pieces of the map ---------------------------------------------------------------------------
@@ -228,20 +229,27 @@ function minuteIndex(comp, minute) {
 
 // "Still missing": each walker's weight is the chance nobody noticed it, given how exposed to
 // the public it has been up to `minute`: (1 − rate)^(exposure-minutes). The weights are then
-// scaled so the whole story keeps the share `total`: the evidence moves chance from walkers on
-// busy roads to the others, it doesn't shrink the story.
-function applyStillMissing(comp, minute, total) {
+// scaled so each group of walkers keeps its share: the evidence moves chance from walkers on
+// busy roads to the others in the group, it doesn't shrink the group.
+// Two groups, because they answer to different things:
+//   - walkers heading for a familiar place get `goalTotal`. The ISRID statistics map has no
+//     way to say "they may be walking to their old house", so this part of the map is
+//     carried by walkers alone (SHARE_GOAL in params.js);
+//   - all the other walkers get `otherTotal` (their share of the blend with the statistics map).
+function applyStillMissing(comp, minute, otherTotal, goalTotal) {
   const { walks } = comp;
   const W = walks.T + 1;
   const index = Math.max(0, minuteIndex(comp, minute));
   const logKeep = Math.log(1 - PARAMS.SPOT_RATE_PER_MIN) * 0.01;
-  let sum = 0;
+  let sumOther = 0;
+  let sumGoal = 0;
   for (let w = 0; w < walks.n; w++) {
     comp.weight[w] = Math.exp(logKeep * walks.seen[w * W + index]);
-    sum += comp.weight[w];
+    if (walks.goalBound[w]) sumGoal += comp.weight[w]; else sumOther += comp.weight[w];
   }
-  const scale = sum > 0 ? total / sum : 0;
-  for (let w = 0; w < walks.n; w++) comp.weight[w] *= scale;
+  const scaleOther = sumOther > 0 ? otherTotal / sumOther : 0;
+  const scaleGoal = sumGoal > 0 ? goalTotal / sumGoal : 0;
+  for (let w = 0; w < walks.n; w++) comp.weight[w] *= walks.goalBound[w] ? scaleGoal : scaleOther;
 }
 
 // A search of `sector` at case minute `minute` that found nobody.
@@ -291,14 +299,18 @@ function scaleWeights(comp, factor) {
   for (let i = 0; i < comp.background.length; i++) comp.background[i] *= factor;
 }
 
-// One story: its walkers and its statistics map, sharing `share` of the whole map between
-// them (walkers BLEND_WALKERS, statistics map the rest). Returns the story and the part of its
-// statistics map that lies beyond the map's edge.
-function makeStory(surface, walks, startCell, born, now, mobility, headingDeg, share) {
-  const blend = Math.min(1, Math.max(0, PARAMS.BLEND_WALKERS));
+// One story: its walkers and its statistics map, sharing `share` of the whole map:
+//   - if the case lists familiar places, SHARE_GOAL of it goes to the walkers heading there;
+//   - the rest is the blend: the other walkers get `blend` of it, the statistics map the rest.
+// Returns the story and the part of its statistics map that lies beyond the map's edge.
+function makeStory(surface, walks, startCell, born, now, mobility, headingDeg, share, blend) {
+  let hasGoalWalkers = false;
+  for (let w = 0; w < walks.n && !hasGoalWalkers; w++) if (walks.goalBound[w]) hasGoalWalkers = true;
+  const goalShare = hasGoalWalkers ? share * PARAMS.SHARE_GOAL : 0;
+  const rest = share - goalShare;
   const stats = cachedStats(surface, startCell, Math.max(0, now - born), mobility, headingDeg);
   const background = new Float64Array(COLS * ROWS);
-  for (let i = 0; i < background.length; i++) background[i] = share * (1 - blend) * stats.grid[i];
+  for (let i = 0; i < background.length; i++) background[i] = rest * (1 - blend) * stats.grid[i];
   const n = surface.n;
   const comp = {
     walks, born, mobility, background,
@@ -307,14 +319,17 @@ function makeStory(surface, walks, startCell, born, now, mobility, headingDeg, s
     startX: ((startCell % n) + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M,
     startY: (Math.floor(startCell / n) + 0.5) * SURFACE_CELL_M - SURFACE_RADIUS_M,
   };
-  applyStillMissing(comp, now, share * blend);
-  return { comp, outside: share * (1 - blend) * stats.outside };
+  applyStillMissing(comp, now, rest * blend, goalShare);
+  return { comp, outside: rest * (1 - blend) * stats.outside };
 }
 
 // ---- Replay: prior + every event, in order ------------------------------------------------------------
 
 // The main call. Same case + same events → the same map on every phone.
-export function replay(area, caseInput, events) {
+// `options.blend` (tools only: calibration and evaluation) overrides BLEND_WALKERS, the walkers'
+// share of the map; the app never passes it.
+export function replay(area, caseInput, events, options = {}) {
+  const blendShare = Number.isFinite(options.blend) ? Math.min(1, Math.max(0, options.blend)) : Math.min(1, Math.max(0, PARAMS.BLEND_WALKERS));
   const origin = gridOriginFor(caseInput);
   const surface = surfaceFor(area, origin);
   const lastSeen = { lat: canon(caseInput.lastSeen.lat), lng: canon(caseInput.lastSeen.lng) };
@@ -339,7 +354,7 @@ export function replay(area, caseInput, events) {
   const baseWalks = cachedSimulate(surface, {
     startCell, minutes: horizonFor(now), headingDeg: heading, mobility, goals, seed,
   });
-  const first = makeStory(surface, baseWalks, startCell, 0, now, mobility, heading, 1);
+  const first = makeStory(surface, baseWalks, startCell, 0, now, mobility, heading, 1, blendShare);
   const base = first.comp;
   const components = [base];
   let outside = first.outside; // "rest of world" weight that isn't a walker's
@@ -393,7 +408,7 @@ export function replay(area, caseInput, events) {
         seed: (seed + 7919 * sightingNumber) >>> 0, walkedMin: Math.round(seenAt),
         n: PARAMS.N_SIGHTING_WALKERS,
       });
-      const story = makeStory(surface, walks, sightCell, now - elapsed, now, mobility, sightHeading, r);
+      const story = makeStory(surface, walks, sightCell, now - elapsed, now, mobility, sightHeading, r, blendShare);
       outside += story.outside;
       // Searches made after the person was seen there do count against this story.
       for (const s of pastSearches) {

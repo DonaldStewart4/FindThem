@@ -270,7 +270,7 @@ ${table}
 
 **Why the ring sweep levels off:** it searches each area once, nearest first. One 20-minute search spots a person who is there only about 38% of the time, so a single pass misses most people. FindThem goes back to the likeliest areas because its map says they're still worth it.
 
-**Limits:** the "true" missing people come from our own walker model, run with different settings than the app assumes. Real searches are messier: volunteers don't search perfectly, people move, and the detection numbers are estimates. This shows how much coordination and the probability map could help, not a promise.
+**Limits:** the "true" missing people are simulated walkers, not real cases. Since the engine rewrite (Nov 22) they come from a different model than the app uses: the first engine's street-only walkers (bench/old-engine/), with two sets of settings. The "+ one sighting" row is optimistic, because the sighting is placed on the straight line toward the person's true end point. The ± margins treat the cases as independent, but they come from 10 setups. Real searches are messier: volunteers don't search perfectly, people move, and the detection numbers are estimates. This shows how much coordination and the probability map could help, not a promise.
 `;
   fs.writeFileSync(new URL('./results.md', import.meta.url), md);
   console.log('Wrote bench/results.md');

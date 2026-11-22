@@ -1,6 +1,7 @@
 // Two tabs on one shared search (mock database): do they show the same map, and does a
 // search marked in one reach the other?
-import { Tab, sleep } from './cdp.mjs';
+import { Tab, sleep, closeAllTabs } from './cdp.mjs';
+await closeAllTabs(9333);
 const BASE = 'http://localhost:8000/?db=http://localhost:9000';
 const spotsOf = (tab) => tab.eval(`[...document.querySelectorAll('#spots li')].map((li) => li.textContent.trim().replace(/\\s+/g, ' ')).join(' | ')`);
 const areasOf = (tab) => tab.eval(`[...document.querySelectorAll('#areas li .area-head')].map((li) => li.textContent.trim().replace(/\\s+/g, ' ')).join(' | ')`);

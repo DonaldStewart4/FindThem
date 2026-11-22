@@ -176,6 +176,40 @@ export function costToGoal(surface, goalCell, fromCell = -1) {
   return cost;
 }
 
+// ---- Which neighbors can be stepped onto ---------------------------------------------------------
+
+// For a square, one bit per direction: can a walker step that way? Remembered per ground map,
+// so the walkers don't re-check buildings, fences, water and tight diagonals at every one of
+// their millions of steps. Worked out the first time a walker stands on the square (walkers
+// only ever visit a small part of the map), and stored as one number:
+//   bits 0–7    for walkers who treat water as a wall
+//   bits 8–15   for the few who decided to walk into water (water squares are open to them)
+//   bit 16      "worked out" (so 0 means "not yet")
+// A step off the edge of the map is never in the mask; the walkers handle the edge themselves.
+const stepMaskCache = new WeakMap();
+function stepMasks(surface) {
+  if (!stepMaskCache.has(surface)) stepMaskCache.set(surface, new Int32Array(surface.n * surface.n));
+  return stepMaskCache.get(surface);
+}
+function computeStepMask(cls, n, i) {
+  const r = Math.floor(i / n);
+  const c = i % n;
+  let land = 0;
+  let water = 0;
+  for (let k = 0; k < 8; k++) {
+    const rr = r + DR[k];
+    const c2 = c + DC[k];
+    if (rr < 0 || rr >= n || c2 < 0 || c2 >= n) continue;
+    const v = cls[rr * n + c2];
+    if (v === C.BUILDING || v === C.BARRIER) continue;
+    // No squeezing diagonally between two blocked squares.
+    if (k % 2 && !isWalkable(cls[r * n + c2]) && !isWalkable(cls[rr * n + c])) continue;
+    water |= 1 << k;
+    if (v !== C.WATER) land |= 1 << k;
+  }
+  return 0x10000 | (water << 8) | land;
+}
+
 // ---- The simulation ---------------------------------------------------------------------------
 
 // Runs the walkers. Options:
@@ -201,6 +235,7 @@ export function costToGoal(surface, goalCell, fromCell = -1) {
 //                           simulated time ran out (-1 = off the map)
 //   reason, stopMin         why and when each walker stopped (stopMin = T + 1 if still moving)
 //   kind, follower, speed, mobileMin, course   each walker's own draw
+//   goalBound               1 for walkers heading for a familiar place
 //   cell100                 the 10 m square where it was first 100 m from the start (-1 = never)
 //   visits                  how many walkers stepped on each 10 m square ("used streets" layer)
 export function simulate(surface, {
@@ -221,6 +256,7 @@ export function simulate(surface, {
   const reason = new Uint8Array(n);
   const stopMin = new Float32Array(n).fill(T + 1);
   const kind = new Uint8Array(n);
+  const goalBound = new Uint8Array(n); // 1 = this walker is heading for a familiar place
   const follower = new Uint8Array(n);
   const speed = new Float32Array(n);
   const mobileMin = new Float32Array(n);
@@ -233,7 +269,7 @@ export function simulate(surface, {
   for (let i = 0; i < N; i++) coarse[i] = Math.floor((2 * i + 1) / 5);
   const COARSE_COLS = coarse[N - 1] + 1; // 256
 
-  const result = { n, T, pos, seen, pos10, leftMin, endCell, reason, stopMin, kind, follower, speed, mobileMin, course, cell100, visits, startCell };
+  const result = { n, T, pos, seen, pos10, leftMin, endCell, reason, stopMin, kind, goalBound, follower, speed, mobileMin, course, cell100, visits, startCell };
   if (startCell < 0) { leftMin.fill(0); reason.fill(STOP.LEFT_MAP); stopMin.fill(0); return result; }
 
   const mobilityFactor = mobility === 'walker' ? P.MOBILITY_WALKER : mobility === 'slow' ? P.MOBILITY_SLOW : P.MOBILITY_NORMAL;
@@ -268,217 +304,223 @@ export function simulate(surface, {
   const weight = new Float64Array(8);
   const courseWeight = new Float64Array(8);
   const structure = new Int32Array(8);
-  // One random stream, re-seeded for each walker (see fillRandom above).
+  const masks = stepMasks(surface);
+  const OFFSET = Int32Array.from(DR, (dr, k) => dr * N + DC[k]); // index change for each direction
+  // One random stream, re-seeded for each walker (see fillRandom above and walkOne below).
   const randomBuffer = new Float64Array(RANDOM_BUFFER);
   const randomState = new Int32Array(1);
+  const memory = P.HEADING_MEMORY;
+  const goalTemp = P.GOAL_TEMP_M;
+  const halfBins = 0.5 * TURN_BINS;
+
+  // Everything a walker needs, in one bundle. Each walker is run by walkOne() below: a
+  // function of its own, so the JavaScript engine can optimize it after the first few
+  // walkers instead of part-way through one very long loop (which made the first run on a
+  // phone, the cold one, about twice as slow).
+  const run = {
+    N, T, W, P, cls, exposure, nearBuilding, pos, seen, pos10, leftMin, endCell, reason, stopMin,
+    kind, goalBound, follower, speed, mobileMin, course, cell100, visits, lastVisitor, coarse,
+    COARSE_COLS, seed, headingDeg, walkedMin, spotting, mobilityFactor, startRow, startCol,
+    startCell, usableGoals, goalShare, cutDirection, cutWander, prefFollow, prefCross, turnSteady,
+    turnLoose, stuckProb, structMinCells2, goalRadiusCells2, mobileMu, stayerMu, weight,
+    courseWeight, structure, masks, OFFSET, randomBuffer, randomState, memory, goalTemp, halfBins
+  };
+  for (let w = 0; w < n; w++) walkOne(run, w);
+  return result;
+}
+
+// One walker, from its own random draws to where it is at every minute.
+function walkOne(run, w) {
+  const {
+    N, T, W, P, cls, exposure, nearBuilding, pos, seen, pos10, leftMin, endCell, reason, stopMin,
+    kind, goalBound, follower, speed, mobileMin, course, cell100, visits, lastVisitor, coarse,
+    COARSE_COLS, seed, headingDeg, walkedMin, spotting, mobilityFactor, startRow, startCol,
+    startCell, usableGoals, goalShare, cutDirection, cutWander, prefFollow, prefCross, turnSteady,
+    turnLoose, stuckProb, structMinCells2, goalRadiusCells2, mobileMu, stayerMu, weight,
+    courseWeight, structure, masks, OFFSET, randomBuffer, randomState, memory, goalTemp, halfBins
+  } = run;
+  // This walker's own random stream (see fillRandom above).
+  randomState[0] = walkerSeed(seed, w);
   let randomAt = RANDOM_BUFFER;
   const random = () => {
     if (randomAt >= RANDOM_BUFFER) { fillRandom(randomBuffer, randomState); randomAt = 0; }
     return randomBuffer[randomAt++];
   };
-  const memory = P.HEADING_MEMORY;
-  const goalTemp = P.GOAL_TEMP_M;
-  const halfBins = 0.5 * TURN_BINS;
+  const base = w * W;
 
-  for (let w = 0; w < n; w++) {
-    randomState[0] = walkerSeed(seed, w);
-    randomAt = RANDOM_BUFFER; // start this walker's own stream
-    const base = w * W;
+  // ---- This walker's own draws (always in the same order, so the stream stays in step) ----
+  const uKind = random();
+  const uGoal = random();
+  const uRoad = random();
+  const v = Math.min(P.SPEED_MAX_MPS, Math.max(P.SPEED_MIN_MPS, P.SPEED_MEAN_MPS + P.SPEED_SD_MPS * normal(random)));
+  const moveFrac = P.MOVE_FRAC_MIN + (P.MOVE_FRAC_MAX - P.MOVE_FRAC_MIN) * random();
+  const zMobile = normal(random);
+  const zHeading = normal(random);
+  const uHeading = random();
+  const uWater = random();
+  const uWhichGoal = random();
 
-    // ---- This walker's own draws (always in the same order, so the stream stays in step) ----
-    const uKind = random();
-    const uGoal = random();
-    const uRoad = random();
-    const v = Math.min(P.SPEED_MAX_MPS, Math.max(P.SPEED_MIN_MPS, P.SPEED_MEAN_MPS + P.SPEED_SD_MPS * normal(random)));
-    const moveFrac = P.MOVE_FRAC_MIN + (P.MOVE_FRAC_MAX - P.MOVE_FRAC_MIN) * random();
-    const zMobile = normal(random);
-    const zHeading = normal(random);
-    const uHeading = random();
-    const uWater = random();
-    const uWhichGoal = random();
+  let myKind = uKind < cutDirection ? KIND.DIRECTION : uKind < cutWander ? KIND.WANDER : KIND.STAYER;
+  let goal = null;
+  if (uGoal < goalShare) {
+    goal = usableGoals[Math.min(usableGoals.length - 1, Math.floor(uWhichGoal * usableGoals.length))];
+    myKind = goal.cell >= 0 ? KIND.GOAL : KIND.DIRECTION; // a place off the map: just head that way
+    goalBound[w] = 1;
+  }
+  const isFollower = myKind === KIND.GOAL || myKind === KIND.STAYER ? 0 : uRoad < P.ROAD_FOLLOWER_SHARE ? 1 : 0;
+  kind[w] = myKind;
+  follower[w] = isFollower;
+  speed[w] = v * mobilityFactor;
 
-    let myKind = uKind < cutDirection ? KIND.DIRECTION : uKind < cutWander ? KIND.WANDER : KIND.STAYER;
-    let goal = null;
-    if (uGoal < goalShare) {
-      goal = usableGoals[Math.min(usableGoals.length - 1, Math.floor(uWhichGoal * usableGoals.length))];
-      myKind = goal.cell >= 0 ? KIND.GOAL : KIND.DIRECTION; // a place off the map: just head that way
+  // Minutes of mobility. After a sighting the person had already been walking for walkedMin:
+  // draw from the part of the curve beyond that, and keep what is left.
+  let mobile = Math.exp((myKind === KIND.STAYER ? stayerMu : mobileMu) + P.MOBILE_SIGMA * zMobile);
+  if (walkedMin > 0) {
+    for (let tries = 0; tries < 20 && mobile <= walkedMin; tries++) {
+      mobile = Math.exp(mobileMu + P.MOBILE_SIGMA * normal(random));
     }
-    const isFollower = myKind === KIND.GOAL || myKind === KIND.STAYER ? 0 : uRoad < P.ROAD_FOLLOWER_SHARE ? 1 : 0;
-    kind[w] = myKind;
-    follower[w] = isFollower;
-    speed[w] = v * mobilityFactor;
+    mobile = Math.max(1, mobile - walkedMin);
+  }
+  mobileMin[w] = mobile;
 
-    // Minutes of mobility. After a sighting the person had already been walking for walkedMin:
-    // draw from the part of the curve beyond that, and keep what is left.
-    let mobile = Math.exp((myKind === KIND.STAYER ? stayerMu : mobileMu) + P.MOBILE_SIGMA * zMobile);
-    if (walkedMin > 0) {
-      for (let tries = 0; tries < 20 && mobile <= walkedMin; tries++) {
-        mobile = Math.exp(mobileMu + P.MOBILE_SIGMA * normal(random));
+  // Heading: the reported direction plus this walker's own spread, or any direction at all.
+  let headingDegrees;
+  if (goal && goal.cell < 0) headingDegrees = goal.bearingDeg + P.HEADING_SD_DEG * zHeading;
+  else if (headingDeg !== null) headingDegrees = headingDeg + P.HEADING_SD_DEG * zHeading;
+  else headingDegrees = uHeading * 360;
+  headingDegrees = ((headingDegrees % 360) + 360) % 360;
+  let hx = Math.sin((headingDegrees * Math.PI) / 180); // heading as a unit vector (east, north)
+  let hy = Math.cos((headingDegrees * Math.PI) / 180);
+  const hasCourse = myKind === KIND.DIRECTION;
+  if (hasCourse) {
+    course[w] = headingDegrees;
+    for (let k = 0; k < 8; k++) courseWeight[k] = Math.exp(-angleDiff(k * 45, headingDegrees) / P.COURSE_SCALE_DEG);
+  }
+  const turn = myKind === KIND.DIRECTION || myKind === KIND.GOAL ? turnSteady : turnLoose;
+  const pref = isFollower ? prefFollow : prefCross;
+  const pStructure = myKind === KIND.STAYER ? P.P_STRUCT_STAYER : P.P_STRUCT_STEP;
+  const entersWater = uWater < P.P_WATER_ENTER;
+  const goalCost = myKind === KIND.GOAL ? goal.cost : null;
+  const goalRow = myKind === KIND.GOAL ? Math.floor(goal.cell / N) : 0;
+  const goalCol = myKind === KIND.GOAL ? goal.cell % N : 0;
+
+  // ---- Walk ---------------------------------------------------------------------------------
+  let r = startRow;
+  let c = startCol;
+  let cell = startCell;
+  let t = 0;          // this walker's clock, minutes
+  let nextMin = 0;    // the next whole minute to record
+  let exposed = 0;    // exposure added up over the minutes so far
+  let why = STOP.ACTIVE;
+  const metersPerMin = speed[w] * moveFrac * 60;
+
+  for (let guard = 0; guard < 200000; guard++) {
+    if (t >= T) break;                                  // simulated time is up, still moving
+    if (t >= mobile) {
+      // Mobility is over: they settle. Not on the roadway itself, though. ISRID says urban
+      // subjects are found "in structures or WALKING along roads": a road find is a person
+      // noticed while moving, not one sitting in the street. So a walker that runs out of
+      // mobility on a road or path steps off it, to a building's edge if one is beside it,
+      // otherwise to the nearest open ground within two squares (20 m).
+      why = STOP.TIRED;
+      const here = cls[cell];
+      if (here === C.ROAD || here === C.PATH || here === C.SERVICE) {
+        let best = -1;
+        let bestRank = 99;
+        for (let dr = -2; dr <= 2; dr++) {
+          for (let dc = -2; dc <= 2; dc++) {
+            const rr = r + dr;
+            const c2 = c + dc;
+            if (rr < 0 || rr >= N || c2 < 0 || c2 >= N) continue;
+            const j = rr * N + c2;
+            const v2 = cls[j];
+            if (v2 === C.ROAD || v2 === C.PATH || v2 === C.SERVICE || v2 === C.CREEK || !isWalkable(v2)) continue;
+            // A building's edge first, then the closer square; ties go to the lower index.
+            const rank = (nearBuilding[j] ? 0 : 10) + Math.max(Math.abs(dr), Math.abs(dc));
+            if (rank < bestRank) { bestRank = rank; best = j; }
+          }
+        }
+        if (best >= 0) { cell = best; r = Math.floor(cell / N); c = cell % N; }
       }
-      mobile = Math.max(1, mobile - walkedMin);
+      break;
     }
-    mobileMin[w] = mobile;
 
-    // Heading: the reported direction plus this walker's own spread, or any direction at all.
-    let headingDegrees;
-    if (goal && goal.cell < 0) headingDegrees = goal.bearingDeg + P.HEADING_SD_DEG * zHeading;
-    else if (headingDeg !== null) headingDegrees = headingDeg + P.HEADING_SD_DEG * zHeading;
-    else headingDegrees = uHeading * 360;
-    headingDegrees = ((headingDegrees % 360) + 360) % 360;
-    let hx = Math.sin((headingDegrees * Math.PI) / 180); // heading as a unit vector (east, north)
-    let hy = Math.cos((headingDegrees * Math.PI) / 180);
-    const hasCourse = myKind === KIND.DIRECTION;
-    if (hasCourse) {
-      course[w] = headingDegrees;
-      for (let k = 0; k < 8; k++) courseWeight[k] = Math.exp(-angleDiff(k * 45, headingDegrees) / P.COURSE_SCALE_DEG);
-    }
-    const turn = myKind === KIND.DIRECTION || myKind === KIND.GOAL ? turnSteady : turnLoose;
-    const pref = isFollower ? prefFollow : prefCross;
-    const pStructure = myKind === KIND.STAYER ? P.P_STRUCT_STAYER : P.P_STRUCT_STEP;
-    const entersWater = uWater < P.P_WATER_ENTER;
-    const goalCost = myKind === KIND.GOAL ? goal.cost : null;
-    const goalRow = myKind === KIND.GOAL ? Math.floor(goal.cell / N) : 0;
-    const goalCol = myKind === KIND.GOAL ? goal.cell % N : 0;
-
-    // ---- Walk ---------------------------------------------------------------------------------
-    let r = startRow;
-    let c = startCol;
-    let cell = startCell;
-    let t = 0;          // this walker's clock, minutes
-    let nextMin = 0;    // the next whole minute to record
-    let exposed = 0;    // exposure added up over the minutes so far
-    let why = STOP.ACTIVE;
-    const metersPerMin = speed[w] * moveFrac * 60;
-
-    for (let guard = 0; guard < 200000; guard++) {
-      if (t >= T) break;                                  // simulated time is up, still moving
-      if (t >= mobile) { why = STOP.TIRED; break; }
-
-      // Look at the squares around: weigh each as a next step, and note buildings to go up to.
-      // First only the five squares ahead and to the sides; the three behind are considered
-      // only when nothing ahead is open (a dead end): people rarely double back otherwise.
-      let total = 0;
-      let nStructure = 0;
-      for (let pass = 0; pass < 2 && !(total > 0); pass++) {
-        for (let k = 0; k < 8; k++) {
-          if (pass === 0) weight[k] = 0;
-          // Heading weight from the cosine of the turn (both vectors are unit length).
-          let cos = UX[k] * hx + UY[k] * hy;
-          if ((cos < BEHIND_COS) !== (pass === 1)) continue;
-          if (cos > 1) cos = 1; else if (cos < -1) cos = -1;
+    // Look at the squares around: weigh each as a next step, and note buildings to go up to.
+    // First only the five squares ahead and to the sides; the three behind are considered
+    // only when nothing ahead is open (a dead end): people rarely double back otherwise.
+    let total = 0;
+    let nStructure = 0;
+    let both = masks[cell];
+    if (both === 0) { both = computeStepMask(cls, N, cell); masks[cell] = both; }
+    const mask = entersWater ? (both >> 8) & 255 : both & 255;
+    const onEdge = r === 0 || r === N - 1 || c === 0 || c === N - 1;
+    for (let pass = 0; pass < 2 && !(total > 0); pass++) {
+      for (let k = 0; k < 8; k++) {
+        if (pass === 0) weight[k] = 0;
+        // Heading weight from the cosine of the turn (both vectors are unit length).
+        let cos = UX[k] * hx + UY[k] * hy;
+        if ((cos < BEHIND_COS) !== (pass === 1)) continue;
+        if (!(mask & (1 << k))) {
+          // Blocked, or off the edge of the map. Off the edge is allowed, and it ends this
+          // walker ("rest of world"); a goal-seeker never chooses it.
+          if (!onEdge || goalCost) continue;
           const rr = r + DR[k];
           const c2 = c + DC[k];
-          let wgt = turn[((cos + 1) * halfBins + 0.5) | 0];
-          if (hasCourse) wgt *= courseWeight[k];
-          if (rr < 0 || rr >= N || c2 < 0 || c2 >= N) {
-            // Off the edge of the map: allowed, and it ends this walker ("rest of world").
-            if (goalCost) continue;
-            weight[k] = wgt * pref[C.NODATA];
-            total += weight[k];
-            continue;
-          }
-          const j = rr * N + c2;
-          const v2 = cls[j];
-          if (v2 === C.BUILDING || v2 === C.BARRIER) continue;
-          if (v2 === C.WATER && !entersWater) continue;
-          // No squeezing diagonally between two blocked squares.
-          if (k % 2 && !isWalkable(cls[r * N + c2]) && !isWalkable(cls[rr * N + c])) continue;
-          if (nearBuilding[j]) structure[nStructure++] = j;
-          wgt *= pref[v2];
-          if (goalCost) {
-            // Prefer the step that shortens the walk to the familiar place.
-            const gain = (goalCost[cell] - goalCost[j]) / goalTemp;
-            wgt *= Math.exp(gain > 20 ? 20 : gain < -20 ? -20 : gain);
-          }
-          weight[k] = wgt;
-          total += wgt;
+          if (rr >= 0 && rr < N && c2 >= 0 && c2 < N) continue;
+          if (cos > 1) cos = 1; else if (cos < -1) cos = -1;
+          let edgeWeight = turn[((cos + 1) * halfBins + 0.5) | 0];
+          if (hasCourse) edgeWeight *= courseWeight[k];
+          weight[k] = edgeWeight * pref[C.NODATA];
+          total += weight[k];
+          continue;
         }
-      }
-
-      // Go up to a building beside us and stay there?
-      if (nStructure > 0 && pStructure > 0) {
-        const dr0 = r - startRow;
-        const dc0 = c - startCol;
-        if (dr0 * dr0 + dc0 * dc0 >= structMinCells2 && random() < pStructure) {
-          cell = structure[Math.min(nStructure - 1, Math.floor(random() * nStructure))];
-          r = Math.floor(cell / N);
-          c = cell % N;
-          why = STOP.STRUCTURE;
-          break;
+        if (cos > 1) cos = 1; else if (cos < -1) cos = -1;
+        let wgt = turn[((cos + 1) * halfBins + 0.5) | 0];
+        if (hasCourse) wgt *= courseWeight[k];
+        const j = cell + OFFSET[k];
+        if (nearBuilding[j]) structure[nStructure++] = j;
+        wgt *= pref[cls[j]];
+        if (goalCost) {
+          // Prefer the step that shortens the walk to the familiar place.
+          const gain = (goalCost[cell] - goalCost[j]) / goalTemp;
+          wgt *= Math.exp(gain > 20 ? 20 : gain < -20 ? -20 : gain);
         }
-      }
-      if (!(total > 0)) { why = STOP.BOXED_IN; break; }
-
-      // Pick the step.
-      let pick = random() * total;
-      let k = 0;
-      for (; k < 7; k++) { pick -= weight[k]; if (pick <= 0 && weight[k] > 0) break; }
-      while (weight[k] === 0 && k > 0) k--; // rounding at the very end of the list
-      const rr = r + DR[k];
-      const c2 = c + DC[k];
-      const off = rr < 0 || rr >= N || c2 < 0 || c2 >= N;
-      const j = off ? -1 : rr * N + c2;
-      const ground = off ? C.NODATA : cls[j];
-      const dt = STEP_M[k] / (metersPerMin * GROUND_SPEED[ground]);
-      const tNext = t + dt;
-      // Whole minutes that pass while walking this step are recorded at the square being left.
-      if (nextMin < tNext && nextMin <= T) {
-        const coarseCell = coarse[r] * COARSE_COLS + coarse[c];
-        const level = exposure[cell];
-        while (nextMin < tNext && nextMin <= T) {
-          if (nextMin > 0) exposed += level;
-          pos[base + nextMin] = coarseCell;
-          seen[base + nextMin] = exposed > 65535 ? 65535 : exposed;
-          if (pos10) pos10[base + nextMin] = cell;
-          nextMin++;
-        }
-      }
-      t = tNext;
-      if (off) { cell = -1; why = STOP.LEFT_MAP; break; }
-      r = rr; c = c2; cell = j;
-      hx = memory * hx + (1 - memory) * UX[k];
-      hy = memory * hy + (1 - memory) * UY[k];
-      const len = Math.sqrt(hx * hx + hy * hy);
-      if (len > 1e-6) { hx /= len; hy /= len; } else { hx = UX[k]; hy = UY[k]; }
-      if (lastVisitor[cell] !== w) { lastVisitor[cell] = w; if (visits[cell] < 65535) visits[cell]++; }
-      if (cell100[w] < 0) {
-        const dr0 = r - startRow;
-        const dc0 = c - startCol;
-        if (dr0 * dr0 + dc0 * dc0 >= 100) cell100[w] = cell;
-      }
-
-      // Reasons to stop on arriving.
-      if (ground === C.WATER) { why = STOP.WATER; break; }
-      const pStuck = stuckProb[ground];
-      if (pStuck > 0 && random() < pStuck) { why = STOP.STUCK; break; }
-      if (spotting) {
-        const level = exposure[cell];
-        // Chance of being noticed during this step: 1 − (1 − rate)^(exposure × minutes).
-        if (level > 0 && random() < 1 - Math.pow(1 - P.SPOT_RATE_PER_MIN, level * 0.01 * dt)) {
-          why = STOP.SPOTTED;
-          break;
-        }
-      }
-      if (goalCost) {
-        const dgr = r - goalRow;
-        const dgc = c - goalCol;
-        if (dgr * dgr + dgc * dgc <= goalRadiusCells2) { why = STOP.GOAL; break; }
+        weight[k] = wgt;
+        total += wgt;
       }
     }
 
-    // After stopping (or when time is up) the walker stays where it is. A walker that stopped
-    // on a road keeps being exposed there; one that left the map is marked from that minute on.
-    reason[w] = why;
-    if (why !== STOP.ACTIVE) stopMin[w] = Math.min(t, T + 1);
-    endCell[w] = cell;
-    if (cell < 0) {
-      if (nextMin <= T) leftMin[w] = nextMin;
-      const lastSeen = nextMin > 0 ? seen[base + nextMin - 1] : 0;
-      while (nextMin <= T) { seen[base + nextMin] = lastSeen; if (pos10) pos10[base + nextMin] = -1; nextMin++; }
-    } else {
+    // Go up to a building beside us and stay there?
+    if (nStructure > 0 && pStructure > 0) {
+      const dr0 = r - startRow;
+      const dc0 = c - startCol;
+      if (dr0 * dr0 + dc0 * dc0 >= structMinCells2 && random() < pStructure) {
+        cell = structure[Math.min(nStructure - 1, Math.floor(random() * nStructure))];
+        r = Math.floor(cell / N);
+        c = cell % N;
+        why = STOP.STRUCTURE;
+        break;
+      }
+    }
+    if (!(total > 0)) { why = STOP.BOXED_IN; break; }
+
+    // Pick the step.
+    let pick = random() * total;
+    let k = 0;
+    for (; k < 7; k++) { pick -= weight[k]; if (pick <= 0 && weight[k] > 0) break; }
+    while (weight[k] === 0 && k > 0) k--; // rounding at the very end of the list
+    const rr = r + DR[k];
+    const c2 = c + DC[k];
+    const off = rr < 0 || rr >= N || c2 < 0 || c2 >= N;
+    const j = off ? -1 : rr * N + c2;
+    const ground = off ? C.NODATA : cls[j];
+    const dt = STEP_M[k] / (metersPerMin * GROUND_SPEED[ground]);
+    const tNext = t + dt;
+    // Whole minutes that pass while walking this step are recorded at the square being left.
+    if (nextMin < tNext && nextMin <= T) {
       const coarseCell = coarse[r] * COARSE_COLS + coarse[c];
       const level = exposure[cell];
-      while (nextMin <= T) {
+      while (nextMin < tNext && nextMin <= T) {
         if (nextMin > 0) exposed += level;
         pos[base + nextMin] = coarseCell;
         seen[base + nextMin] = exposed > 65535 ? 65535 : exposed;
@@ -486,6 +528,57 @@ export function simulate(surface, {
         nextMin++;
       }
     }
+    t = tNext;
+    if (off) { cell = -1; why = STOP.LEFT_MAP; break; }
+    r = rr; c = c2; cell = j;
+    hx = memory * hx + (1 - memory) * UX[k];
+    hy = memory * hy + (1 - memory) * UY[k];
+    const len = Math.sqrt(hx * hx + hy * hy);
+    if (len > 1e-6) { hx /= len; hy /= len; } else { hx = UX[k]; hy = UY[k]; }
+    if (lastVisitor[cell] !== w) { lastVisitor[cell] = w; if (visits[cell] < 65535) visits[cell]++; }
+    if (cell100[w] < 0) {
+      const dr0 = r - startRow;
+      const dc0 = c - startCol;
+      if (dr0 * dr0 + dc0 * dc0 >= 100) cell100[w] = cell;
+    }
+
+    // Reasons to stop on arriving.
+    if (ground === C.WATER) { why = STOP.WATER; break; }
+    const pStuck = stuckProb[ground];
+    if (pStuck > 0 && random() < pStuck) { why = STOP.STUCK; break; }
+    if (spotting) {
+      const level = exposure[cell];
+      // Chance of being noticed during this step: 1 − (1 − rate)^(exposure × minutes).
+      if (level > 0 && random() < 1 - Math.pow(1 - P.SPOT_RATE_PER_MIN, level * 0.01 * dt)) {
+        why = STOP.SPOTTED;
+        break;
+      }
+    }
+    if (goalCost) {
+      const dgr = r - goalRow;
+      const dgc = c - goalCol;
+      if (dgr * dgr + dgc * dgc <= goalRadiusCells2) { why = STOP.GOAL; break; }
+    }
   }
-  return result;
+
+  // After stopping (or when time is up) the walker stays where it is. A walker that stopped
+  // on a road keeps being exposed there; one that left the map is marked from that minute on.
+  reason[w] = why;
+  if (why !== STOP.ACTIVE) stopMin[w] = Math.min(t, T + 1);
+  endCell[w] = cell;
+  if (cell < 0) {
+    if (nextMin <= T) leftMin[w] = nextMin;
+    const lastSeen = nextMin > 0 ? seen[base + nextMin - 1] : 0;
+    while (nextMin <= T) { seen[base + nextMin] = lastSeen; if (pos10) pos10[base + nextMin] = -1; nextMin++; }
+  } else {
+    const coarseCell = coarse[r] * COARSE_COLS + coarse[c];
+    const level = exposure[cell];
+    while (nextMin <= T) {
+      if (nextMin > 0) exposed += level;
+      pos[base + nextMin] = coarseCell;
+      seen[base + nextMin] = exposed > 65535 ? 65535 : exposed;
+      if (pos10) pos10[base + nextMin] = cell;
+      nextMin++;
+    }
+  }
 }

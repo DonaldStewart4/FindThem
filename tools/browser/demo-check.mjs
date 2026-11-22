@@ -1,4 +1,5 @@
-import { Tab, sleep } from './cdp.mjs';
+import { Tab, sleep, closeAllTabs } from './cdp.mjs';
+await closeAllTabs(9333);
 const PORT = 9333;
 const throttle = Number(process.argv[2] || 1);
 const tab = await Tab.open(PORT);

@@ -1,0 +1,78 @@
+{
+ "date": "2026-11-22T09:40:06.347Z",
+ "note": "Cold engine replay inside headless Chrome, engine on the main thread. \"slowed\" = Emulation.setCPUThrottlingRate 4.",
+ "normal": [
+  {
+   "label": "Demo case at 45 min (1 familiar place, no events)",
+   "coldMs": 280,
+   "spotsMs": 18,
+   "tickMs": 90,
+   "heapMb": 33.9
+  },
+  {
+   "label": "new case at 75 min, 7 searches + 3 sightings",
+   "coldMs": 369,
+   "spotsMs": 20,
+   "tickMs": 130,
+   "heapMb": 2.5
+  },
+  {
+   "label": "another new case at 75 min, 7 searches + 3 sightings",
+   "coldMs": 345,
+   "spotsMs": 17,
+   "tickMs": 113,
+   "heapMb": 69.9
+  },
+  {
+   "label": "a case 4 hours old, no events",
+   "coldMs": 300,
+   "spotsMs": 31,
+   "tickMs": 154,
+   "heapMb": 38.7
+  },
+  {
+   "label": "a case 12 hours old, no events",
+   "coldMs": 453,
+   "spotsMs": 30,
+   "tickMs": 3,
+   "heapMb": 46.5
+  }
+ ],
+ "slowed": [
+  {
+   "label": "Demo case at 45 min (1 familiar place, no events)",
+   "coldMs": 886,
+   "spotsMs": 60,
+   "tickMs": 313,
+   "heapMb": -181.9
+  },
+  {
+   "label": "new case at 75 min, 7 searches + 3 sightings",
+   "coldMs": 1432,
+   "spotsMs": 77,
+   "tickMs": 476,
+   "heapMb": 31.3
+  },
+  {
+   "label": "another new case at 75 min, 7 searches + 3 sightings",
+   "coldMs": 1302,
+   "spotsMs": 72,
+   "tickMs": 468,
+   "heapMb": 28.7
+  },
+  {
+   "label": "a case 4 hours old, no events",
+   "coldMs": 1197,
+   "spotsMs": 137,
+   "tickMs": 675,
+   "heapMb": -42.1
+  },
+  {
+   "label": "a case 12 hours old, no events",
+   "coldMs": 1775,
+   "spotsMs": 127,
+   "tickMs": 10,
+   "heapMb": 21.8
+  }
+ ]
+}

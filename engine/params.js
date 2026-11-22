@@ -28,7 +28,8 @@ export const DEFAULTS = {
   ISRID_PROFILE: 'urban',   // EXPERT: which ISRID column to use. 'urban' for a town like
                             // Fremont; 'temperate' is the alternative for open country.
   BLEND_WALKERS: 0.5,       // ASSUMPTION, set by evaluation (tools/calibrate.js): the walkers'
-                            // share of the map; the ISRID statistics map gets the rest
+                            // share of the map; the ISRID statistics map gets the rest.
+                            // (Walkers heading for a familiar place are counted apart, see SHARE_GOAL.)
 
   // ---- Each walker's own pace -----------------------------------------------------------------
   SPEED_MEAN_MPS: 0.62,     // DATA (Toots): usual gait speed, n = 309 community-dwelling older
@@ -57,9 +58,10 @@ export const DEFAULTS = {
   SHARE_DIRECTION: 0.55,    // ASSUMPTION, calibrated: keeps one course
   SHARE_WANDER: 0.2,        // ASSUMPTION, calibrated: wanders with no course
   SHARE_STAYER: 0.25,       // ASSUMPTION, calibrated: stays near home, ends at a nearby structure
-  SHARE_GOAL: 0.25,         // ASSUMPTION: heads for a familiar place, when the case lists any
-                            // (taken evenly from the three kinds above). Not calibrated: ISRID
-                            // gives no share for it.
+  SHARE_GOAL: 0.25,         // ASSUMPTION: when the case lists familiar places, this share of the
+                            // walkers heads for one, AND this share of the whole map is theirs
+                            // (grid.js): the statistics map can't express "walking to their old
+                            // house". Not calibrated: ISRID gives no number for it.
   STAYER_MOBILE_MEDIAN_MIN: 10, // ASSUMPTION, calibrated: stayers settle quickly
   // ISRID: 66% "cross or depart from a road" → 34% keep to roads and paths.
   ROAD_FOLLOWER_SHARE: 0.34, // DATA (ISRID)
@@ -99,9 +101,12 @@ export const DEFAULTS = {
   P_BRUSH_STUCK: 0.05,       // ASSUMPTION, calibrated
   P_WET_STUCK: 0.05,         // ASSUMPTION
   // Being noticed: chance per minute on a main road (exposure 1) that someone spots the person.
-  // In calibration this FINDS the walker there (ISRID urban "road 36%", "linear 9%"). In the app
-  // nobody has found them, so it becomes evidence instead: a walker's weight is multiplied by
-  // (1 − rate × exposure) for every minute it spent on a road ("still missing").
+  // ONE number, fitted JOINTLY to two things it has to explain:
+  //   - in calibration it FINDS the walker on the road. It is the only way a walker ends up
+  //     "found on a road or path" (a walker that stops walking steps off the road, see sim.js),
+  //     so it alone has to produce ISRID urban "road 36%" and "linear 9%";
+  //   - in the app nobody has found them, so the same rate becomes evidence: a walker's weight
+  //     is multiplied by (1 − rate)^(exposure × minutes on roads) ("still missing").
   SPOT_RATE_PER_MIN: 0.03,   // ASSUMPTION, calibrated
 
   // ---- Familiar places -------------------------------------------------------------------------
