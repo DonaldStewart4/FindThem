@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 5: message drafts don't say "check every field"
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `app.js` `readReport()`: when a report turns out to be a plain message, the status is just "Your message is ready below. Check it, then tap Send.", without the backup reader's "Check every field" sentence (a message has no fields). `sw.js` `v25` → `v26`.
+- **Why:** Seen while testing the report box's three paths.
+- **Decisions:** None.
+- **How it was verified:** Browser pane: "Checked the Fremont Central Park playground, nobody there" → the "open its area under Next areas" hint; "Has anyone checked the library on Stevenson?" → put in the message box. No app errors in the console for the whole session (only the expected network errors while the test database was stopped). Laptop size 1280×800 with results and folded steps: page exactly 800 px, only the panel scrolls, no sideways scroll.
+- **Known issues / not done:** Not pushed.
+- **Next:** First-visit check.
+
 ### Testing pass 4: honest messages when the database drops out
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)

@@ -1327,7 +1327,7 @@ async function readReport() {
     toggleReportBox();
     els.messageText.value = draft.note || draft.placeText;
     els.messageText.scrollIntoView({ block: 'center' });
-    showStatus(readOnPhone ? `${t('reportMessageReady')} ${t('reportReadOnPhone')}` : t('reportMessageReady'));
+    showStatus(t('reportMessageReady')); // a message has no fields to check, so no "read on the phone" note
   } else {
     // 'searched' needs an area from the map, which the person picks under "Next areas".
     els.reportStatus.textContent = t('reportSearched');
