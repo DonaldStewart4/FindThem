@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { Worker } from 'node:worker_threads';
 import { prepareArea } from '../engine/graph.js';
 import { replay } from '../engine/grid.js';
 import { C } from '../engine/surface.js';
@@ -19,7 +20,7 @@ import { buildWorld, FOOT, CAR, PRIVATE, RAIL_X, shortestFrom, trackOfEdges, cel
 import { buildSegments } from '../engine/planner/segments.js';
 import { postmanTour, orienteer, localGraph, matchOdd } from '../engine/planner/routes.js';
 import {
-  lookProbability, sweepWidths, trackCoverage, canvassCoverage, isNight, sunElevationDeg, parkSweep,
+  lookProbability, sweepWidths, trackCoverage, canvassCoverage, postCoverage, gainOn, isNight, sunElevationDeg,
 } from '../engine/planner/detect.js';
 import { planSearch as planOnWorld, posterior, readEvents, assignedEvent } from '../engine/planner/plan.js';
 
@@ -714,6 +715,165 @@ test('sums on the real map: the team\'s gains add up to the cumulative POS once 
   }
   assert.ok(near(after.measures.cumulativePOS, total, 1e-6), `cumulative POS ${after.measures.cumulativePOS} vs sum of gains ${total}`);
   assert.ok(total > 0.05 && total < 0.95);
+});
+
+// ---- Decisions of Nov 22 (Nathan): GPS trails, buildings, the found event, the Web Worker ----------------
+
+test('GPS trail: a completed event carrying the trail walked is scored from that trail, through the adapter', () => {
+  const { world } = planner.plannerWorld(area, CASES[0]);
+  const map = planner.plannerMap(world, predictions[0]);
+  const searchers = people(CASES[0], 1, 41, 0);
+  const plan = planReal(0, searchers, [], NOON, { HAZARD_FIRST: false });
+  const hasty = plan.searchers[0].options.find((o) => o.type === 'hasty');
+  assert.ok(hasty, 'a hasty option is offered');
+  const searchPoints = hasty.route.points.slice(hasty.route.searchFrom);
+  // The phone's trail: the planned search points, as lat/lng. It becomes the same squares as the plan's track.
+  const fullTrail = planner.trackFromLatLngs(area, CASES[0], searchPoints);
+  assert.deepEqual(fullTrail, Array.from(hasty.route.track));
+  for (let i = 1; i < fullTrail.length; i++) {
+    assert.ok(Math.abs((fullTrail[i] % world.n) - (fullTrail[i - 1] % world.n)) <= 1 && Math.abs(Math.floor(fullTrail[i] / world.n) - Math.floor(fullTrail[i - 1] / world.n)) <= 1, 'a trail is one continuous line of squares');
+  }
+  // The searcher only walked the first third. With no trail the whole planned route is credited;
+  // with the trail only what was walked is.
+  const partTrail = planner.trackFromLatLngs(area, CASES[0], searchPoints.slice(0, Math.max(2, Math.ceil(searchPoints.length / 3))));
+  const accepted = { id: 'a1', ...assignedEvent(hasty, searchers[0].id, NOON) };
+  const pos = (completed) => planReal(0, [], [accepted, { id: 'c1', type: 'completed', searcherId: searchers[0].id, taskId: hasty.taskId, at: NOON + 1, ...completed }], NOON + 1).measures.cumulativePOS;
+  const planned = pos({});
+  const walked = pos({ track: partTrail });
+  assert.ok(near(planned, hasty.posGainAlone, 1e-6), 'no trail: the planned route is credited');
+  assert.ok(walked > 0 && walked < planned, `trail of a third of the route: ${walked} < ${planned}`);
+  const direct = gainOn(map.p, trackCoverage(world, partTrail, 'hasty', false)) / (1 - 0); // scored by hand
+  assert.ok(near(walked, direct, 1e-6), `the trail's POS ${walked} equals a direct calculation ${direct}`);
+});
+
+test('buildings: probability inside a building is credited only by the ask-permission task, also on a 10 m map', () => {
+  const { world, segs } = planner.plannerWorld(area, CASES[0]);
+  // 1. No look from outside ever credits a building square: any track, any pace, day or night,
+  //    and not the watcher at a containment point either.
+  const block = segs.areas.filter((t) => t.type === 'yards' && t.edges.length && t.doors >= 10)
+    .sort((a, b) => Math.hypot(a.x - world.lastSeen.x, a.y - world.lastSeen.y) - Math.hypot(b.x - world.lastSeen.x, b.y - world.lastSeen.y))[0];
+  const tour = postmanTour(world, block);
+  const track = trackOfEdges(world, tour.edges, tour.nodes[0]);
+  for (const pace of ['search', 'hasty', 'drive']) {
+    for (const night of [false, true]) {
+      const cov = trackCoverage(world, track, pace, night);
+      assert.ok(cov.cells.length > 50);
+      for (const c of cov.cells) assert.notEqual(world.vis[c], V.BUILDING, `${pace}: a building square was credited from the street`);
+    }
+  }
+  for (const post of segs.posts.slice(0, 20)) for (const c of postCoverage(world, post, false, 60).cells) assert.notEqual(world.vis[c], V.BUILDING);
+  const knock = canvassCoverage(world, block, false);
+  const inside = Array.from(knock.cells).filter((c) => world.vis[c] === V.BUILDING);
+  assert.ok(inside.length >= 10, 'door-knocking is what reaches the buildings');
+
+  // 2. A 10 m map straight from the engine (640 × 640 squares, what the prior will give): put
+  //    ALL the probability inside the buildings of that block.
+  const p10 = new Float64Array(world.n * world.n);
+  for (const c of inside) p10[c] = 1 / inside.length;
+  const prediction10 = { grid: { p: p10, cols: world.n, rows: world.n, cellSize: world.cellM }, restOfWorld: 0 };
+  assert.deepEqual(planner.plannerMap(world, prediction10).p, p10, 'a 10 m map is passed through untouched');
+  const at = planner.plannerWorld(area, CASES[0]).world;
+  const here = { lat: CASES[0].lastSeen.lat, lng: CASES[0].lastSeen.lng };
+  const searchers = [{ id: 'a', mode: 'foot', at: NOON, ...here }, { id: 'b', mode: 'foot', at: NOON, ...here }, { id: 'car', mode: 'car', at: NOON, ...here }];
+  const plan = planner.planSearch(area, CASES[0], prediction10, { searchers, events: [], nowMs: NOON });
+  let knocking = 0;
+  for (const s of plan.searchers) {
+    for (const option of s.options) {
+      if (option.posGain > 1e-12) {
+        assert.ok(option.type === 'yards' && option.canvass && option.permission === 'ask', `${option.type} claims ${option.posGain} of probability that is all inside buildings`);
+        knocking += 1;
+      }
+    }
+  }
+  assert.ok(knocking >= 1);
+  const canvasser = plan.searchers.find((s) => s.primary && s.primary.canvass);
+  assert.equal(canvasser.primary.taskId, block.id);
+  assert.ok(near(canvasser.primary.posGain, DEFAULTS.POD_CANVASS_BUILDING, 1e-6), 'its gain is the door-knock value, nothing more');
+  // Walking, driving or standing guard there and finding nobody says nothing about the buildings.
+  const outside = [
+    { id: 'w', type: 'completed', searcherId: 'a', taskId: 'hasty:N', at: NOON + 1, track },
+    { id: 'd', type: 'completed', searcherId: 'car', taskId: 'drive:NE', at: NOON + 2, track },
+    { id: 'y', type: 'completed', searcherId: 'b', taskId: block.id, at: NOON + 3, track, canvass: false },
+  ];
+  assert.equal(planner.planSearch(area, CASES[0], prediction10, { searchers: [], events: outside, nowMs: NOON + 4 }).measures.cumulativePOS, 0);
+  const knocked = [{ id: 'k', type: 'completed', searcherId: 'b', taskId: block.id, at: NOON + 3, track }];
+  assert.ok(near(planner.planSearch(area, CASES[0], prediction10, { searchers: [], events: knocked, nowMs: NOON + 4 }).measures.cumulativePOS, DEFAULTS.POD_CANVASS_BUILDING, 1e-6));
+  assert.equal(at, world);
+});
+
+test('found: the search is over, nobody is assigned anything, held tasks are released', () => {
+  const searchers = people(CASES[0], 4, 51, 0);
+  const first = planReal(0, searchers);
+  const events = acceptAll(first, NOON);
+  const found = { id: 'zz', type: 'found', lat: 37.5412, lng: -121.9781, by: 'Ana', at: NOON + 600000, note: 'at the bus stop, cold but fine' };
+  const plan = planReal(0, searchers, [...events, found], NOON + 660000);
+  assert.equal(plan.over, true);
+  assert.deepEqual(plan.found, { lat: 37.5412, lng: -121.9781, by: 'Ana', at: NOON + 600000, note: 'at the bus stop, cold but fine' });
+  for (const s of plan.searchers) {
+    assert.equal(s.primary, null);
+    assert.deepEqual(s.options, []);
+    assert.equal(s.hold, 'found');
+    const before = first.searchers.find((o) => o.searcherId === s.searcherId);
+    assert.equal(s.released, before.primary ? before.primary.taskId : null, 'the task they held is released');
+  }
+  assert.equal(plan.measures.expand.signal, false);
+  assert.equal(first.over, false);
+  assert.equal(first.found, null);
+  // Later events change nothing: it stays over.
+  const later = planReal(0, searchers, [...events, found, { id: 'zzz', type: 'released', searcherId: searchers[0].id, taskId: 'x', at: NOON + 700000 }], NOON + 800000);
+  assert.equal(later.over, true);
+});
+
+test('a searcher holding a task still sees hasty alternatives', () => {
+  const town = tinyTown({ CONTAINMENT: false, PARK_CANDIDATES: 0, HAZARD_CANDIDATES: 0, HAZARD_FIRST: false, OPTIONS: 12 });
+  const p = randomMap(town, 8);
+  // Put some probability on the streets too, so a hasty walk has something to find.
+  for (let i = 0; i < p.length; i++) if (town.world.cls[i] === G.ROAD) p[i] = 2e-4;
+  const ana = [{ id: 'ana', ...town.corner(1, 1), mode: 'foot', updatedAgoMin: 0 }];
+  const params = { CONTAINMENT: false, PARK_CANDIDATES: 0, HAZARD_CANDIDATES: 0, HAZARD_FIRST: false, OPTIONS: 12 };
+  const free = planOnWorld(town.world, town.segs, { p, restOfWorld: 0, searchers: ana, events: [], clock: clock() }, params).searchers[0];
+  const block = free.options.find((o) => o.type === 'yards');
+  const held = planOnWorld(town.world, town.segs, { p, restOfWorld: 0, searchers: ana, events: [{ id: 'e', ...assignedEvent(block, 'ana', NOON) }], clock: clock(NOON + 60000) }, params).searchers[0];
+  assert.ok(held.options.some((o) => o.type === 'hasty'), `options while holding: ${held.options.map((o) => o.type).join(', ')}`);
+});
+
+test('Web Worker: the planner runs in a real worker thread and gives the same plan; phone-budget times', async (t) => {
+  const worker = new Worker(new URL('./helpers/planner-worker-node.js', import.meta.url));
+  let nextId = 0;
+  const waiting = new Map();
+  worker.on('message', (m) => { const done = waiting.get(m.id); waiting.delete(m.id); done(m); });
+  const ask = (message) => new Promise((resolve, reject) => {
+    const id = ++nextId;
+    const t0 = performance.now();
+    waiting.set(id, (m) => (m.ok ? resolve({ ...m, ms: performance.now() - t0 }) : reject(new Error(m.error))));
+    worker.postMessage({ id, ...message });
+  });
+  try {
+    const areaMs = (await ask({ type: 'area', key: 'k', osm })).ms;
+    const searchers = people(CASES[0], 10, 31);
+    const message = { type: 'plan', key: 'k', caseInput: CASES[0], events: [], searchers, nowMs: NOON };
+    const first = await ask(message);          // engine replay + build the planner's world + first plan
+    assert.equal(first.replayed, true);
+    const { workMs: firstWork, ms: firstMs, plan: firstPlan } = first;
+    assert.deepEqual(firstPlan, JSON.parse(JSON.stringify(structuredClone(planReal(0, searchers)))), 'same plan as on the page');
+    const events = acceptAll(firstPlan, NOON);
+    const done = events.concat([{ id: 'done', type: 'completed', searcherId: events[0].searcherId, taskId: events[0].taskId, at: NOON + 1500000 }]);
+    const busy = []; const fresh = [];
+    for (let i = 0; i < 25; i++) {
+      const again = await ask({ ...message, events: done, nowMs: NOON + 1500000 + 1000 * i });
+      assert.equal(again.replayed, false, 'the engine is not replayed for planner events');
+      if (i >= 5) busy.push([again.workMs, again.ms]);
+      const free = await ask({ ...message, nowMs: NOON + i });
+      if (i >= 5) fresh.push([free.workMs, free.ms]);
+    }
+    const median = (xs, k) => xs.map((x) => x[k]).sort((a, b) => a - b)[xs.length >> 1];
+    await assert.rejects(ask({ type: 'plan', key: 'other', caseInput: CASES[0], events: [], searchers, nowMs: NOON }), /unknown area/);
+    t.diagnostic(`in the worker (work / with message copying): new area ${areaMs.toFixed(0)} ms; first plan of a case = engine replay + planner world + plan ${firstWork.toFixed(0)} / ${firstMs.toFixed(0)} ms; re-plan 1 free + 9 busy ${median(busy, 0).toFixed(0)} / ${median(busy, 1).toFixed(0)} ms; re-plan 10 free ${median(fresh, 0).toFixed(0)} / ${median(fresh, 1).toFixed(0)} ms`);
+    t.diagnostic(`at 4x laptop slowdown, message copying included: first plan ${(4 * firstMs / 1000).toFixed(1)} s; re-plan ${(4 * median(busy, 1)).toFixed(0)} ms (1 free + 9 busy), ${(4 * median(fresh, 1)).toFixed(0)} ms (10 free); budget 300 ms per re-plan`);
+    assert.ok(4 * median(busy, 1) < 300 && 4 * median(fresh, 1) < 300, 'a re-plan stays under 300 ms at 4× the laptop\'s time');
+  } finally {
+    await worker.terminate();
+  }
 });
 
 test('fast enough: a re-plan with 10 searchers on the real map', (t) => {

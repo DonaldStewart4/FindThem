@@ -56,9 +56,30 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - **Deploy:** GitHub Pages, **live at https://donaldstewart4.github.io/FindThem/ since 2026-11-21**. The repo is public.
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
-- **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
+- **Do not build** a chatbot persona, camera integration, trackers, drill mode, accounts or photos, or anything else on the roadmap.
+- **GPS-trail coverage is in scope (decision by Nathan, 2026-11-22 night; it was on the "do not build" list before).** The search planner scores a `completed` event from the trail the searcher actually walked when the event carries one. Recording is specified, not yet built on the screen: during an active task only, a point every 10 s, attached to the `completed` event (see `docs/PLANNER-MERGE.md`).
 
 ## Log
+
+### Planner, stage 2b: found event, buildings only through canvass, GPS-trail test, Web Worker
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), stage 2 follow-up after Nathan's review
+- **What changed:**
+  - `engine/planner/plan.js`: a `found` event `{ type: 'found', lat, lng, by, at, note }` ends the search: the plan comes back with `over: true`, the `found` details, no assignment for anyone, and each searcher's held task listed under `released`. Searchers holding a task now get hasty alternatives too. Coverage cache keys now include what the event says, not only its id.
+  - `engine/planner/detect.js`: building squares are left out of a containment post's catchment. With sweep width 0 for buildings this makes the rule complete: probability inside a building is credited only by the door-knocking of the ask-permission (`yards`) task.
+  - New `engine/planner/host.js` and `engine/planner/worker.js`: the engine replay and the planner in one Web Worker. The world is built once per case and kept; the engine is replayed only when a `searched` or `sighting` event (or the case) changes.
+  - `tests/helpers/planner-worker-node.js`: runs that worker file in a real Node worker thread.
+  - `tests/planner.test.js`: 5 new tests (32 planner tests in all).
+  - `engine/planner/world.js`, `detect.js`: two sorts that did nothing useful removed.
+  - "Project context" above: GPS-trail coverage moved from "do not build" to in scope.
+- **Why:** Nathan's decisions on the stage 2 report: GPS trails yes; building probability only through canvass, and the rule must survive a 10 m map from the prior; a `found` event; hasty alternatives for searchers holding a task; world built once and everything in a Web Worker, with times at 4× laptop slowdown.
+- **Decisions:**
+  - The building rule is enforced in the detection code (sweep width 0, and no catchment credit), not in the adapter, so it does not depend on how the map arrives. The test feeds a 640 × 640 map with all probability inside one block's buildings: only the canvassing `yards` option gains anything (exactly `POD_CANVASS_BUILDING` = 0.4, ASSUMPTION), and a walk, a drive and a walk-past completed there leave cumulative POS at 0.
+  - `found` releases tasks in the plan's output rather than requiring `released` events: one event ends the search for every phone.
+  - Rejected: caching hasty routes between re-plans to save time. The plan would then depend on which re-plans a phone had run before, and two phones with the same events could disagree.
+- **How it was verified:** `node --test`: 118 tests pass (32 planner, 86 existing). From the worker test's output (laptop, Node 22, other work running on the machine): new area 139 ms; first plan of a case (engine replay + planner world + first plan) 1,126 ms of work; re-plan with 1 free + 9 busy searchers 22 ms; re-plan with 10 free 23 ms. **At 4× laptop slowdown: first plan 4.5 s, re-plan 93–98 ms** against the 300 ms budget. The worker's plan equals the in-page plan. The GPS-trail test passes a trail through `trackFromLatLngs` and the adapter: a third of the route walked scores less than the planned route and equals a direct calculation.
+- **Known issues / not done:** No phone has run it; "4×" is the laptop's time multiplied by 4. The first plan of a case is a one-off 4.5 s at that rate, off the page's thread. The source check for detection figures is still to be re-run. Nothing touches the screen yet.
+- **Next:** Merge `prior-v2` stage 3 into this branch so the planner is tested against the real hazard layer and rest-of-world value, then the benchmark.
 
 ### Planner, stage 2: the planner and its tests
 - **Date:** 2026-11-22

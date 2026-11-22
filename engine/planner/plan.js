@@ -64,13 +64,16 @@ function cachesOf(world) {
 // Sorts the planner's events (by time, then id, like the engine) and works out:
 //   active  Map(searcherId → their 'assigned' event), not released, completed or expired
 //   done    pieces of finished work to count as searched: [{ id, taskId, at, track, fraction }]
+//   found   the first 'found' event, if any: the search is over
 export function readEvents(events, nowMs) {
   const ordered = [...(events || [])]
-    .filter((e) => e && (e.type === 'assigned' || e.type === 'released' || e.type === 'completed'))
+    .filter((e) => e && (e.type === 'assigned' || e.type === 'released' || e.type === 'completed' || e.type === 'found'))
     .sort((a, b) => (Number(a.at) - Number(b.at)) || compareIds(a.id, b.id));
   const active = new Map();
   const done = [];
+  let found = null;
   for (const ev of ordered) {
+    if (ev.type === 'found') { if (!found) found = ev; continue; }
     const who = String(ev.searcherId);
     if (ev.type === 'assigned') { active.set(who, ev); continue; }
     const current = active.get(who);
@@ -95,14 +98,16 @@ export function readEvents(events, nowMs) {
     }
   }
   for (const [who, ev] of active) if (Number(ev.expiresAt) <= nowMs) active.delete(who);
-  return { active, done };
+  return { active, done, found };
 }
 
 // ---- 2. Bayes: what finished work did to the map --------------------------------------------------------
 
 function coverageOfDone(world, segs, rec, clock, P, canvass) {
   const cache = cachesOf(world).eventCov;
-  const key = `${rec.id}:${canvass ? 1 : 0}`;
+  // Keyed by the event and by what it says (events are never edited once sent, but two
+  // different searches, or two tests, may reuse an id).
+  const key = `${rec.id}:${canvass ? 1 : 0}:${rec.at}:${rec.taskId}:${rec.track ? rec.track.length : 'x'}:${rec.fraction}`;
   if (cache.has(key)) return cache.get(key);
   const task = segs.tasks.get(rec.taskId) || null;
   const type = task ? task.type : typeFromId(rec.taskId);
@@ -115,6 +120,7 @@ function coverageOfDone(world, segs, rec, clock, P, canvass) {
   const minutesThen = Math.max(0, clock.minutesSinceLastSeen - (clock.nowMs - rec.at) / 60000);
   const cov = coverageOfWork(world, { type, task, track: track || [], fraction: rec.fraction, canvass }, nightThen, minutesThen, P);
   cov.minutesThen = minutesThen;
+  if (cache.size > 600) cache.clear(); // a long search: start the cache again rather than grow
   cache.set(key, cov);
   return cov;
 }
@@ -192,6 +198,27 @@ export function planSearch(world, segs, input, overrides) {
   const post = bayes.post;
   if (tick) tick('bayes');
 
+  // The person has been found: the search is over. Nobody is given anything, and every task
+  // someone still holds is listed as released (the screen need not send 'released' events).
+  if (state.found) {
+    const f = state.found;
+    return {
+      over: true,
+      found: { lat: Number(f.lat), lng: Number(f.lng), by: f.by ?? null, at: Number(f.at), note: f.note ?? '' },
+      night,
+      searchers: [...(input.searchers || [])].map((raw) => String(raw.id)).sort(compareIds).map((id) => ({
+        searcherId: id, mode: null, keep: false, switchSuggested: false, primary: null, options: [], hold: 'found',
+        released: state.active.has(id) ? String(state.active.get(id).taskId) : null,
+      })),
+      unfilled: [],
+      measures: {
+        cumulativePOS: bayes.cumulativePOS, remaining: 1 - bayes.restOfWorld, restOfWorld: bayes.restOfWorld,
+        rowTrend: { perHour: 0, history: bayes.history }, bestRatePerMin: 0,
+        expand: { signal: false, reasons: [] },
+      },
+    };
+  }
+
   // ---- Searchers: where they stand on the street graph, and how far everything is from there ----
   const searchers = [...(input.searchers || [])].map((raw) => {
     const xy = raw.x !== undefined ? { x: raw.x, y: raw.y } : toXY(world, raw.lat, raw.lng);
@@ -223,7 +250,7 @@ export function planSearch(world, segs, input, overrides) {
     const task = segs.tasks.get(String(ev.taskId)) || null;
     const type = task ? task.type : typeFromId(ev.taskId);
     const knocks = type === 'yards' && ev.canvass !== false;
-    const key = `claim:${ev.id}:${nightKey}`;
+    const key = `claim:${ev.id}:${nightKey}:${ev.at}:${ev.taskId}:${ev.track ? ev.track.length : 'x'}:${knocks ? 1 : 0}:${type === 'containment' ? Math.round(sinceMin / 5) : ''}`;
     let cov = caches.eventCov.get(key);
     if (!cov) {
       let track = ev.track || null;
@@ -429,9 +456,7 @@ export function planSearch(world, segs, input, overrides) {
       best(segs.areas, (t, k) => (t.type === 'yards' && usable(t) ? areaScore[k] : 0), P.BLOCK_CANDIDATES, tourOption);
       best(segs.areas, (t, k) => (t.type === 'park' && t.edges.length > 0 ? areaScore[k] : 0), P.PARK_CANDIDATES, parkOption);
       best(segs.hazards, (t, k) => (usable(t) ? hazardScore[k] : 0), P.HAZARD_CANDIDATES, tourOption);
-      // Hasty routes are built for free searchers only: they matter in the first minutes, when
-      // nobody holds a task yet, and they are the costly ones to build.
-      if (!s.claim) best(segs.hasty, (t) => prizesOf(t, 'hasty').top, P.HASTY_CANDIDATES, walkOption);
+      best(segs.hasty, (t) => prizesOf(t, 'hasty').top, P.HASTY_CANDIDATES, walkOption);
     } else {
       best(segs.drive, (t) => prizesOf(t, 'drive').top, 2, walkOption);
     }
@@ -775,6 +800,7 @@ export function planSearch(world, segs, input, overrides) {
       keep: Boolean(kept), switchSuggested: s.switching,
       primary, options,
       hold: primary ? null : s.node < 0 ? 'no_street_nearby' : 'nothing_useful',
+      released: null,
     };
   });
 
@@ -790,6 +816,8 @@ export function planSearch(world, segs, input, overrides) {
   if (searchers.length > 0 && bestRate < P.MIN_USEFUL_RATE) reasons.push('map_exhausted');
   if (unfilled.length) reasons.push('hazard_unchecked');
   return {
+    over: false,
+    found: null,
     night,
     searchers: out,
     unfilled,

@@ -367,7 +367,7 @@ export function trackOfEdges(world, edges, startNode) {
 }
 
 // Every square within reach of a track, with its closest distance to the track (meters):
-// { cells: Int32Array, dist: Float32Array }, cells in ascending order.
+// { cells: Int32Array, dist: Float32Array }.
 export function footprint(world, track) {
   const { n, kernel } = world;
   const scratch = world.tmp.dist;
@@ -385,7 +385,7 @@ export function footprint(world, track) {
       if (kernel.d[k] < scratch[j]) scratch[j] = kernel.d[k];
     }
   }
-  touched.sort((a, b) => a - b);
+  // (In the order first reached: the same track always gives the same order.)
   const cells = Int32Array.from(touched);
   const dist = new Float32Array(cells.length);
   for (let i = 0; i < cells.length; i++) { dist[i] = scratch[cells[i]]; scratch[cells[i]] = Infinity; }

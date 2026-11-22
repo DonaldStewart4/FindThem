@@ -56,7 +56,8 @@ export function lookProbability(dist, w, P = DEFAULTS) {
   return w > 0 ? P.P0 * Math.exp((-2 * P.P0 * dist) / w) : 0;
 }
 
-// Coverage of walking (or driving) a track: a list of squares in order.
+// Coverage of walking (or driving) a track: a list of squares in order. Building squares have
+// sweep width 0 (walls), so no track ever credits them; only canvassCoverage() below does.
 export function trackCoverage(world, track, pace, night, P = DEFAULTS) {
   const fp = footprint(world, track);
   return coverageOfFootprint(world, fp, pace, night, P);
@@ -84,7 +85,6 @@ export function mergeCoverage(world, list) {
       scratch[c] = 1 - (1 - scratch[c]) * (1 - cov.det[i]);
     }
   }
-  touched.sort((a, b) => a - b);
   const cells = Int32Array.from(touched);
   const det = new Float32Array(cells.length);
   for (let i = 0; i < cells.length; i++) { det[i] = scratch[cells[i]]; scratch[cells[i]] = 0; }
@@ -141,6 +141,9 @@ export function postCoverage(world, task, night, minutesSinceLastSeen, P = DEFAU
     for (let dc = -reach; dc <= reach; dc++) {
       const c2 = c0 + dc;
       if (c2 < 0 || c2 >= n || Math.hypot(dr, dc) * cellM > P.CATCH_M) continue;
+      // Not building squares: probability inside buildings is credited ONLY through the
+      // ask-permission (door-knocking) task, never by anything seen or watched from outside.
+      if (world.vis[rr * n + c2] === V.BUILDING) continue;
       cells.push(rr * n + c2);
     }
   }
