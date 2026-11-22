@@ -123,6 +123,12 @@ const SECTOR_RE = /^r[0-9]{1,3}c[0-9]{1,3}$/;
 const TASK_RE = /^[0-9A-Za-z:_-]{1,64}$/;
 const CID_RE = /^[0-9A-Za-z_.:-]{1,64}$/;
 const DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+// How they may be travelling (docs/INTAKE-SPEC.md: Walking · Maybe car · Maybe bus · Not sure).
+export const TRAVEL = ['walking', 'car', 'bus', 'unknown'];
+// The case fields a 'caseUpdate' event may change, and what "cleared" means for the ones that
+// can be cleared (Firebase can't store null or [], so a cleared value is simply left out).
+export const CASE_UPDATE_FIELDS = ['minutes', 'minutesAt', 'direction', 'mobility', 'familiarPlaces', 'travel', 'description'];
+const CLEARED = { direction: null, familiarPlaces: [], description: '' };
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const num = (lo, hi) => (v) => isNum(v) && v >= lo && v <= hi;
@@ -165,12 +171,17 @@ const EVENT_FIELDS = {
   searchMin: num(...LIMITS.SEARCH_MIN),
   fraction: num(0, 1),
   track: TRACK,
+  field: oneOf(CASE_UPDATE_FIELDS),
+  value: () => true,           // checked in checkEvent, like the case field it replaces
 };
 
 // The known event types: which fields each MUST have and which it MAY have (besides
 // type, at, cid and by, which every type may have; type and at are required).
 // assigned / released / completed are the planner's (docs/PLANNER.md §5); 'assigned' also
 // accepts the INTERFACES.md shape { sectorId, to, toId? }.
+// caseUpdate changes one case field after the search was shared (the case itself is written
+// once): { field, value }. The latest one per field wins (applyCaseUpdates).
+// found: the person was found, at { lat, lng }.
 export const EVENT_TYPES = {
   searched: { required: ['sectorId', 'minutes'], optional: [] },
   sighting: { required: ['lat', 'lng', 'minutesSince', 'reliability'], optional: ['direction', 'note'] },
@@ -178,6 +189,8 @@ export const EVENT_TYPES = {
   assigned: { required: [], optional: ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track'] },
   released: { required: ['searcherId', 'taskId'], optional: ['track', 'fraction'] },
   completed: { required: ['searcherId', 'taskId', 'minutes'], optional: ['track', 'partnerId'] },
+  caseUpdate: { required: ['field'], optional: ['value'] },
+  found: { required: ['lat', 'lng'], optional: ['note'] },
 };
 const COMMON_FIELDS = ['type', 'at', 'cid', 'by'];
 
@@ -205,6 +218,13 @@ export function checkEvent(ev) {
     if (!present(ev, 'searcherId') && !present(ev, 'toId') && !present(ev, 'to')) return 'missing:searcherId';
     if (present(ev, 'expiresAt') && !(ev.expiresAt > ev.at && ev.expiresAt <= ev.at + LIMITS.ASSIGN_MAX_MS)) return 'bad:expiresAt';
   }
+  if (ev.type === 'caseUpdate') {
+    if (present(ev, 'value')) {
+      if (!CASE_FIELDS[ev.field](ev.value)) return 'bad:value';
+    } else if (!has(CLEARED, ev.field)) {
+      return 'missing:value'; // only direction, familiarPlaces and description can be cleared
+    }
+  }
   return null;
 }
 
@@ -225,6 +245,8 @@ const CASE_FIELDS = {
   startedBy: NAME,
   startedAt: TIME,
   engineVersion: match(VERSION_RE),
+  travel: oneOf(TRAVEL),
+  description: str(LIMITS.TEXT_MAX), // what they are wearing (docs/INTAKE-SPEC.md)
 };
 const CASE_REQUIRED = ['lastSeen', 'minutes', 'mobility', 'seed', 'createdAt', 'engineVersion'];
 
@@ -252,10 +274,46 @@ export function checkSearcher(s) {
   return null;
 }
 
-// A copy without null fields (what Firebase would store).
+// A copy without the fields Firebase wouldn't store: null, an empty list, an empty object.
 function withoutNulls(obj) {
   const out = {};
-  for (const [k, v] of Object.entries(obj)) if (v !== null && v !== undefined) out[k] = v;
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === null || v === undefined) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (isObj(v) && Object.keys(v).length === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+// Orders two ids by Unicode code point (push ids are plain ASCII, so this is also simple
+// character order). Every phone sorts the same way.
+export function compareIds(a, b) {
+  const x = [...String(a)];
+  const y = [...String(b)];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const d = x[i].codePointAt(0) - y[i].codePointAt(0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return x.length - y.length < 0 ? -1 : x.length > y.length ? 1 : 0;
+}
+const byTimeThenId = (a, b) => (a.at - b.at) || compareIds(a.id, b.id);
+
+// The case with every caseUpdate applied: for each field, the update with the latest `at`
+// wins (same `at`: the larger id, by code point). Any update beats the value the case was
+// created with. `events` must already be checked (cleanEvents). Returns a new object.
+export function applyCaseUpdates(caseDoc, events) {
+  if (!isObj(caseDoc)) return caseDoc;
+  const latest = {};
+  for (const ev of events || []) {
+    if (!ev || ev.type !== 'caseUpdate') continue;
+    const cur = latest[ev.field];
+    if (!cur || byTimeThenId(ev, cur) > 0) latest[ev.field] = ev;
+  }
+  const out = { ...caseDoc };
+  for (const [field, ev] of Object.entries(latest)) {
+    out[field] = present(ev, 'value') ? structuredClone(ev.value) : structuredClone(CLEARED[field]);
+  }
   return out;
 }
 
@@ -474,7 +532,7 @@ export function sortedEvents(eventsObject) {
   return Object.entries(isObj(eventsObject) ? eventsObject : {})
     .filter(([, ev]) => isObj(ev))
     .map(([id, ev]) => ({ ...ev, id }))
-    .sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .sort(byTimeThenId);
 }
 
 // What the engine is given: only events that pass checkEvent and have a proper push id, each
@@ -490,7 +548,7 @@ export function cleanEvents(eventsObject) {
     if (reason) dropped.push({ id, reason });
     else list.push({ ...withoutNulls(ev), id });
   }
-  list.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  list.sort(byTimeThenId);
   // Two events with the same content (everything but the id, which includes the sending
   // phone's cid and its time) are one event sent twice: keep the first.
   const seen = new Set();
@@ -503,7 +561,7 @@ export function cleanEvents(eventsObject) {
     seen.add(key);
     events.push(ev);
   }
-  dropped.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  dropped.sort((a, b) => compareIds(a.id, b.id));
   return { events, dropped, duplicates };
 }
 
@@ -530,8 +588,11 @@ function readCaseDoc(raw) {
   };
 }
 
-// Everything in one mirror of a search, checked: { caseDoc, events, searchers, info }.
+// Everything in one mirror of a search, checked: { caseDoc, baseCase, events, searchers, info }.
+//   caseDoc   the case with every caseUpdate applied: what the engine should use
+//   baseCase  the case as it was first written
 // info = {
+//   caseUpdates                         how many caseUpdate events there are
 //   dropped, droppedIds, duplicates     bad events and repeated copies left out
 //   caseProblem                         why the case was refused (null if fine or none yet)
 //   caseEngineVersion, engineVersion    the case's engine version and this phone's
@@ -542,13 +603,15 @@ export function readMirror(mirror) {
   const c = readCaseDoc(m.case);
   const { events, dropped, duplicates } = cleanEvents(m.events);
   return {
-    caseDoc: c.caseDoc,
+    caseDoc: applyCaseUpdates(c.caseDoc, events),
+    baseCase: c.caseDoc,
     events,
     searchers: cleanSearchers(m.searchers),
     info: {
       dropped: dropped.length,
       droppedIds: dropped,
       duplicates,
+      caseUpdates: events.filter((e) => e.type === 'caseUpdate').length,
       caseProblem: c.caseProblem,
       caseEngineVersion: c.caseEngineVersion,
       versionMismatch: c.versionMismatch,

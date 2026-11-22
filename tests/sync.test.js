@@ -1,10 +1,12 @@
-// Tests for sync.js: mirror patching, event sorting, the offline queue, and the integrity
-// rules (no event can corrupt the shared map).
+// Tests for sync.js: mirror patching, event sorting, the offline queue, case updates, and the
+// integrity rules (no event can corrupt the shared map).
 //
-// The integrity part checks ONE table of good and bad events three ways, and all three must agree:
-//   1. sync.js checkEvent: what every phone accepts from the database
-//   2. firebase-rules.json, run by the small rules evaluator below: what Firebase accepts
+// The integrity part checks ONE table of good and bad events, plus write scenarios (append-only,
+// write-once case, partial writes, PATCH...), against every stand-in, and all must agree:
+//   1. sync.js checkEvent / checkCase: what every phone accepts from the database
+//   2. firebase-rules.json, run by the small rules evaluator below: what Firebase should accept
 //   3. tools/mock-firebase.py, over real HTTP: what the local test database accepts
+//   4. the real Firebase emulator, over HTTP, when FIREBASE_EMULATOR is set (see that test)
 // fetch and localStorage are replaced with small fakes for the queue tests.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -201,7 +203,10 @@ const ev = {
   assignedOld: { type: 'assigned', sectorId: 'r3c4', to: 'Ana', toId: ME, at: T0 },
   released: { type: 'released', searcherId: ME, taskId: 'y123', at: T0, track: [5, 6], fraction: 0.5 },
   completed: { type: 'completed', searcherId: ME, taskId: 'p77', at: T0, minutes: 25, track: [1], partnerId: PAL },
+  caseUpdate: { type: 'caseUpdate', field: 'minutes', value: 40, by: 'Ana', cid: 'local-1-4', at: T0 },
+  found: { type: 'found', lat: 37.55, lng: -121.96, note: 'at the bus stop, safe', by: 'Ana', cid: 'local-1-5', at: T0 },
 };
+const PLACE = { lat: 37.55, lng: -121.96, label: 'Lake Elizabeth' };
 const w = (base, change) => {
   const out = { ...ev[base], ...change };
   for (const [k, v] of Object.entries(change)) if (v === undefined) delete out[k];
@@ -294,6 +299,53 @@ const TABLE = [
   ['message 100,000 characters', w('message', { text: long(100000) }), false],
   ['track of 2,001 squares', w('released', { track: Array.from({ length: 2001 }, (_, i) => i) }), false],
   ['taskId 65 characters', w('released', { taskId: long(65) }), false],
+
+  // caseUpdate: one case field changed after sharing; the value is checked like that case field
+  ['caseUpdate minutes', ev.caseUpdate, true],
+  ['caseUpdate minutes 1440 (highest)', w('caseUpdate', { value: 1440 }), true],
+  ['caseUpdate minutesAt', w('caseUpdate', { field: 'minutesAt', value: T0 }), true],
+  ['caseUpdate direction', w('caseUpdate', { field: 'direction', value: 'NE' }), true],
+  ['caseUpdate direction cleared (no value)', w('caseUpdate', { field: 'direction', value: undefined }), true],
+  ['caseUpdate mobility', w('caseUpdate', { field: 'mobility', value: 'slow' }), true],
+  ['caseUpdate familiarPlaces', w('caseUpdate', { field: 'familiarPlaces', value: [PLACE, { lat: 37.5, lng: -121.9 }] }), true],
+  ['caseUpdate familiarPlaces cleared (no value)', w('caseUpdate', { field: 'familiarPlaces', value: undefined }), true],
+  ['caseUpdate travel', w('caseUpdate', { field: 'travel', value: 'car' }), true],
+  ['caseUpdate description', w('caseUpdate', { field: 'description', value: 'blue jacket, white cap' }), true],
+  ['caseUpdate description empty', w('caseUpdate', { field: 'description', value: '' }), true],
+  ['caseUpdate description cleared (no value)', w('caseUpdate', { field: 'description', value: undefined }), true],
+  ['caseUpdate field seed (not allowed)', w('caseUpdate', { field: 'seed', value: 5 }), false],
+  ['caseUpdate field lastSeen (not allowed)', w('caseUpdate', { field: 'lastSeen', value: { lat: 1, lng: 1 } }), false],
+  ['caseUpdate field engineVersion (not allowed)', w('caseUpdate', { field: 'engineVersion', value: 'x' }), false],
+  ['caseUpdate field missing', w('caseUpdate', { field: undefined }), false],
+  ['caseUpdate field a number', w('caseUpdate', { field: 7 }), false],
+  ['caseUpdate minutes 0', w('caseUpdate', { value: 0 }), false],
+  ['caseUpdate minutes 1441', w('caseUpdate', { value: 1441 }), false],
+  ['caseUpdate minutes as text', w('caseUpdate', { value: '40' }), false],
+  ['caseUpdate minutes an object', w('caseUpdate', { value: { x: 40 } }), false],
+  ['caseUpdate minutes without value', w('caseUpdate', { value: undefined }), false],
+  ['caseUpdate minutesAt 1000', w('caseUpdate', { field: 'minutesAt', value: 1000 }), false],
+  ['caseUpdate mobility junk', w('caseUpdate', { field: 'mobility', value: 'flying' }), false],
+  ['caseUpdate mobility without value', w('caseUpdate', { field: 'mobility', value: undefined }), false],
+  ['caseUpdate travel junk', w('caseUpdate', { field: 'travel', value: 'plane' }), false],
+  ['caseUpdate direction "up"', w('caseUpdate', { field: 'direction', value: 'up' }), false],
+  ['caseUpdate description 301', w('caseUpdate', { field: 'description', value: long(301) }), false],
+  ['caseUpdate description a number', w('caseUpdate', { field: 'description', value: 5 }), false],
+  ['caseUpdate 4 familiar places', w('caseUpdate', { field: 'familiarPlaces', value: [PLACE, PLACE, PLACE, PLACE] }), false],
+  ['caseUpdate familiar place lat 91', w('caseUpdate', { field: 'familiarPlaces', value: [{ ...PLACE, lat: 91 }] }), false],
+  ['caseUpdate familiar place extra key', w('caseUpdate', { field: 'familiarPlaces', value: [{ ...PLACE, phone: '555' }] }), false],
+  ['caseUpdate familiar label 101', w('caseUpdate', { field: 'familiarPlaces', value: [{ ...PLACE, label: long(101) }] }), false],
+  ['caseUpdate familiarPlaces not a list', w('caseUpdate', { field: 'familiarPlaces', value: 'Lake' }), false],
+  ['caseUpdate familiar place without lng', w('caseUpdate', { field: 'familiarPlaces', value: [{ lat: 37.5 }] }), false],
+  ['caseUpdate extra field', w('caseUpdate', { reason: 'typo' }), false],
+
+  // found: the person was found
+  ['found', ev.found, true],
+  ['found, no note, no name', w('found', { note: undefined, by: undefined }), true],
+  ['found lat 91', w('found', { lat: 91 }), false],
+  ['found without lng', w('found', { lng: undefined }), false],
+  ['found note 301', w('found', { note: long(301) }), false],
+  ['found with reliability (a sighting field)', w('found', { reliability: 0.9 }), false],
+  ['found with text (a message field)', w('found', { text: 'yay' }), false],
 ];
 
 test('the event table: sync.js checkEvent accepts exactly the good events', () => {
@@ -307,11 +359,15 @@ test('the event table: sync.js checkEvent accepts exactly the good events', () =
 // Runs firebase-rules.json the way Firebase does, for the parts our rules use:
 //   - a write is allowed if some ".write" on the path from the root down to the written place
 //     is true (data = before, newData = after, at that rule's place)
-//   - then every ".validate" at the written place and below it must be true
+//   - then every ".validate" at the written place, below it, AND above it (with the data as it
+//     would be after the write) must be true. The Firebase emulator does check the places above:
+//     with the case's completeness check taken out of ".write", it still refused a lone
+//     case/minutes write, because of the case's own ".validate" (tested 2026-11-22, emulator
+//     v4.11.2; see docs/INTEGRITY-REPORT.md).
 //   - "$name" keys match any key and set the variable $name; named keys win
 //   - null is never stored; an error in a rule counts as false
-// Validates only at and below the written place, which is the weaker of the two readings of
-// Firebase's docs, so the rules are tested to be safe even then.
+// With { above: false } it skips the places above (the weaker reading of Firebase's docs). The
+// scenarios are run both ways, so the rules don't depend on that detail.
 
 const RULES = JSON.parse(readFileSync(new URL('../firebase-rules.json', import.meta.url), 'utf8')).rules;
 for (const [name, fn] of Object.entries({
@@ -393,7 +449,7 @@ function validateTree(rule, vars, tree, keys, nowMs) {
   });
 }
 // writes: [[path, value]]. Returns the new tree, or null if Firebase would refuse.
-function rulesWrite(oldTree, writes, nowMs = Date.now()) {
+function rulesWrite(oldTree, writes, { nowMs = Date.now(), above = true } = {}) {
   let newTree = oldTree;
   const parsed = writes.map(([p, v]) => [p.split('/').filter(Boolean), stripNulls(v)]);
   for (const [keys, v] of parsed) newTree = setIn(newTree, keys, v);
@@ -404,6 +460,9 @@ function rulesWrite(oldTree, writes, nowMs = Date.now()) {
         granted = evalRule(rule['.write'], { ...vars, data: new Snap(oldTree, keys.slice(0, i)), newData: new Snap(newTree, keys.slice(0, i)), root: new Snap(oldTree, []), now: nowMs, auth: null });
       }
       if (i === keys.length) break;
+      const here = new Snap(newTree, keys.slice(0, i));
+      if (above && rule && '.validate' in rule && here.exists()
+        && !evalRule(rule['.validate'], { ...vars, newData: here, data: new Snap(oldTree, keys.slice(0, i)), root: new Snap(oldTree, []), now: nowMs, auth: null })) return null;
       const [r, wild] = step(rule, keys[i]);
       rule = r;
       if (wild) vars = { ...vars, [wild]: keys[i] };
@@ -414,80 +473,175 @@ function rulesWrite(oldTree, writes, nowMs = Date.now()) {
   return newTree;
 }
 
-const withCase = { searches: { [S1]: { case: { ...CASE, direction: undefined, startedAt: undefined, createdAt: T0, engineVersion: 'x' } } } };
+// ---- Write scenarios: the same list runs against every database stand-in ------------------------
+// Each scenario is a list of steps [method, path, body, expected HTTP status] (or
+// ['ABSENT', path] = nothing may be stored there). Every scenario uses its own new search, so
+// they don't affect each other. The list runs against:
+//   - the rules evaluator above (firebase-rules.json)
+//   - tools/mock-firebase.py over HTTP
+//   - the real Firebase emulator over HTTP, when FIREBASE_EMULATOR is set (see the test)
 
-test('the event table: firebase-rules.json accepts exactly the good events', () => {
+const goodCase = () => ({ ...stripNulls(CASE), createdAt: NOW, engineVersion: sync.ENGINE_VERSION });
+const BAD_CASES = {
+  'no engineVersion': { engineVersion: undefined },
+  'minutes 0': { minutes: 0 },
+  'minutes 1441': { minutes: 1441 },
+  'seed 1.5': { seed: 1.5 },
+  'seed too big': { seed: 2 ** 32 },
+  'mobility junk': { mobility: 'flying' },
+  'travel junk': { travel: 'plane' },
+  'description 301': { description: long(301) },
+  'lastSeen lat 200': { lastSeen: { lat: 200, lng: 0 } },
+  'lastSeen extra': { lastSeen: { lat: 1, lng: 1, z: 1 } },
+  '4 familiar places': { familiarPlaces: [1, 2, 3, 4].map(() => ({ lat: 1, lng: 1 })) },
+  'familiar label 101': { familiarPlaces: [{ lat: 1, lng: 1, label: long(101) }] },
+  'extra field': { hack: true },
+  'createdAt 2 h ahead': { createdAt: NOW + 2 * 3600000, serverOnly: true },
+};
+const badCase = (change) => {
+  const out = { ...goodCase(), ...change };
+  delete out.serverOnly;
+  for (const [k, v] of Object.entries(change)) if (v === undefined) delete out[k];
+  return out;
+};
+
+function scenarios() {
+  const list = [];
+  const add = (name, steps) => list.push({ name, steps });
+  const s = () => sync.newSearchId();
+
   for (const [name, event, ok] of TABLE) {
-    const result = rulesWrite(withCase, [[`searches/${S1}/events/${sync.newPushId()}`, event]]);
-    assert.equal(result !== null, ok, `${name}: rules said ${result ? 'yes' : 'no'}`);
+    const id = s();
+    add(`table: ${name}`, [['PUT', `searches/${id}/case`, goodCase(), 200], ['PUT', `searches/${id}/events/${sync.newPushId()}`, event, ok ? 200 : 401]]);
   }
-});
 
-test('rules: events are append-only, need a push id, and cannot be written in pieces', () => {
-  const id = sync.newPushId();
-  const t1 = rulesWrite(withCase, [[`searches/${S1}/events/${id}`, ev.message]]);
-  assert.ok(t1);
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/events/${id}`, w('message', { text: 'edited' })]]), null, 'overwrite');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/events/${id}/text`, 'edited']]), null, 'edit one field');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/events/${id}`, null]]), null, 'delete');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/events`, null]]), null, 'delete all events');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/events`, { [sync.newPushId()]: ev.message }]]), null, 'replace the whole list');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}`, null]]), null, 'delete the search');
-  assert.equal(rulesWrite(withCase, [[`searches/${S1}/events/not-a-push-id`, ev.message]]), null, 'bad id');
-  const id2 = sync.newPushId();
-  assert.equal(rulesWrite(withCase, [[`searches/${S1}/events/${id2}/type`, 'message']]), null, 'a lone type');
-  assert.equal(rulesWrite(withCase, [[`searches/${S1}/events/${id2}/lat`, 37.5]]), null, 'a lone field');
-  // Several fields at once with PATCH: fine if together they make a whole, valid event.
-  const fields = Object.entries(ev.message).map(([k, v]) => [`searches/${S1}/events/${id2}/${k}`, v]);
-  assert.ok(rulesWrite(withCase, fields), 'PATCH of a whole event');
-  assert.equal(rulesWrite(withCase, [...fields, [`searches/${S1}/events/${id2}/hack`, 1]]), null, 'PATCH with an extra field');
-  assert.equal(rulesWrite(withCase, [[`searches/${'X'.repeat(32)}/events/${id2}`, ev.message]]), null, 'bad search id');
-});
+  {
+    const id = s(); const e = `searches/${id}/events`;
+    const a = sync.newPushId(); const b = sync.newPushId(); const c = sync.newPushId(); const d = sync.newPushId();
+    const fields = Object.fromEntries(Object.entries(ev.message));
+    add('events are append-only and cannot be written in pieces', [
+      ['PUT', `searches/${id}/case`, goodCase(), 200],
+      ['PUT', `${e}/${a}`, ev.message, 200],
+      ['PUT', `${e}/${a}`, ev.message, 401],                       // the same event again (a replay)
+      ['PUT', `${e}/${a}`, w('message', { text: 'edited' }), 401], // overwrite
+      ['PUT', `${e}/${a}/text`, 'edited', 401],                    // edit one field
+      ['DELETE', `${e}/${a}`, undefined, 401],
+      ['DELETE', e, undefined, 401],
+      ['PUT', e, { [sync.newPushId()]: ev.message }, 401],         // replace the whole list
+      ['DELETE', `searches/${id}`, undefined, 401],
+      ['PUT', `${e}/not-a-push-id`, ev.message, 401],
+      ['PUT', `${e}/${b}/type`, 'message', 401],                   // a lone type
+      ['PUT', `${e}/${b}/lat`, 37.5, 401],                         // a lone field
+      ['PATCH', `${e}/${b}`, fields, 200],                         // a whole event, field by field, in one write
+      ['PATCH', `${e}/${c}`, { ...fields, hack: 1 }, 401],
+      ['ABSENT', `${e}/${c}`],
+      ['POST', e, ev.searched, 200],
+      ['POST', e, w('searched', { minutes: 0 }), 401],
+      ['PATCH', `searches/${id}`, { [`events/${c}`]: ev.message, [`events/${d}`]: w('message', { text: '' }) }, 401],
+      ['ABSENT', `${e}/${c}`],                                     // nothing from the refused PATCH was stored
+      ['ABSENT', `${e}/${d}`],
+      ['PUT', `searches/${'X'.repeat(32)}/events/${d}`, ev.message, 401],
+    ]);
+  }
 
-test('rules: the case is written once, whole and valid', () => {
-  const caseDoc = { ...CASE, createdAt: NOW, engineVersion: sync.ENGINE_VERSION };
-  const t1 = rulesWrite({}, [[`searches/${S1}/case`, caseDoc]]);
-  assert.ok(t1, 'a good case');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/case`, caseDoc]]), null, 'written twice');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/case/minutes`, 999]]), null, 'changed later');
-  assert.equal(rulesWrite(t1, [[`searches/${S1}/case`, null]]), null, 'deleted');
-  const bad = {
-    'no engineVersion': { ...caseDoc, engineVersion: undefined },
-    'minutes 0': { ...caseDoc, minutes: 0 },
-    'minutes 1441': { ...caseDoc, minutes: 1441 },
-    'seed 1.5': { ...caseDoc, seed: 1.5 },
-    'seed too big': { ...caseDoc, seed: 2 ** 32 },
-    'mobility junk': { ...caseDoc, mobility: 'flying' },
-    'lastSeen lat 200': { ...caseDoc, lastSeen: { lat: 200, lng: 0 } },
-    'lastSeen extra': { ...caseDoc, lastSeen: { lat: 1, lng: 1, z: 1 } },
-    '4 familiar places': { ...caseDoc, familiarPlaces: [1, 2, 3, 4].map(() => ({ lat: 1, lng: 1 })) },
-    'familiar label 101': { ...caseDoc, familiarPlaces: [{ lat: 1, lng: 1, label: long(101) }] },
-    'extra field': { ...caseDoc, hack: true },
-    'createdAt 2 h ahead': { ...caseDoc, createdAt: NOW + 2 * 3600000 },
+  {
+    const id = s(); const c = `searches/${id}/case`;
+    add('the case is written once', [
+      ['PUT', c, goodCase(), 200],
+      ['PUT', c, goodCase(), 401],
+      ['PUT', `${c}/minutes`, 999, 401],
+      ['PUT', `${c}/minutes`, 50, 401],
+      ['DELETE', c, undefined, 401],
+    ]);
+    add('a case with travel and description', [['PUT', `searches/${s()}/case`, { ...goodCase(), travel: 'car', description: 'blue jacket' }, 200]]);
+    for (const [name, change] of Object.entries(BAD_CASES)) add(`bad case: ${name}`, [['PUT', `searches/${s()}/case`, badCase(change), 401]]);
+    add('a case under a bad search id', [['PUT', `searches/${id}x/case`, goodCase(), 401]]); // 33 characters
+    const p = s();
+    add('a case cannot be started one field at a time', [
+      ['PUT', `searches/${p}/case/minutes`, 45, 401],
+      ['PUT', `searches/${p}/case/lastSeen/lat`, 37, 401],
+      ['ABSENT', `searches/${p}/case`],
+    ]);
+  }
+
+  {
+    const id = s(); const me = `searches/${id}/searchers/${ME}`;
+    const pos = { lat: 37.5, lng: -121.9, at: NOW, name: 'Ana' };
+    add('searcher positions: overwrite and remove, valid shapes only', [
+      ['PUT', me, pos, 200],
+      ['PUT', me, { ...pos, lat: 37.6 }, 200],
+      ['DELETE', me, undefined, 200],
+      ['PUT', me, { ...pos, lat: 'x' }, 401],
+      ['PUT', me, { ...pos, extra: 1 }, 401],
+      ['PUT', me, { ...pos, name: long(41) }, 401],
+      ['PUT', `searches/${s()}/searchers/${ME}/lat`, 37.5, 401],
+      ['PUT', `searches/${id}/searchers/NOTHEX`, pos, 401],
+    ]);
+  }
+  return list;
+}
+
+// Runs every scenario; returns a list of every step whose answer was not the expected one.
+async function runScenarios(backend) {
+  const wrong = [];
+  for (const sc of scenarios()) {
+    for (const [method, path, body, expected] of sc.steps) {
+      if (method === 'ABSENT') {
+        const v = await backend.read(path);
+        if (v !== null && v !== undefined) wrong.push(`${sc.name}: ${path} should be empty`);
+        continue;
+      }
+      const status = await backend.write(method, path, body);
+      if (status !== expected) wrong.push(`${sc.name}: ${method} ${path.replace(/[0-9a-f]{32}/, '<s>')} → ${status}, expected ${expected}`);
+    }
+  }
+  return wrong;
+}
+
+function evaluatorBackend(options = {}) {
+  let tree = {};
+  return {
+    async write(method, path, body) {
+      let writes;
+      if (method === 'PUT') writes = [[path, body]];
+      else if (method === 'DELETE') writes = [[path, null]];
+      else if (method === 'POST') writes = [[`${path}/${sync.newPushId()}`, body]];
+      else if (method === 'PATCH') writes = Object.entries(body).map(([k, v]) => [`${path}/${k}`, v]);
+      const next = rulesWrite(tree, writes, options);
+      if (!next) return 401;
+      tree = next;
+      return 200;
+    },
+    async read(path) { return lookup(tree, path.split('/').filter(Boolean)); },
   };
-  for (const [name, c] of Object.entries(bad)) {
-    assert.equal(rulesWrite({}, [[`searches/${S1}/case`, c]]), null, name);
-    if (name !== 'createdAt 2 h ahead') assert.notEqual(sync.checkCase(stripNulls(c)), null, `checkCase: ${name}`);
-  }
-  // Written in pieces (each piece alone is incomplete): refused.
-  assert.equal(rulesWrite({}, [[`searches/${S1}/case/minutes`, 45]]), null, 'one field first');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/case/lastSeen/lat`, 37]]), null, 'one nested field first');
-  assert.equal(sync.checkCase(stripNulls(caseDoc)), null);
+}
+
+function httpBackend(base, query = '') {
+  const u = (path) => `${base}/${path}.json${query}`;
+  return {
+    async write(method, path, body) {
+      const res = await realFetch(u(path), { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      await res.text();
+      return res.status;
+    },
+    async read(path) { return (await realFetch(u(path))).json(); },
+    raw: (path, opts) => realFetch(u(path), opts),
+  };
+}
+
+test('firebase-rules.json (rules evaluator) gives the expected answer to every write scenario', async () => {
+  assert.deepEqual(await runScenarios(evaluatorBackend()), []);
+  assert.deepEqual(await runScenarios(evaluatorBackend({ above: false })), [], 'without checking the places above');
 });
 
-test('rules: searcher positions can be overwritten and removed, but only with a valid shape', () => {
-  const pos = { lat: 37.5, lng: -121.9, at: NOW, name: 'Ana' };
-  const t1 = rulesWrite({}, [[`searches/${S1}/searchers/${ME}`, pos]]);
-  assert.ok(t1);
-  assert.ok(rulesWrite(t1, [[`searches/${S1}/searchers/${ME}`, { ...pos, lat: 37.6 }]]), 'overwrite');
-  assert.ok(rulesWrite(t1, [[`searches/${S1}/searchers/${ME}`, null]]), 'remove');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/searchers/${ME}`, { ...pos, lat: 'x' }]]), null, 'lat text');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/searchers/${ME}`, { ...pos, extra: 1 }]]), null, 'extra');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/searchers/${ME}`, { ...pos, name: long(41) }]]), null, 'long name');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/searchers/${ME}/lat`, 37.5]]), null, 'a lone field');
-  assert.equal(rulesWrite({}, [[`searches/${S1}/searchers/NOTHEX`, pos]]), null, 'bad id');
-  assert.equal(sync.checkSearcher(pos), null);
-  assert.equal(sync.checkSearcher({ ...pos, lat: 'x' }), 'bad:lat');
+test('checkCase refuses the same bad cases (except the clock check, which only the database does)', () => {
+  assert.equal(sync.checkCase(goodCase()), null);
+  assert.equal(sync.checkCase({ ...goodCase(), travel: 'bus', description: 'red hat' }), null);
+  for (const [name, change] of Object.entries(BAD_CASES)) {
+    const reason = sync.checkCase(badCase(change));
+    if (change.serverOnly) assert.equal(reason, null, name);
+    else assert.notEqual(reason, null, name);
+  }
 });
 
 // ---- What phones do with what they receive -------------------------------------------------------
@@ -585,7 +739,73 @@ test('subscribe: junk from the stream is ignored, bad events never reach onChang
   }
 });
 
-// ---- The mock database, over real HTTP ------------------------------------------------------------
+// ---- caseUpdate: the latest one per field wins -----------------------------------------------------
+
+test('compareIds orders by Unicode code point, the same on every phone', () => {
+  assert.ok(sync.compareIds('-', '0') < 0);
+  assert.ok(sync.compareIds('Z', 'a') < 0);           // 'Z' (90) before 'a' (97)
+  assert.ok(sync.compareIds('ab', 'abc') < 0);
+  assert.equal(sync.compareIds('abc', 'abc'), 0);
+  assert.ok(sync.compareIds('\u{1F600}', '￿') > 0); // code point 0x1F600 > 0xFFFF (UTF-16 order would say the opposite)
+});
+
+test('caseUpdate: latest at wins per field, ties by id; any update beats the first value; cleared fields', () => {
+  const pid = (t, tail) => sync.newPushId(t).slice(0, 8) + tail.repeat(12);
+  const base = { ...goodCase(), direction: 'N', description: 'red coat' };
+  const up = (field, value, at, tail, extra = {}) => {
+    const e = { type: 'caseUpdate', field, at, by: 'Ana', ...extra };
+    if (value !== undefined) e.value = value;
+    return [pid(at, tail), e];
+  };
+  const events = Object.fromEntries([
+    up('minutes', 40, T0 + 1000, 'a'),
+    up('minutes', 50, T0 + 2000, 'b'),
+    up('minutes', 60, T0 + 2000, 'c'),            // same time as 50: the larger id ('c' > 'b') wins
+    up('minutes', 99, T0 - 999999, 'd'),          // older than the others: loses to them
+    up('direction', 'NE', T0 + 1000, 'i'),
+    up('direction', undefined, T0 + 3000, 'j'),   // cleared later: back to unknown
+    up('familiarPlaces', undefined, T0 + 1000, 'e'),
+    up('travel', 'bus', T0 + 1000, 'f'),
+    up('mobility', 'flying', T0 + 9000, 'g'),     // broken: dropped, so mobility keeps its value
+    [pid(T0, 'h'), ev.searched],
+  ]);
+  const r = sync.readMirror({ case: base, events });
+  assert.equal(r.caseDoc.minutes, 60);
+  assert.equal(r.caseDoc.direction, null);
+  assert.deepEqual(r.caseDoc.familiarPlaces, []);
+  assert.equal(r.caseDoc.travel, 'bus');
+  assert.equal(r.caseDoc.mobility, base.mobility);
+  assert.equal(r.caseDoc.description, 'red coat'); // never updated: the first value stays
+  assert.equal(r.baseCase.minutes, base.minutes);   // the case as written is kept too
+  assert.equal(r.baseCase.direction, 'N');
+  assert.equal(r.info.caseUpdates, 8);
+  assert.equal(r.info.dropped, 1);
+  // Another phone with the events in another order gets exactly the same case.
+  const r2 = sync.readMirror({ case: base, events: Object.fromEntries(Object.entries(events).reverse()) });
+  assert.deepEqual(r2.caseDoc, r.caseDoc);
+  // The merged case is still a valid case.
+  const stored = Object.fromEntries(Object.entries(r.caseDoc).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length)));
+  assert.equal(sync.checkCase(stored), null);
+  // applyCaseUpdates doesn't change what it was given.
+  assert.equal(base.minutes, CASE.minutes);
+  assert.equal(sync.applyCaseUpdates(null, []), null);
+});
+
+test('addEvent sends a caseUpdate; a cleared value is simply left out, as Firebase stores it', async () => {
+  online = true;
+  sync.setDbUrl('https://db.example');
+  const before = posted.length;
+  assert.equal((await sync.addEvent(S1, { type: 'caseUpdate', field: 'familiarPlaces', value: [], at: T0 })).ok, true);
+  assert.equal((await sync.addEvent(S1, { type: 'caseUpdate', field: 'direction', value: null, at: T0 })).ok, true);
+  assert.equal((await sync.addEvent(S1, { type: 'caseUpdate', field: 'minutes', value: null, at: T0 })).reason, 'missing:value');
+  assert.equal((await sync.addEvent(S1, { type: 'found', lat: 37.5, lng: -121.9, at: T0, by: 'Ana' })).ok, true);
+  const sent = posted.slice(before).map((p) => p.body);
+  assert.equal(sent.length, 3);
+  assert.ok(!('value' in sent[0]) && !('value' in sent[1]));
+  assert.equal(sent[2].type, 'found');
+});
+
+// ---- The mock database and the Firebase emulator, over real HTTP -----------------------------------
 
 let mock = null;
 let mockUrl = null;
@@ -603,40 +823,42 @@ const startMock = () => new Promise((resolve) => {
 });
 after(() => { if (mock) mock.kill(); });
 
-async function put(path, body, method = 'PUT') {
-  const res = await realFetch(`${mockUrl}/${path}.json`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return res.status;
-}
-
-test('the event table: tools/mock-firebase.py accepts exactly the good events', async (t) => {
+test('tools/mock-firebase.py gives the expected answer to every write scenario', async (t) => {
   mock = await startMock();
   if (!mock) { t.skip('python3 not available'); return; }
-  assert.equal(await put(`searches/${S1}/case`, { ...stripNulls(CASE), createdAt: NOW, engineVersion: sync.ENGINE_VERSION }), 200);
-  for (const [name, event, ok] of TABLE) {
-    const status = await put(`searches/${S1}/events/${sync.newPushId()}`, event);
-    assert.equal(status, ok ? 200 : 401, `${name}: mock said ${status}`);
-  }
+  const wrong = await runScenarios(httpBackend(mockUrl));
+  assert.deepEqual(wrong, []);
 });
 
-test('mock: append-only events, write-once case, all-or-nothing PATCH, no deletes', async (t) => {
-  if (!mock) { t.skip('python3 not available'); return; }
-  const id = sync.newPushId();
-  assert.equal(await put(`searches/${S1}/events/${id}`, ev.message), 200);
-  assert.equal(await put(`searches/${S1}/events/${id}`, ev.message), 401, 'same id again (a replay)');
-  assert.equal(await put(`searches/${S1}/events/${id}/text`, 'edited'), 401, 'edit');
-  assert.equal(await put(`searches/${S1}/events/${id}`, null, 'DELETE'), 401, 'delete');
-  assert.equal(await put(`searches/${S1}/events`, {}, 'PUT'), 401, 'replace the whole list');
-  assert.equal(await put(`searches/${S1}/case`, { ...stripNulls(CASE), createdAt: NOW, engineVersion: 'x' }), 401, 'case again');
-  assert.equal(await put(`searches/${S1}/events`, ev.searched, 'POST'), 200, 'POST of a good event');
-  assert.equal(await put(`searches/${S1}/events`, w('searched', { minutes: 0 }), 'POST'), 401, 'POST of a bad event');
-  const a = sync.newPushId(); const b = sync.newPushId();
-  assert.equal(await put(`searches/${S1}`, { [`events/${a}`]: ev.message, [`events/${b}`]: w('message', { text: '' }) }, 'PATCH'), 401, 'PATCH with one bad event');
-  const list = await (await realFetch(`${mockUrl}/searches/${S1}/events.json`)).json();
-  assert.ok(!(a in list) && !(b in list), 'nothing from the refused PATCH was written');
-  assert.equal(list[id].text, ev.message.text, 'the first copy is unchanged');
-  const res = await realFetch(`${mockUrl}/searches/${S1}/events/${sync.newPushId()}.json`, { method: 'PUT', body: '{not json' });
+// Only over HTTP: a body that isn't JSON, and reading outside a search.
+async function httpOnlyChecks(backend) {
+  const res = await backend.raw(`searches/${sync.newSearchId()}/events/${sync.newPushId()}`, { method: 'PUT', body: '{not json' });
   assert.equal(res.status, 400);
-  assert.equal((await realFetch(`${mockUrl}/.json`)).status, 401, 'reading the whole database');
+  await res.text();
+  const all = await backend.raw('');
+  assert.equal(all.status, 401, 'reading the whole database');
+  await all.text();
+}
+
+test('mock: a body that is not JSON gets 400; reading the whole database is refused', async (t) => {
+  if (!mock) { t.skip('python3 not available'); return; }
+  await httpOnlyChecks(httpBackend(mockUrl));
+});
+
+// The real Firebase Realtime Database emulator (firebase-tools, needs Java), loaded with
+// firebase-rules.json. Run it, then point this test at it, for example:
+//   firebase emulators:start --only database --project demo-findthem
+//   FIREBASE_EMULATOR='http://127.0.0.1:9000?ns=demo-findthem-default-rtdb' node --test tests/sync.test.js
+// (firebase.json: { "database": { "rules": "firebase-rules.json" }, "emulators": { "database": { "port": 9000 } } })
+test('the Firebase emulator gives the expected answer to every write scenario', async (t) => {
+  const target = process.env.FIREBASE_EMULATOR;
+  if (!target) { t.skip('set FIREBASE_EMULATOR to run against the Firebase emulator'); return; }
+  const u = new URL(target);
+  const backend = httpBackend(`${u.origin}${u.pathname.replace(/\/$/, '')}`, u.search);
+  const wrong = await runScenarios(backend);
+  if (wrong.length) console.log(`Firebase emulator disagreed on ${wrong.length} steps:\n${wrong.join('\n')}`);
+  assert.deepEqual(wrong, []);
+  await httpOnlyChecks(backend);
 });
 
 test('mock + sync.js: a send whose answer was lost is retried at the same id and stored once', async (t) => {

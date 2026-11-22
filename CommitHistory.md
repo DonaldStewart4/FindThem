@@ -63,8 +63,46 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - Every phone re-checks what it receives with the same rules (no clock involved), drops and counts bad events, and counts copies once.
   - The case carries `engineVersion`, so a phone on another engine version can warn.
   - The rules, `sync.js` and the mock are checked against one shared test table.
+  - Corrections after sharing are `caseUpdate` events (the latest `at` per field wins). The person being found is a `found` event.
+  - The table also passes against the real Firebase emulator. `INTERFACES.md` §6 is the reference (approved by Nathan).
 
 ## Log
+
+### Integrity: caseUpdate and found events, INTERFACES §6, Firebase emulator check
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - **`caseUpdate { type, field, value?, by, at }`** in `firebase-rules.json`, `sync.js` and `tools/mock-firebase.py`.
+    - Allowed fields: `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`. `value` is checked like the case field it replaces.
+    - Leaving `value` out clears `direction`, `familiarPlaces` or `description`. The other fields need a value.
+  - **`found { type, lat, lng, by?, at, note? ≤ 300 }`** in the same three places.
+  - Case gets two optional fields: `travel` (`walking | car | bus | unknown`) and `description` (≤ 300 characters).
+  - `sync.js`:
+    - `applyCaseUpdates`: the latest `at` per field wins, ties go to the larger push id by code point (`compareIds`), and any update beats the case's first value.
+    - `readMirror` / `subscribe` / `loadSearch` return the updated `caseDoc` plus `baseCase`, and `info.caseUpdates`.
+    - `withoutNulls` also drops `[]` and `{}`, like Firebase. All sorting uses `compareIds`.
+  - `tests/sync.test.js`:
+    - The table grew from 75 to 118 rows (36 caseUpdate, 7 found).
+    - The write checks are now one scenario list, run against the rules evaluator (twice: checking the levels above the written path, and not), the mock, and the Firebase emulator when `FIREBASE_EMULATOR` is set.
+    - The evaluator now runs `.validate` on the levels above the written path, as the emulator showed real Firebase does.
+    - New tests for case-update merging, `compareIds`, and sending `caseUpdate` / `found`.
+  - `INTERFACES.md` §6 rewritten: Firebase shape, every event type's fields and ranges, caseUpdate merge rule, what phones do with what they receive. Plus one "known limits" line: lies aren't stopped.
+  - `docs/INTEGRITY-REPORT.md` (new): the full report. `UPDATESBYNATE.md`: the screen work for caseUpdate and found.
+- **Why:** Nathan's request. `docs/INTAKE-SPEC.md` open issue 1: the case is written once, so corrections after sharing need an append-only `caseUpdate`. A `found` event ends the search.
+- **Decisions:**
+  - **Any caseUpdate beats the first value, even with an older `at`.** Rejected: comparing with `createdAt`, which would silently drop a correction from a phone whose clock is behind.
+  - **`travel` and `description` shapes are assumptions** taken from INTAKE-SPEC's chips; noted in the report.
+  - **The rules generator stayed a scratch script.** `firebase-rules.json` is the source, checked by the tests.
+- **How it was verified:**
+  - `node --test`: 127 tests, 126 pass, 0 fail, 1 skipped (the emulator test, which is off unless `FIREBASE_EMULATOR` is set).
+  - **Firebase emulator** (firebase-tools 15.37.0, database emulator v4.11.2, Java 24), rules loaded into `demo-findthem-default-rtdb`: `node --test tests/sync.test.js` gives 25 tests, 25 pass, 0 fail, 0 skipped. Every scenario step matched; **0 differences.**
+  - Mutation A (rules accepting reliability 0.5): the emulator accepted it, so it really runs our file.
+  - Mutation B (case completeness removed from `.write`): the emulator still refused lone `case/minutes` and `case/lastSeen/lat` writes. So Firebase validates the levels above the written path; the evaluator was weaker and is fixed.
+- **Known issues / not done:**
+  - Not tested on the real database.
+  - `sync.js` itself was run only against the mock: its URLs have no `?ns=`.
+  - Screen work in `UPDATESBYNATE.md`: send `caseUpdate` on corrections, rebuild the case from `caseDoc`, a Found button, plus the earlier items.
+- **Next:** deploy the rules with `sync.js` to the real database and test with two phones; the screen session applies `UPDATESBYNATE.md`.
 
 ### Event integrity: strict Firebase rules, checked events on every phone, engineVersion
 - **Date:** 2026-11-22

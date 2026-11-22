@@ -258,18 +258,65 @@ If the proxy can't answer (no signal, no key, an error), the screen makes the sa
 - `POST /listen?lang=xx` with a recording (`audio/webm` or `audio/mp4`) → `{ text }` (Deepgram nova-3). The text then goes through `POST /` like typed text.
 - `POST /speak` `{ text, lang: 'en' }` → MP3 (ElevenLabs Flash v2.5). **English only**: other languages → `400 unsupported_language`, and the app never asks outside English. The app reads back what it filled in and what it wasn't sure about. Speech never changes the form; the person still checks it and taps the button.
 
-## 6. Firebase shape (screen-only, here for reference)
+## 6. Firebase shape and integrity rules (screen-only, here for reference)
+
+*Updated 2026-11-22 (branch `integrity`), approved by Nathan.* The rules live in three places that must agree: `firebase-rules.json` (what Firebase accepts), `sync.js` `checkEvent` / `checkCase` / `checkSearcher` (what every phone accepts), and `tools/mock-firebase.py` (the local test database). `tests/sync.test.js` checks all three, and the Firebase emulator, against one table of good and bad events.
 
 ```
-searches/<random 128-bit id>/
-  case:      CaseInput + { createdAt }
-  events/<push id>: Event
-  searchers/<16-hex id>: { lat, lng, at, name }   where each searcher is now
+searches/<random 128-bit id, 32 hex>/
+  case:      CaseInput + { createdAt, engineVersion, minutesAt?, area?, startedBy?, startedAt?, travel?, description? }
+  events/<push id, 20 chars>: Event
+  searchers/<16-hex id>: { lat, lng, at, name? }   where each searcher is now
 ```
 
-Every phone downloads `case` + `events` and calls `replay`. Only events are ever added; nothing is edited or deleted. `searchers` is the one exception: each phone overwrites its own position (every 30 s, or after moving 25 m). It's only drawn as dots on the map; the engine never sees it.
+- **The case is written once**, whole, and is never changed or deleted. Required: `lastSeen {lat, lng}`, `minutes` (1–1440), `mobility`, `seed` (whole number 0–4294967295), `createdAt`, `engineVersion`. Optional:
+  - `direction`
+  - `familiarPlaces`: 0–3 of `{lat, lng, label ≤ 100}`
+  - `minutesAt`, `startedAt` (ms)
+  - `area` (`demo` | `live`)
+  - `startedBy` (≤ 40)
+  - `travel` (`walking` | `car` | `bus` | `unknown`)
+  - `description` (≤ 300)
+
+  Nothing else is allowed.
+- **`engineVersion`** names the engine that drew the first map. A phone whose engine differs gets `info.versionMismatch` from `sync.subscribe` / `sync.loadSearch` and should warn: the same events may give it a different map.
+- **Events are append-only.** An event is written once, at a 20-character push id, and never edited or deleted. `sync.js` makes the push id itself and writes with `PUT`, so a retried send lands on the same id and can't be stored twice (`POST` of a valid event is also accepted).
+- **Every event has `type` and `at`** (ms; ≥ 2020-09; the database refuses more than 1 hour after its own clock). It may have `cid` (the sending phone's id, ≤ 64 of `[0-9A-Za-z_.:-]`) and `by` (≤ 40). Other fields by type; nothing else is allowed:
+
+| type | required | optional |
+|---|---|---|
+| `searched` | `sectorId` (`r<n>c<n>`), `minutes` (1–600) | |
+| `sighting` | `lat`, `lng`, `minutesSince` (0–1440), `reliability` (0.3, 0.6 or 0.9) | `direction`, `note` (≤ 300) |
+| `message` | `text` (1–300) | |
+| `assigned` | `taskId` or `sectorId`; `searcherId`, `toId` or `to` | `partnerId`, `expiresAt` (after `at`, ≤ 24 h), `searchMin` (0–600), `track` |
+| `released` | `searcherId`, `taskId` | `track`, `fraction` (0–1) |
+| `completed` | `searcherId`, `taskId`, `minutes` (1–600) | `track`, `partnerId` |
+| `caseUpdate` | `field` | `value` |
+| `found` | `lat`, `lng` | `note` (≤ 300) |
+
+- Field formats:
+  - Ids: `searcherId`, `partnerId` and `toId` are 16 hex characters; `taskId` is ≤ 64 of `[0-9A-Za-z:_-]`.
+  - `track` is a list of 1–2000 whole square numbers (0–999999).
+  - Text lengths are counted as JavaScript counts them (an emoji is 2).
+- **`caseUpdate`** changes one case field after the search was shared. `field` is one of `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`.
+  - `value` is checked exactly like that case field.
+  - Leaving `value` out clears the field. Only `direction` (→ unknown), `familiarPlaces` (→ none) and `description` can be cleared. Firebase can't store null or an empty list, so a cleared value is simply absent.
+  - For each field, the update with the latest `at` wins. With the same `at`, the larger push id wins, by Unicode code point (`sync.compareIds`). Any update beats the value the case was created with.
+  - `sync` hands the screen the case with every update applied (`caseDoc`) and the case as written (`baseCase`). The engine keeps reading only `CaseInput`.
+  - Changing `minutes` usually goes with a `minutesAt` update at the same `at`, so every phone counts from the same moment.
+- **`found`**: the person was found at `{lat, lng}`. The engine ignores it; the screen should end the search.
+- **What phones do with what they receive:**
+  - Every event is re-checked with the same rules (without the clock, so every phone gives the same answer). Bad ones are dropped and counted (`info.dropped`).
+  - Exact copies (same content under another id) are counted once (`info.duplicates`).
+  - Events are sorted by `at`, then id.
+  - A broken case gives `caseDoc: null` and `info.caseProblem`.
+- **`searchers`** is the one place that is overwritten: each phone overwrites or removes its own position (every 30 s, or after moving 25 m). The shape is checked: `lat`, `lng`, `at`, optional `name` ≤ 40. It's only drawn as dots on the map; the engine never sees it.
+- Reads are allowed only inside one search; nothing outside `searches/<id>/case|events|searchers` can be written.
+
+Every phone downloads `case` + `events` and calls `replay`.
 
 ## Known limits of this contract
 
 - Time: the shared `case` also carries `minutesAt` (ms), the moment its `minutes` value was true. Every 5 minutes after that, the screen adds 5 to `minutes` and calls `replay` again (no new event type). All phones count from the same `minutesAt`, so their maps match; the engine itself doesn't change.
 - There are no accounts: anyone with a search link can read and add events.
+- The rules stop malformed, oversized, edited, deleted and duplicated data, not lies: a well-formed but false event (a made-up sighting) is accepted like a true one.

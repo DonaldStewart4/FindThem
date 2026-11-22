@@ -59,6 +59,10 @@ CID = re.compile(r'[0-9A-Za-z_.:-]{1,64}')
 VERSION = re.compile(r'[0-9A-Za-z._-]{1,40}')
 TRACK_INDEX = re.compile(r'0|[1-9][0-9]{0,2}|1[0-9]{3}')  # 0..1999
 DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+TRAVEL = ['walking', 'car', 'bus', 'unknown']
+# Case fields a 'caseUpdate' may change; the ones listed in CLEARABLE may leave 'value' out.
+CASE_UPDATE_FIELDS = ['minutes', 'minutesAt', 'direction', 'mobility', 'familiarPlaces', 'travel', 'description']
+CLEARABLE = ['direction', 'familiarPlaces', 'description']
 
 
 def now_ms():
@@ -140,6 +144,8 @@ EVENT_FIELDS = {
     'searchMin': num(0, 600),
     'fraction': num(0, 1),
     'track': track,
+    'field': lambda v: isinstance(v, str) and v in CASE_UPDATE_FIELDS,
+    'value': lambda v: True,  # checked in check_event, like the case field it replaces
 }
 
 # type → (required fields, optional fields), besides type, at, cid and by.
@@ -150,6 +156,8 @@ EVENT_TYPES = {
     'assigned': ([], ['sectorId', 'taskId', 'to', 'toId', 'searcherId', 'partnerId', 'expiresAt', 'searchMin', 'track']),
     'released': (['searcherId', 'taskId'], ['track', 'fraction']),
     'completed': (['searcherId', 'taskId', 'minutes'], ['track', 'partnerId']),
+    'caseUpdate': (['field'], ['value']),
+    'found': (['lat', 'lng'], ['note']),
 }
 
 
@@ -176,6 +184,12 @@ def check_event(ev):
             return 'missing:searcherId'
         if 'expiresAt' in ev and not (ev['at'] < ev['expiresAt'] <= ev['at'] + 86400000):
             return 'bad:expiresAt'
+    if ev['type'] == 'caseUpdate':
+        if 'value' in ev:
+            if not CASE_FIELDS[ev['field']](ev['value']):
+                return 'bad:value'
+        elif ev['field'] not in CLEARABLE:
+            return 'missing:value'
     return None
 
 
@@ -210,6 +224,8 @@ CASE_FIELDS = {
     'startedBy': text(40),
     'startedAt': num(MIN_TIME, MAX_TIME),
     'engineVersion': pattern(VERSION),
+    'travel': one_of(TRAVEL),
+    'description': text(300),
 }
 CASE_REQUIRED = ['lastSeen', 'minutes', 'mobility', 'seed', 'createdAt', 'engineVersion']
 

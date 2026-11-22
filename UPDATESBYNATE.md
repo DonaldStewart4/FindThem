@@ -2,6 +2,26 @@
 
 Changes Nathan's sessions made that the screen side (`app.js`, `i18n.js`, `sw.js`, `INTERFACES.md`) needs to know about or act on. Newest first. Each item says what changed, what the screen must do, and what breaks if it doesn't.
 
+## 2026-11-22 (later): `caseUpdate` and `found` events (branch `integrity`)
+
+Files changed: `firebase-rules.json`, `sync.js`, `tools/mock-firebase.py`, `tests/sync.test.js`, `INTERFACES.md` §6 (approved by Nathan). The full report is in `docs/INTEGRITY-REPORT.md`.
+
+### What changed for the screen
+- **New event `caseUpdate { type, field, value?, by, at }`** changes one case field after the search was shared. The case itself can still only be written once.
+  - `field`: `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`.
+  - `value` is checked like that case field. Leave `value` out (or pass `null` / `[]`; sync.js drops them) to clear `direction`, `familiarPlaces` or `description`.
+- **New event `found { type, lat, lng, by, at, note? }`**: the person was found.
+- **`caseDoc` from `sync.subscribe` / `sync.loadSearch` now has every caseUpdate applied** (the latest `at` per field wins; ties go to the larger id). `baseCase` is the case as first written, and `info.caseUpdates` counts the updates.
+- **New optional case fields:** `travel` (`'walking' | 'car' | 'bus' | 'unknown'`) and `description` (text ≤ 300). These are my reading of `docs/INTAKE-SPEC.md`; say if the intake session wants another shape.
+- New exports in `sync.js`: `applyCaseUpdates`, `compareIds`, `TRAVEL`, `CASE_UPDATE_FIELDS`.
+
+### What the screen should do (not done; these files aren't mine)
+1. **Corrections after sharing** ("actually 40 minutes"): send a `caseUpdate` with `recordEvent` instead of changing the form only on this phone.
+   - For `minutes`, also send a `minutesAt` update with the same `at`, so every phone counts the minutes from the same moment.
+2. **Use `caseDoc` from `sync.subscribe` to rebuild the case on every change.** Today `startLive` reads only `caseDoc.startedAt`, so another phone's correction would not reach this phone's map.
+3. **A "Found" button**: send `found` at the searcher's position, stop sending positions, show the end-of-search state and the hand-off sheet. All UI text goes in `i18n.js` (5 languages).
+4. `engineEventsKey` in app.js only counts `searched` and `sighting`. Add `caseUpdate`, or the map won't recompute when only the case changes.
+
 ## 2026-11-22: event integrity (branch `integrity`)
 
 Files changed: `firebase-rules.json`, `sync.js`, `tools/mock-firebase.py`, `tests/sync.test.js`. No screen file was touched.
@@ -36,7 +56,7 @@ Files changed: `firebase-rules.json`, `sync.js`, `tools/mock-firebase.py`, `test
    - A different event with a copied `cid` would hide the real one on every phone.
    - `sync.js` already removes true copies (same content), so app.js could de-duplicate only its optimistic and queued copies against what came back.
 7. **Bump `sw.js` `CACHE_VERSION`**, because `sync.js` changed.
-8. **`INTERFACES.md` §6 needs an update** (BenStew and Nathan must agree):
+8. **Done later the same day:** `INTERFACES.md` §6 was updated (approved by Nathan). It needed:
    - `case` now carries `engineVersion`.
    - Events are written with PUT at a client-made push id.
    - §1's `assigned` should list the planner's shape next to the old one.

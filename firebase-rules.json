@@ -67,6 +67,12 @@
           "engineVersion": {
             ".validate": "newData.isString() && newData.val().matches(/^[0-9A-Za-z._-]{1,40}$/)"
           },
+          "travel": {
+            ".validate": "newData.isString() && newData.val().matches(/^(walking|car|bus|unknown)$/)"
+          },
+          "description": {
+            ".validate": "newData.isString() && newData.val().length <= 300"
+          },
           "$other": {
             ".validate": false
           }
@@ -94,10 +100,10 @@
         },
         "events": {
           "$eventId": {
-            ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && $eventId.matches(/^[-0-9A-Za-z_]{20}$/) && !data.exists() && newData.exists() && ((newData.child('type').val() === 'searched' && newData.hasChildren(['at', 'sectorId', 'minutes'])) || (newData.child('type').val() === 'sighting' && newData.hasChildren(['at', 'lat', 'lng', 'minutesSince', 'reliability'])) || (newData.child('type').val() === 'message' && newData.hasChildren(['at', 'text'])) || (newData.child('type').val() === 'assigned' && newData.hasChild('at') && (newData.hasChild('taskId') || newData.hasChild('sectorId')) && (newData.hasChild('searcherId') || newData.hasChild('toId') || newData.hasChild('to'))) || (newData.child('type').val() === 'released' && newData.hasChildren(['at', 'searcherId', 'taskId'])) || (newData.child('type').val() === 'completed' && newData.hasChildren(['at', 'searcherId', 'taskId', 'minutes'])))",
+            ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && $eventId.matches(/^[-0-9A-Za-z_]{20}$/) && !data.exists() && newData.exists() && ((newData.child('type').val() === 'searched' && newData.hasChildren(['at', 'sectorId', 'minutes'])) || (newData.child('type').val() === 'sighting' && newData.hasChildren(['at', 'lat', 'lng', 'minutesSince', 'reliability'])) || (newData.child('type').val() === 'message' && newData.hasChildren(['at', 'text'])) || (newData.child('type').val() === 'assigned' && newData.hasChild('at') && (newData.hasChild('taskId') || newData.hasChild('sectorId')) && (newData.hasChild('searcherId') || newData.hasChild('toId') || newData.hasChild('to'))) || (newData.child('type').val() === 'released' && newData.hasChildren(['at', 'searcherId', 'taskId'])) || (newData.child('type').val() === 'completed' && newData.hasChildren(['at', 'searcherId', 'taskId', 'minutes'])) || (newData.child('type').val() === 'found' && newData.hasChildren(['at', 'lat', 'lng'])) || (newData.child('type').val() === 'caseUpdate' && newData.hasChildren(['at', 'field']) && (newData.hasChild('value') || (newData.child('field').isString() && newData.child('field').val().matches(/^(direction|familiarPlaces|description)$/)))))",
             ".validate": "newData.hasChildren(['type', 'at'])",
             "type": {
-              ".validate": "newData.isString() && newData.val().matches(/^(searched|sighting|message|assigned|released|completed)$/)"
+              ".validate": "newData.isString() && newData.val().matches(/^(searched|sighting|message|assigned|released|completed|caseUpdate|found)$/)"
             },
             "at": {
               ".validate": "newData.isNumber() && newData.val() >= 1600000000000 && newData.val() <= now + 3600000"
@@ -115,10 +121,10 @@
               ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 600 && (newData.parent().child('type').val() === 'searched' || newData.parent().child('type').val() === 'completed')"
             },
             "lat": {
-              ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90 && (newData.parent().child('type').val() === 'sighting')"
+              ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90 && (newData.parent().child('type').val() === 'sighting' || newData.parent().child('type').val() === 'found')"
             },
             "lng": {
-              ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180 && (newData.parent().child('type').val() === 'sighting')"
+              ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180 && (newData.parent().child('type').val() === 'sighting' || newData.parent().child('type').val() === 'found')"
             },
             "direction": {
               ".validate": "newData.isString() && newData.val().matches(/^(N|NE|E|SE|S|SW|W|NW)$/) && (newData.parent().child('type').val() === 'sighting')"
@@ -130,7 +136,7 @@
               ".validate": "newData.isNumber() && (newData.val() === 0.3 || newData.val() === 0.6 || newData.val() === 0.9) && (newData.parent().child('type').val() === 'sighting')"
             },
             "note": {
-              ".validate": "newData.isString() && newData.val().length <= 300 && (newData.parent().child('type').val() === 'sighting')"
+              ".validate": "newData.isString() && newData.val().length <= 300 && (newData.parent().child('type').val() === 'sighting' || newData.parent().child('type').val() === 'found')"
             },
             "text": {
               ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 300 && (newData.parent().child('type').val() === 'message')"
@@ -163,6 +169,27 @@
               ".validate": "newData.hasChildren() && (newData.parent().child('type').val() === 'assigned' || newData.parent().child('type').val() === 'released' || newData.parent().child('type').val() === 'completed')",
               "$i": {
                 ".validate": "$i.matches(/^(0|[1-9][0-9]{0,2}|1[0-9]{3})$/) && newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= 999999"
+              }
+            },
+            "field": {
+              ".validate": "newData.isString() && newData.val().matches(/^(minutes|minutesAt|direction|mobility|familiarPlaces|travel|description)$/) && (newData.parent().child('type').val() === 'caseUpdate')"
+            },
+            "value": {
+              ".validate": "(newData.parent().child('type').val() === 'caseUpdate') && ((newData.parent().child('field').val() === 'minutes' && newData.isNumber() && newData.val() >= 1 && newData.val() <= 1440) || (newData.parent().child('field').val() === 'minutesAt' && newData.isNumber() && newData.val() >= 1600000000000 && newData.val() <= 10000000000000) || (newData.parent().child('field').val() === 'direction' && newData.isString() && newData.val().matches(/^(N|NE|E|SE|S|SW|W|NW)$/)) || (newData.parent().child('field').val() === 'mobility' && newData.isString() && newData.val().matches(/^(normal|slow|walker)$/)) || (newData.parent().child('field').val() === 'travel' && newData.isString() && newData.val().matches(/^(walking|car|bus|unknown)$/)) || (newData.parent().child('field').val() === 'description' && newData.isString() && newData.val().length <= 300) || (newData.parent().child('field').val() === 'familiarPlaces' && newData.hasChildren()))",
+              "$i": {
+                ".validate": "newData.parent().parent().child('field').val() === 'familiarPlaces' && $i.matches(/^[0-2]$/) && newData.hasChildren(['lat', 'lng'])",
+                "lat": {
+                  ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+                },
+                "lng": {
+                  ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+                },
+                "label": {
+                  ".validate": "newData.isString() && newData.val().length <= 100"
+                },
+                "$other": {
+                  ".validate": false
+                }
               }
             },
             "$other": {
