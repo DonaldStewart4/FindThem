@@ -723,7 +723,8 @@ test('GPS trail: a completed event carrying the trail walked is scored from that
   const { world } = planner.plannerWorld(area, CASES[0]);
   const map = planner.plannerMap(world, predictions[0]);
   const searchers = people(CASES[0], 1, 41, 0);
-  const plan = planReal(0, searchers, [], NOON, { HAZARD_FIRST: false });
+  // (Every candidate is listed, so the hasty one is there whatever the map favors.)
+  const plan = planReal(0, searchers, [], NOON, { HAZARD_FIRST: false, OPTIONS: 30 });
   const hasty = plan.searchers[0].options.find((o) => o.type === 'hasty');
   assert.ok(hasty, 'a hasty option is offered');
   const searchPoints = hasty.route.points.slice(hasty.route.searchFrom);
@@ -737,7 +738,7 @@ test('GPS trail: a completed event carrying the trail walked is scored from that
   // with the trail only what was walked is.
   const partTrail = planner.trackFromLatLngs(area, CASES[0], searchPoints.slice(0, Math.max(2, Math.ceil(searchPoints.length / 3))));
   const accepted = { id: 'a1', ...assignedEvent(hasty, searchers[0].id, NOON) };
-  const pos = (completed) => planReal(0, [], [accepted, { id: 'c1', type: 'completed', searcherId: searchers[0].id, taskId: hasty.taskId, at: NOON + 1, ...completed }], NOON + 1).measures.cumulativePOS;
+  const pos = (completed) => planReal(0, [], [accepted, { id: 'c1', type: 'completed', searcherId: searchers[0].id, taskId: hasty.taskId, at: NOON + 1, ...completed }], NOON + 1, { HAZARD_FIRST: false, OPTIONS: 30 }).measures.cumulativePOS;
   const planned = pos({});
   const walked = pos({ track: partTrail });
   assert.ok(near(planned, hasty.posGainAlone, 1e-6), 'no trail: the planned route is credited');

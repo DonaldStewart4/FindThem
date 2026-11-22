@@ -123,11 +123,25 @@ GOAL_COST[C.BRUSH] = 5; GOAL_COST[C.WETLAND] = 8; GOAL_COST[C.CREEK] = 8;
 // For every square, the cost (in "road meters") of the cheapest walk to `goalCell`.
 // Squares that can't reach it keep a huge value. Dijkstra's algorithm with a ring of buckets
 // (every step costs a small whole number, so no sorting is needed).
-export function costToGoal(surface, goalCell) {
+// `fromCell` (optional) limits the work to the box that holds both the start and the goal plus
+// GOAL_BOX_MARGIN_M on every side: a goal-seeker has no reason to be far outside it, and on a
+// phone this is several times faster than covering the whole map. Squares outside the box keep
+// the huge value, so walkers treat them as "not the way".
+export const GOAL_BOX_MARGIN_M = 1000; // ASSUMPTION
+export function costToGoal(surface, goalCell, fromCell = -1) {
   const { n, cls } = surface;
   const INF = 0x3fffffff;
   const cost = new Int32Array(n * n).fill(INF);
   if (goalCell < 0) return cost;
+  let rMin = 0; let rMax = n - 1; let cMin = 0; let cMax = n - 1;
+  if (fromCell >= 0) {
+    const margin = Math.round(GOAL_BOX_MARGIN_M / 10);
+    const r1 = Math.floor(goalCell / n); const r2 = Math.floor(fromCell / n);
+    const c1 = goalCell % n; const c2 = fromCell % n;
+    rMin = Math.max(0, Math.min(r1, r2) - margin); rMax = Math.min(n - 1, Math.max(r1, r2) + margin);
+    cMin = Math.max(0, Math.min(c1, c2) - margin); cMax = Math.min(n - 1, Math.max(c1, c2) + margin);
+  }
+  cost.box = { rMin, rMax, cMin, cMax }; // so a later start point can tell whether this field covers it
   const RING = 256; // must be bigger than the largest single step (14.142 × 8 = 114)
   const buckets = Array.from({ length: RING }, () => []);
   cost[goalCell] = 0;
@@ -141,16 +155,16 @@ export function costToGoal(surface, goalCell) {
       if (cost[i] !== level) continue; // an older, worse entry for this square
       const r = Math.floor(i / n);
       const c = i % n;
+      // Cost of the step INTO i (we search backwards from the goal).
+      const into = GOAL_COST[cls[i]];
       for (let k = 0; k < 8; k++) {
         const rr = r + DR[k];
         const c2 = c + DC[k];
-        if (rr < 0 || rr >= n || c2 < 0 || c2 >= n) continue;
+        if (rr < rMin || rr > rMax || c2 < cMin || c2 > cMax) continue;
         const j = rr * n + c2;
-        const v = cls[j];
-        if (!isWalkable(v)) continue;
+        if (!isWalkable(cls[j])) continue;
         if (k % 2 && !isWalkable(cls[r * n + c2]) && !isWalkable(cls[rr * n + c])) continue;
-        // Cost of walking FROM j TO i (we search backwards from the goal): paid on entering i.
-        const next = level + Math.max(1, Math.round(STEP_M[k] * GOAL_COST[cls[i]]));
+        const next = level + Math.max(1, Math.round(STEP_M[k] * into));
         if (next < cost[j]) {
           cost[j] = next;
           buckets[next % RING].push(j);
@@ -173,16 +187,25 @@ export function costToGoal(surface, goalCell) {
 //   seed        uint32
 //   spotting    true ONLY in calibration: a walker noticed on a road is "found" and stops there
 //   walkedMin   minutes the person had already been walking (walkers restarted from a sighting)
+//   trace       true in tests and tools: also keep each minute's 10 m square (pos10)
 //   n, params   overrides for tests, calibration and the sensitivity run
-// Returns the walks:
-//   pos[w * (T + 1) + m]   square of walker w at minute m (0..T); -1 after leaving the map
-//   reason, stopMin        why and when each walker stopped (stopMin = T + 1 if still moving)
+// Returns the walks. To keep a phone's memory small, each walker-minute takes 4 bytes:
+//   pos[w * (T + 1) + m]    which 25 m square of the probability map walker w is in at minute
+//                           m (0..T), as a Uint16 (row * 256 + column)
+//   seen[w * (T + 1) + m]   how exposed to the public the walker has been up to minute m:
+//                           the sum, over the minutes so far, of the exposure (0–100) of the
+//                           square it stood on, capped at 65,535. A minute on a main road adds
+//                           100. grid.js turns this into the "still missing" weight.
+//   leftMin[w]              the minute from which the walker is off the map (65,535 = never)
+//   endCell[w]              the 10 m square where it stopped, or where it was when the
+//                           simulated time ran out (-1 = off the map)
+//   reason, stopMin         why and when each walker stopped (stopMin = T + 1 if still moving)
 //   kind, follower, speed, mobileMin, course   each walker's own draw
-//   cell100                the square where the walker was first 100 m from the start (-1 if never)
-//   visits                 how many walkers stepped on each square (for the "used streets" layer)
+//   cell100                 the 10 m square where it was first 100 m from the start (-1 = never)
+//   visits                  how many walkers stepped on each 10 m square ("used streets" layer)
 export function simulate(surface, {
   startCell, minutes, headingDeg = null, mobility = 'normal', goals = [], seed,
-  spotting = false, walkedMin = 0, n = N_WALKERS, params = PARAMS,
+  spotting = false, walkedMin = 0, trace = false, n = N_WALKERS, params = PARAMS,
 }) {
   const P = params;
   const N = surface.n;
@@ -190,7 +213,11 @@ export function simulate(surface, {
   const T = Math.max(0, Math.min(P.MAX_SIM_MINUTES, Math.ceil(Number(minutes) || 0)));
   const W = T + 1;
 
-  const pos = new Int32Array(n * W);
+  const pos = new Uint16Array(n * W);
+  const seen = new Uint16Array(n * W);
+  const pos10 = trace ? new Int32Array(n * W) : null;
+  const leftMin = new Uint16Array(n).fill(65535);
+  const endCell = new Int32Array(n).fill(-1);
   const reason = new Uint8Array(n);
   const stopMin = new Float32Array(n).fill(T + 1);
   const kind = new Uint8Array(n);
@@ -201,9 +228,13 @@ export function simulate(surface, {
   const cell100 = new Int32Array(n).fill(-1);
   const visits = new Uint16Array(N * N);
   const lastVisitor = new Int32Array(N * N).fill(-1);
+  // Which 25 m square of the probability map a 10 m row or column falls in (by its middle).
+  const coarse = new Uint16Array(N);
+  for (let i = 0; i < N; i++) coarse[i] = Math.floor((2 * i + 1) / 5);
+  const COARSE_COLS = coarse[N - 1] + 1; // 256
 
-  const result = { n, T, pos, reason, stopMin, kind, follower, speed, mobileMin, course, cell100, visits, startCell };
-  if (startCell < 0) { pos.fill(-1); reason.fill(STOP.LEFT_MAP); stopMin.fill(0); return result; }
+  const result = { n, T, pos, seen, pos10, leftMin, endCell, reason, stopMin, kind, follower, speed, mobileMin, course, cell100, visits, startCell };
+  if (startCell < 0) { leftMin.fill(0); reason.fill(STOP.LEFT_MAP); stopMin.fill(0); return result; }
 
   const mobilityFactor = mobility === 'walker' ? P.MOBILITY_WALKER : mobility === 'slow' ? P.MOBILITY_SLOW : P.MOBILITY_NORMAL;
   const startRow = Math.floor(startCell / N);
@@ -315,6 +346,7 @@ export function simulate(surface, {
     let cell = startCell;
     let t = 0;          // this walker's clock, minutes
     let nextMin = 0;    // the next whole minute to record
+    let exposed = 0;    // exposure added up over the minutes so far
     let why = STOP.ACTIVE;
     const metersPerMin = speed[w] * moveFrac * 60;
 
@@ -390,7 +422,17 @@ export function simulate(surface, {
       const dt = STEP_M[k] / (metersPerMin * GROUND_SPEED[ground]);
       const tNext = t + dt;
       // Whole minutes that pass while walking this step are recorded at the square being left.
-      while (nextMin < tNext && nextMin <= T) pos[base + nextMin++] = cell;
+      if (nextMin < tNext && nextMin <= T) {
+        const coarseCell = coarse[r] * COARSE_COLS + coarse[c];
+        const level = exposure[cell];
+        while (nextMin < tNext && nextMin <= T) {
+          if (nextMin > 0) exposed += level;
+          pos[base + nextMin] = coarseCell;
+          seen[base + nextMin] = exposed > 65535 ? 65535 : exposed;
+          if (pos10) pos10[base + nextMin] = cell;
+          nextMin++;
+        }
+      }
       t = tNext;
       if (off) { cell = -1; why = STOP.LEFT_MAP; break; }
       r = rr; c = c2; cell = j;
@@ -411,7 +453,8 @@ export function simulate(surface, {
       if (pStuck > 0 && random() < pStuck) { why = STOP.STUCK; break; }
       if (spotting) {
         const level = exposure[cell];
-        if (level > 0 && random() < 1 - Math.pow(1 - Math.min(0.999, P.SPOT_RATE_PER_MIN * level * 0.01), dt)) {
+        // Chance of being noticed during this step: 1 − (1 − rate)^(exposure × minutes).
+        if (level > 0 && random() < 1 - Math.pow(1 - P.SPOT_RATE_PER_MIN, level * 0.01 * dt)) {
           why = STOP.SPOTTED;
           break;
         }
@@ -423,10 +466,26 @@ export function simulate(surface, {
       }
     }
 
-    // After stopping (or when time is up) the walker stays where it is.
+    // After stopping (or when time is up) the walker stays where it is. A walker that stopped
+    // on a road keeps being exposed there; one that left the map is marked from that minute on.
     reason[w] = why;
     if (why !== STOP.ACTIVE) stopMin[w] = Math.min(t, T + 1);
-    while (nextMin <= T) pos[base + nextMin++] = cell;
+    endCell[w] = cell;
+    if (cell < 0) {
+      if (nextMin <= T) leftMin[w] = nextMin;
+      const lastSeen = nextMin > 0 ? seen[base + nextMin - 1] : 0;
+      while (nextMin <= T) { seen[base + nextMin] = lastSeen; if (pos10) pos10[base + nextMin] = -1; nextMin++; }
+    } else {
+      const coarseCell = coarse[r] * COARSE_COLS + coarse[c];
+      const level = exposure[cell];
+      while (nextMin <= T) {
+        if (nextMin > 0) exposed += level;
+        pos[base + nextMin] = coarseCell;
+        seen[base + nextMin] = exposed > 65535 ? 65535 : exposed;
+        if (pos10) pos10[base + nextMin] = cell;
+        nextMin++;
+      }
+    }
   }
   return result;
 }

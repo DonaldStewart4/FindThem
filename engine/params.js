@@ -24,6 +24,12 @@ export const DEFAULTS = {
   MAX_SIM_MINUTES: 720,     // ASSUMPTION: paths are simulated for at most 12 h; a longer case
                             // uses the 12 h picture (by then nearly every walker has stopped)
 
+  // ---- The statistics map and the blend (prior.js, grid.js) ----------------------------------
+  ISRID_PROFILE: 'urban',   // EXPERT: which ISRID column to use. 'urban' for a town like
+                            // Fremont; 'temperate' is the alternative for open country.
+  BLEND_WALKERS: 0.5,       // ASSUMPTION, set by evaluation (tools/calibrate.js): the walkers'
+                            // share of the map; the ISRID statistics map gets the rest
+
   // ---- Each walker's own pace -----------------------------------------------------------------
   SPEED_MEAN_MPS: 0.62,     // DATA (Toots): usual gait speed, n = 309 community-dwelling older
   SPEED_SD_MPS: 0.23,       // DATA (Toots)   adults with cognitive impairment, mean age 82

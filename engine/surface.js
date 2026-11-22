@@ -97,20 +97,29 @@ export function buildSurface(osm, origin) {
   const colOf = (lng) => ((lng - origin.lng) * mPerDegLng + SURFACE_RADIUS_M) / SURFACE_CELL_M;
   const rowOf = (lat) => ((lat - origin.lat) * M_PER_DEG_LAT + SURFACE_RADIUS_M) / SURFACE_CELL_M;
 
-  // 1. Where we have data at all: inside the download's circle.
+  // 1. Where we have data at all. Downloads are squares (osm.bounds) since Nov 22; an area
+  //    saved before that is a circle of radiusM around its center.
   const center = osm.center || origin;
   const radiusM = osm.radiusM || SURFACE_RADIUS_M;
-  const cc = colOf(center.lng);
-  const cr = rowOf(center.lat);
-  const rCells2 = (radiusM / SURFACE_CELL_M) ** 2;
-  for (let r = 0; r < n; r++) {
-    // The part of this row inside the circle: columns within `half` of the circle's center.
-    const half2 = rCells2 - (r + 0.5 - cr) ** 2;
-    if (half2 <= 0) continue;
-    const half = Math.sqrt(half2);
-    const from = Math.max(0, Math.ceil(cc - half - 0.5));
-    const to = Math.min(n - 1, Math.floor(cc + half - 0.5));
-    if (to >= from) cls.fill(C.DEVELOPED, r * n + from, r * n + to + 1);
+  if (osm.bounds) {
+    const cFrom = Math.max(0, Math.ceil(colOf(osm.bounds.west) - 0.5));
+    const cTo = Math.min(n - 1, Math.floor(colOf(osm.bounds.east) - 0.5));
+    const rFrom = Math.max(0, Math.ceil(rowOf(osm.bounds.south) - 0.5));
+    const rTo = Math.min(n - 1, Math.floor(rowOf(osm.bounds.north) - 0.5));
+    for (let r = rFrom; r <= rTo; r++) if (cTo >= cFrom) cls.fill(C.DEVELOPED, r * n + cFrom, r * n + cTo + 1);
+  } else {
+    const cc = colOf(center.lng);
+    const cr = rowOf(center.lat);
+    const rCells2 = (radiusM / SURFACE_CELL_M) ** 2;
+    for (let r = 0; r < n; r++) {
+      // The part of this row inside the circle: columns within `half` of the circle's center.
+      const half2 = rCells2 - (r + 0.5 - cr) ** 2;
+      if (half2 <= 0) continue;
+      const half = Math.sqrt(half2);
+      const from = Math.max(0, Math.ceil(cc - half - 0.5));
+      const to = Math.min(n - 1, Math.floor(cc + half - 0.5));
+      if (to >= from) cls.fill(C.DEVELOPED, r * n + from, r * n + to + 1);
+    }
   }
   const set = (value) => (c, r) => { if (c >= 0 && c < n && r >= 0 && r < n) cls[r * n + c] = value; };
 
@@ -278,12 +287,20 @@ export function buildSurface(osm, origin) {
     cls, exposure: spread, nearBuilding,
     region: mainRegion(cls, n),
     hasLayers: !!layers,
+    noDataShare: noDataShare(cls),
     colOf, rowOf,
   };
   // dRoad and dWater are computed the first time they are read, then kept.
   lazy(surface, 'dRoad', () => distanceTo(cls, n, (v) => isWay(v)));
   lazy(surface, 'dWater', () => distanceTo(cls, n, (v) => v === C.WATER || v === C.CREEK || v === C.WETLAND));
   return surface;
+}
+
+// Share of the map (0–1) with no downloaded data under it.
+function noDataShare(cls) {
+  let count = 0;
+  for (let i = 0; i < cls.length; i++) if (cls[i] === C.NODATA) count += 1;
+  return count / cls.length;
 }
 
 // Defines object[name] so that make() runs only on first use.

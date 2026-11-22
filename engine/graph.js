@@ -86,6 +86,14 @@ export function prepareArea(osm) {
   return { origin, graph: { nodes, edges }, traps: buildTrapIndex(origin, osm.features), osm };
 }
 
+// The same area with ground layers added (they arrive in a second download, see data.js).
+// The street network doesn't change, so nothing is rebuilt: the result shares the graph and
+// the trap lookup, and only its `osm` differs. It is a NEW object, so the ground map and the
+// walkers cached for the old one are not reused.
+export function withLayers(area, layers) {
+  return { ...area, osm: { ...area.osm, layers } };
+}
+
 // ---- Trap features: creeks, water, wetlands, woods, brush, grass, parks ----------------------
 
 // Builds two things:

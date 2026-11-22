@@ -61,6 +61,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Planner: merge prior-v2 stage 3 into the planner branch
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), integration
+- **What changed:** `git merge prior-v2` at `4b2392a` (Prior v2, stage 3) into `planner`. Everything the prior session committed comes in unchanged: the statistics-map blend, `restOfWorld`, the hazard layer, the two-phase map load, `engine/host.js` and `engine/worker.js`, and their screen changes. One conflict, in this file's Log (both branches added entries at the top): both sets of entries kept, planner entries first. One planner test changed: the GPS-trail test now asks for every option (`OPTIONS: 30`) instead of the top three, because on the new map a lone searcher's top three no longer include a hasty route.
+- **Why:** So the planner and its benchmark run on the app's real map: the real hazard layer (`grid.hazard`, which the adapter now reads instead of working out its own) and the real rest-of-world value. It also means the last merge only has to bring the planner's own files across.
+- **Decisions:** The merge was made inside the `findthem-planner` worktree only. Nothing in the `FindThem` folder or on the `prior-v2` branch was changed, and nothing was pushed. `app.js`, `grid.js`, `sim.js` and `surface.js` are exactly the prior session's versions.
+- **How it was verified:** `node --test` on the merged tree: 135 tests pass (32 planner, 103 others). The adapter's hazard path was exercised by the safety test (8 hazard pairs sent on the real map). Re-plan times were measured again but the laptop was under heavy load from the other session (load average 13): 36–46 ms of work per re-plan in the worker, 153–204 ms at 4×. The first plan of a case now includes the new engine's slower replay (about 0.5 s on the laptop): 1.8–2.1 s, 7–8.5 s at 4×.
+- **Known issues / not done:** The prior session's stage 4 (calibration, evaluation) is not committed yet and is not in this branch. At 60 minutes the Demo case's rest of world is effectively 0 on the merged engine, so the "expand" signal is only exercised by the tiny-town tests.
+- **Next:** The benchmark.
+
 ### Planner, stage 2b: found event, buildings only through canvass, GPS-trail test, Web Worker
 - **Date:** 2026-11-22
 - **Stage:** Search planner (branch `planner`, Nathan), stage 2 follow-up after Nathan's review
@@ -139,6 +149,50 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **How it was verified:** No planner code yet. The note's numbers were measured on the Fremont fixture with throwaway scripts (not committed): share of probability by visibility class (street 50.5%, building 26.0%, back yards 18.2%, open 3.0%, water or brush 1.5%) for the Demo start at 60 minutes; 503 built-up blocks of 2,000 m² or more, median 1.9 ha, 26 buildings and about 870 m of frontage at the median, half of them over 45 minutes to canvass; 38 segments holding 71% of the probability; a shortest-path run over a 2 km reach in 0.9 ms (6.6 ms for the whole graph). The ISRID, Toots and Koester et al. 2004 figures are the ones the prior session checked today.
 - **Known issues / not done:** No urban, night, vehicle or canvass detection figure has been found, so those constants are assumptions; a source check is running and stage 2 updates the table. Containment's value rests on three assumptions. The contract changes (new events, the `Plan` shape) need BenStew's OK before any merge. `CommitHistory.md` will conflict with `prior-v2` at the top of the Log when both merge; keep both entries.
 - **Next:** Stage 2: `engine/planner/` and `tests/planner.test.js`.
+### Prior v2, stage 3: statistics map blend, rest of world, hazard layer, two-phase load, worker
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 3 of 4
+- **What changed:**
+  - **Engine**
+    - **New `engine/prior.js`:** the ISRID statistics map. Urban distance percentiles (0.3 / 1.1 / 3.2 / 12.6 km) limited by how far a person could have gone in t minutes (the smaller of "where they'd end up" and "pace × t"), times the urban find-location share of each kind of ground within every 50 m ring, times the dispersion angle when a direction is given. `findTypes()` gives each 10 m square one ISRID find type; `statsMap()` returns the 25 m map and the share beyond its edge.
+    - **`engine/grid.js`:** the prior is now `BLEND_WALKERS × walkers + (1 − BLEND_WALKERS) × statistics map` (0.5 until stage 4 sets it by evaluation). The even 2% floor is gone. **Rest of world** is real: walkers that left the map plus the statistics map's mass beyond it. Each "story" (the last-seen start, each sighting) has its own walkers and its own statistics layer; a search discounts the statistics layer only by the share of its chance that was already there at the time of the search. **Hazard layer:** `grid.hazard` (for each water / creek / wetland square, the chance that the person is within 150 m) and `grid.hazardType`; sectors get `hazard` and `hazardScore`; spots get `hazardNearby`; new export `hazardSpots()`. `spot.hazard` now comes from that layer.
+    - **`engine/sim.js`:** each walker-minute is 4 bytes: a 16-bit square of the 25 m map (`pos`) and a 16-bit running total of exposure to the public (`seen`), instead of a 32-bit 10 m square. "Still missing" is now `(1 − rate)^(exposure-minutes)` read straight from `seen`, so a clock tick no longer walks every path again. `trace: true` keeps the 10 m path for tests and tools. The familiar-place cost field covers only the box around the last-seen point and the place (plus 1 km).
+    - **New `engine/host.js` and `engine/worker.js`:** the engine behind a Web Worker. New `withLayers(area, layers)` in `engine/graph.js`.
+    - `engine/surface.js`: square downloads (`osm.bounds`); `noDataShare`.
+    - `engine/params.js`: `ISRID_PROFILE`, `BLEND_WALKERS`, `N_SIGHTING_WALKERS`.
+  - **Screen (BenStew's files; all listed with reasons in the new `BEN.md`)**
+    - `app.js`: `readCase()` passes `minutesAt`; the engine runs in the worker with a fallback to the page (`askWorker`, `runEngine`); `recompute()` is async; two-phase load (`refineArea`); hazard lines for spots and areas; home areas saved bigger.
+    - `data.js`: the download is a square around the case's grid origin (3.4 km each way; home areas 4.2 km), in two requests (`buildQuery`, `buildLayersQuery`); `loadArea` returns `more`; a saved area is reused only if it covers the whole map (`coversGrid`).
+    - `i18n.js`: `mapRefining`, `mapRefined`, `areaHazard`, `spotHazardNear` in five languages.
+    - `sw.js`: three more engine files in the offline list, `v29` → `v30`.
+  - **Data:** `tests/fixtures/demo-area.json` re-downloaded as a square centered on the Demo's grid origin (37.541, −121.98): 11,805 ways, 322 features, 33,977 buildings, 6.9 MB. New `tools/data/fremont-wide.json.gz` (2.8 MB gzipped): a 11.2 km square for calibration and evaluation start points, never loaded by the app. `tools/make-fixture.js` rewritten to make both.
+  - **Tests:** 103 (was 86). New: statistics map sums and percentiles; rest of world grows with time; familiar places; slow mobility; hazard layer (three tests); a real brute-force allocation; no-data limit; the worker host; memory; two-phase load, coverage rule and lake relations in `tests/data.test.js`. `tools/browser/`: scripts that drive headless Chrome (Demo, two tabs, new area, time budget). `bench/phone-budget.js`: time and memory in Node.
+  - **Docs:** `INTERFACES.md` rewritten for the new contract; new `BEN.md`; `CLAUDE.md` points to both.
+- **Why:** Stage 3 of Nathan's brief, plus the six additions he made when approving stage 2 (joint spotting calibration, distance as the primary target, the no-data bug, the phone budget with a worker, two-phase load, `minutesAt`). The two calibration items are stage 4's.
+- **Decisions:**
+  - **Positions at 25 m, not 10 m.** Sectors, the map and the Bayes arithmetic only need the 25 m square; what needed the 10 m path was the road exposure, which is now added up while walking. Same 4 bytes as a 32-bit index, but a clock tick is 7–40 ms instead of re-reading every path.
+  - **Box, not circle**, for the download: it matches the square map and Overpass answers it faster.
+  - **The first map never waits for buildings.** Two phones can therefore differ for the minute or so one of them is still waiting; they agree once both have the layers.
+  - **The worker gets its own copy of the map data.** The page still prepares the street graph itself (for drawing streets and routes).
+  - `spot.hazard` keeps its meaning ("this spot is at water: for professionals"). Water *near* a spot is the new `hazardNearby`, shown with a different sentence ("look from the bank, don't go in"), so a likely street is not labeled "leave to professionals" because a channel runs 100 m away.
+  - Hazard reach 150 m and flag threshold 0.5% are assumptions.
+  - The familiar-place cost field is tied to the last-seen point for every story, so two phones that learned of sightings in a different order still use the same field.
+- **How it was verified:**
+  - `node --test`: 103 pass, 0 fail.
+  - **Chrome with the processor slowed 4× (`tools/browser/budget.mjs`):** cold replay 1,017 ms for the Demo case, 1,352 and 1,306 ms for new cases with 7 searches and 3 sightings; clock tick 21–40 ms. Unslowed: 299 / 404 / 345 ms.
+  - **Memory (`node --expose-gc bench/phone-budget.js`):** walkers 2.2 MB for a case at 45 min, 3.4 MB at 2 h, 15.4 MB at the 12 h cap; ground map 1.6 MB; one familiar-place field 1.6 MB; the result sent to the page 0.85 MB. The map data dominates: the 6.9 MB Demo file is 23 MB once read, plus 29 MB for the street network.
+  - **Browser (headless Chrome):** Demo on screen 0.9 s after the tap (1.3 s slowed 4×). Two tabs on a shared search (mock database): same spots, `minutesAt` in the link and the database case, a search in one tab reached the other in 106 ms. A new area with a live download: first map at 38.8 s from streets alone, "Map sharpened with buildings and land use." at 66.2 s, 28,628 buildings saved.
+  - The Demo's map has 0% no data (was 32%).
+- **Known issues / not done:**
+  - **Still not calibrated** (stage 4): distances are too short and `BLEND_WALKERS` is a placeholder.
+  - The worker doubles the map data in memory (about 50 MB more for the Demo's area).
+  - Not tried on a real phone, in Safari, or offline through the service worker with the new files. Module workers need Safari 15+ / Firefox 114+; older browsers use the fallback.
+  - `hazardSpots` and `restOfWorld` are not shown on screen.
+  - The sea is treated as plain ground (no OSM polygon for it).
+  - Areas saved before today are circles and are re-downloaded once when there is signal.
+  - `npm run bench` not re-run; README numbers are for the old engine.
+  - The four new sentences in es / fr / zh / ja are unreviewed.
+- **Next:** Stage 4: calibration (`tools/calibrate.js`), evaluation (`bench/prior-eval.js`), the report.
 
 ### Prior v2, stage 2: ground map, walkers as particles, time-aware map
 - **Date:** 2026-11-22
