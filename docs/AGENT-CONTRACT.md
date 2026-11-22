@@ -294,6 +294,75 @@ Results on Nov 22 (74 cases):
 - The one `--hostile` miss is a report with typos in every word ("lo bi en el parke sentral"). The word rules can't read it, so nothing contradicts Jev's "searched".
 - The layer's cost: a perfect Jev answer set on `bench/jev-cases.json` keeps 137 of 138 fields. `tests/safety.test.js` checks it stays ≥ 95%.
 
+## Jev against TypeSafe's published API (checked Nov 22 against docs.typesafe.ai)
+
+| Item | Docs | `proxy/jev.js` |
+|---|---|---|
+| Endpoint, auth | `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer` | same |
+| Body | `{ model, state, questions }`; `state` may be text or JSON | same |
+| Model | `jev-latest` is an alias; it pointed to **`jev-1.14.0`** on Nov 22 (not 1.13.0). Each response's `model` says which version answered | alias kept; tuned on 1.14.0 (see NATHAN.md: pin it?) |
+| Choice | `criteria` = object of options (up to 255); answer `choice`, `probabilities`, `confidence` | same |
+| Score | `criteria` = ordered array, 2–10 levels; `score` is the probability-weighted **mean** | **fixed**: we used `round(score)`; now the most likely level, never above the rounded mean, ties to the lower |
+| Yes/no | type **`noul`**, answer `noul` (0–1), no confidence. Vercel's AI SDK calls it `boolean` | not used; a test checks we never send `boolean` |
+| Confidence | how concentrated the probabilities are, not the chance of being right; the docs' example floor is 0.5 | `MIN_CONFIDENCE` 0.5, confirmed by a sweep (below) |
+| "Choice option order" | Jev leans toward the **first** option | **fixed**: every choice lists its safe option first (`message`, `unknown`, `none`). Minute options are words, because JavaScript always puts number-like keys first |
+| Errors | 429 / 529: back off and retry | 3 attempts, 0.8 s then 1.6 s |
+
+## Tuning on real Jev answers (Nov 22)
+
+### How it was done
+
+- **The blind set.** `bench/blind-cases.json` holds Nathan's 120 blind reports, written without seeing the readers. `bench/split-blind.js` (seed 20261122, balanced by language × kind) splits it into two halves:
+  - `blind-dev.json`: looked at, only to find *categories* of problems;
+  - `blind-test.json`: never looked at, scored once at the end.
+- **The scorer.** `bench/eval.js` scores every set. `acceptable` answers count as right; minutes are compared by Jev's buckets; for searched reports, minutes are the time spent searching; dangerous cases are split high / medium / low.
+- **Saving Jev's answers.** The local proxy, started with `DEBUG_ANSWERS`, saves Jev's raw answers (`bench/jev-answers.json`). Rule changes can then be re-scored with `--reader replay`, and a replay check confirms the saved answers reproduce every proxy draft exactly.
+
+### Categories fixed (none for a single report)
+
+**Backup reader:**
+- "found him" → message;
+- second-hand or far away → "maybe";
+- a question ending in "?" → message;
+- "bus stop" is a place;
+- a car report with no "saw" words → message;
+- a sighting told without a "saw" verb.
+
+**Both readers:**
+- a place after "toward / from" is not where the person was;
+- "BART station" is not BART Way;
+- Latin place names inside Chinese/Japanese text (a word-boundary bug of mine);
+- a searched report's time = time spent searching.
+
+**Jev's wording:**
+- "found" is a message;
+- a hedged sighting ("maybe it was her") is still a sighting;
+- a general description ("the lake") counts when only one listed place fits;
+- second-hand or far away = "unsure".
+
+The `MIN_CONFIDENCE` sweep over the saved answers (jev + safety + blind-dev together; right / empty / wrong, dangerous):
+
+| `MIN_CONFIDENCE` | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 |
+|---|---|---|---|---|---|---|
+| right / empty / wrong | 500 / 13 / 4 | 502 / 13 / 2 | **503 / 13 / 1** | 500 / 16 / 1 | 495 / 21 / 1 | 487 / 30 / 0 |
+| dangerous | 0 | 0 | 0 | 0 | 0 | 0 |
+
+0.5 stays. The one wrong field left is a reliability *lower* than expected, which is the safe direction. Removing it needs 0.8, which costs 16 right answers.
+
+### Before and after
+
+Fields right (empty / wrong); dangerous cases (high / medium):
+
+| Set | Backup reader before | Backup reader after | Jev before | Jev after |
+|---|---|---|---|---|
+| jev-cases (40) | 143/148, 97% (3 / 2); **0** | 145/148, 98% (2 / 1); **0** | 136/148, 92% (10 / 2); **1** (0/1)¹ | 148/148, 100% (0 / 0); **0** |
+| safety-cases (74) | 187/189, 99% (1 / 1); **0** | 187/189, 99% (1 / 1); **0** | 178/189, 94% (11 / 0); **0** | 184/189, 97% (5 / 0); **0** |
+| blind-dev (60) | 130/180, 72% (29 / 21); **9** (7/2) | 166/180, 92% (13 / 1); **0** | 146/180, 81% (31 / 3); **1** (0/1) | 171/180, 95% (8 / 1); **0** |
+
+¹ This one was a scorer bug: it counted a *message* draft's reliability as dangerous, although a message never touches the map. It was fixed before tuning.
+
+"Before" means after the API fixes above, but before any tuning. "Jev" means Jev through the safety layer, exactly as the proxy returns it, with model `jev-1.14.0`.
+
 ## Screen work to show the flags (for the `app.js` session)
 
 Nothing below is built: `app.js`, `index.html`, `style.css` and `i18n.js` were left alone on purpose. The readers already return everything the screen needs.

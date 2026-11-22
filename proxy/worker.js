@@ -21,14 +21,15 @@ import {
   MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
 } from './voice.js';
 
-const RATE_LIMIT = 20;          // requests per IP ...
+const RATE_LIMIT = 20;          // requests per IP ... (env.RATE_LIMIT overrides it, for `wrangler dev` benchmarks)
 const RATE_WINDOW_MS = 60000;   // ... per minute
-const RETRY_WAIT_MS = 800;      // one retry if Jev is busy (429/529)
+const RETRY_WAIT_MS = 800;      // if Jev is busy (429/529), retry after 0.8 s, then 1.6 s (TypeSafe: back off exponentially)
+const JEV_ATTEMPTS = 3;
 
 // Simple per-IP counter. It lives in this worker instance's memory, so it is
 // "best effort" (Cloudflare may run several instances), but it stops basic abuse.
 const hits = new Map();
-function tooMany(ip) {
+function tooMany(ip, limit = RATE_LIMIT) {
   const now = Date.now();
   const h = hits.get(ip);
   if (!h || now - h.start > RATE_WINDOW_MS) {
@@ -37,7 +38,7 @@ function tooMany(ip) {
     return false;
   }
   h.count++;
-  return h.count > RATE_LIMIT;
+  return h.count > limit;
 }
 
 function corsHeaders(env) {
@@ -57,17 +58,17 @@ function reply(env, status, obj) {
   });
 }
 
-// Calls Jev once, and once more after a short wait if it says it's busy.
+// Calls Jev, and again after a growing wait if it says it's busy.
 async function askJev(env, body) {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < JEV_ATTEMPTS; attempt++) {
     const res = await fetch(JEV_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.TYPESAFE_API_KEY}` },
       body: JSON.stringify(body),
     });
     if (res.ok) return res.json();
-    if ((res.status === 429 || res.status === 529) && attempt === 0) {
-      await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
+    if ((res.status === 429 || res.status === 529) && attempt < JEV_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, RETRY_WAIT_MS * 2 ** attempt));
       continue;
     }
     throw new Error(`jev ${res.status}`);
@@ -90,7 +91,7 @@ export default {
     if (request.method !== 'POST') return reply(env, 405, { error: 'method' });
 
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    if (tooMany(ip)) return reply(env, 429, { error: 'rate_limit' });
+    if (tooMany(ip, Number(env.RATE_LIMIT) || RATE_LIMIT)) return reply(env, 429, { error: 'rate_limit' });
 
     if (path === '/listen') return listen(request, env);
     if (path === '/speak') return speak(request, env);
@@ -125,6 +126,10 @@ async function readReport(request, env) {
   // Jev's answers go through the safety layer (proxy/jev.js safeJevDraft) before anything is sent back.
   const draft = validateDraft(safeJevDraft(jev && jev.answers, text, places, { intersections, lang }));
   if (!draft) return reply(env, 502, { error: 'bad_response' });
+  // Benchmarks only: with DEBUG_ANSWERS=1 (`wrangler dev --var DEBUG_ANSWERS:1`, never set in
+  // production), also return Jev's raw answers and model version, so bench/eval.js can re-score
+  // safety-rule changes without new calls. The browser ignores the extra field (validateDraft).
+  if (env.DEBUG_ANSWERS === '1') return reply(env, 200, { ...draft, _jev: { model: jev && jev.model, answers: jev && jev.answers } });
   return reply(env, 200, draft);
 }
 

@@ -2,7 +2,7 @@
 // Jev itself is never called: fetch is replaced with a fake that returns Jev-shaped answers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildJevRequest, jevToDraft, cleanPlaces, MIN_CONFIDENCE, MAX_PLACES } from '../proxy/jev.js';
+import { buildJevRequest, jevToDraft, cleanPlaces, MIN_CONFIDENCE, MAX_PLACES, MINUTE_OPTION } from '../proxy/jev.js';
 
 const PLACES = [
   { name: 'Lake Elizabeth', lat: 37.5487, lng: -121.9637 },
@@ -36,7 +36,7 @@ test('buildJevRequest asks five questions, with the places plus "none" as place 
 
 test('confident answers become a full sighting draft, pinned to the chosen place', () => {
   const draft = jevToDraft({
-    kind: pick('sighting'), direction: pick('E'), minutes: pick('10'), place: pick('Lake Elizabeth'),
+    kind: pick('sighting'), direction: pick('E'), minutes: pick(MINUTE_OPTION[10]), place: pick('Lake Elizabeth'),
     sure: { type: 'score', score: 2.2, confidence: 0.8 },
   }, '  Definitely saw him by the lake 10 min ago, blue coat, heading east  ', PLACES);
   assert.deepEqual(draft, {
@@ -48,7 +48,7 @@ test('confident answers become a full sighting draft, pinned to the chosen place
 test('answers below MIN_CONFIDENCE are left empty for the person to fill in', () => {
   const low = MIN_CONFIDENCE - 0.1;
   const draft = jevToDraft({
-    kind: pick('sighting'), direction: pick('N', low), minutes: pick('5', low), place: pick('Lake Elizabeth', low),
+    kind: pick('sighting'), direction: pick('N', low), minutes: pick(MINUTE_OPTION[5], low), place: pick('Lake Elizabeth', low),
     sure: { type: 'score', score: 0, confidence: low },
   }, 'saw someone', PLACES);
   assert.equal(draft.direction, null);
@@ -81,7 +81,7 @@ test('worker: calls Jev with the key, retries once when busy, returns a checked 
   globalThis.fetch = async (url, opts) => {
     calls.push({ url, auth: opts.headers.Authorization, body: JSON.parse(opts.body) });
     if (calls.length === 1) return { ok: false, status: 529 }; // busy the first time
-    return { ok: true, status: 200, json: async () => ({ answers: { kind: pick('sighting'), direction: pick('NE'), minutes: pick('15'), place: pick('none'), sure: { score: 1, confidence: 0.9 } } }) };
+    return { ok: true, status: 200, json: async () => ({ answers: { kind: pick('sighting'), direction: pick('NE'), minutes: pick(MINUTE_OPTION[15]), place: pick('none'), sure: { score: 1, confidence: 0.9 } } }) };
   };
   try {
     const request = new Request('https://proxy.example/', {

@@ -14,3 +14,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Wrangler's local dev state (created by `npx wrangler dev` in proxy/)
+.wrangler/

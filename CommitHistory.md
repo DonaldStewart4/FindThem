@@ -61,6 +61,66 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Jev on the real API: docs check, blind split, tuning (before the blind-test score)
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`proxy/jev.js`, checked against TypeSafe's docs:**
+    - **score:** the answer is a probability-weighted mean, so we now take the most likely level, never above the rounded mean, ties to the lower level (`scoreLevel`);
+    - **option order:** Jev leans toward the first option, so every choice now lists its safe option first, and the minute options are words (number-like keys always sort first in JavaScript);
+    - **retries:** backoff now has 3 attempts.
+    - Tuned wording for kind ("found" is a message; a hedged sighting is still a sighting), place (a general description counts when only one place fits; a place they were heading toward doesn't) and how-sure (second-hand / far away = unsure).
+    - `minConfidence` can be passed in for the bench sweep.
+    - Safety layer: "found" is never a sighting. A searched report's time is the time spent searching, from the word rules; Jev's "seen" time is never used for it.
+  - **`proxy/worker.js`:**
+    - `env.RATE_LIMIT` override;
+    - `env.DEBUG_ANSWERS` (local benchmarks only) adds Jev's raw answers and model to the reply.
+  - **`quickread.js`:**
+    - new rules: found, second-hand (and far away = maybe), questions ending in "?", sightings without a "saw" verb, "bus stop" is not a vehicle, a car report with no "saw" words → message, searched time spent;
+    - place roles: toward / from / near, and "BART station" is not BART Way;
+    - `hasWord` fix: a Chinese or Japanese character next to a Latin word is a word edge;
+    - more hedge and certainty words.
+  - **New:**
+    - `bench/blind-cases.json` (Nathan's 120 blind reports, committed as asked);
+    - `bench/split-blind.js`, writing `bench/blind-dev.json` / `bench/blind-test.json` (60 / 60, seed 20261122, by language × kind);
+    - `bench/eval.js` (`npm run eval`): one scorer for all sets and both readers, with replay of saved answers;
+    - `bench/jev-answers.json`: Jev's saved answers (no keys);
+    - `tests/jev-api.test.js` (API conformance), `tests/categories.test.js` (each fixed category, on new sentences).
+  - `tests/jev.test.js`: only the fake answers' minute option names changed (`pick('10')` → `pick(MINUTE_OPTION[10])`), because the option names sent to Jev changed. No assertion changed.
+  - `bench/safety-cases.json`: `en-secondhand` now expects 0.3, the team's convention from the blind set.
+  - Docs: `INTERFACES.md` (a searched draft's `minutesSince` = time spent), `docs/AGENT-CONTRACT.md` (API table, tuning, before/after), `proxy/README.md` (model alias, benchmark mode), `NATHAN.md` (decide: pin the model). `.gitignore`: `.wrangler/`. `sw.js` v31.
+- **Why:** Nathan's request:
+  - check against the real API;
+  - make a real call;
+  - split the blind set and score both readers before tuning;
+  - tune by category until dangerous is 0 on safety-cases and blind-dev, with wrong answers becoming empty;
+  - then score blind-test once.
+- **Decisions:**
+  - **Tuning used only blind-dev** (and the two self-written sets). `bench/eval.js` refuses blind-test without `--final` and then prints totals only.
+  - **The key stays in `proxy/.dev.vars`** (git-ignored). It was found in the main folder's `proxy/` and copied into the worktree's `proxy/` without being read.
+  - **`MIN_CONFIDENCE` stays 0.5:** the sweep's best point.
+  - **The model alias is kept** as Nathan specified, but it now points to 1.14.0. Pinning is left to Nathan (NATHAN.md).
+  - **The wording was kept only after checking for new wrong answers.** The first version made hedged sightings into messages (3 new wrongs); the second fixed that category.
+- **How it was verified:**
+  - **The real call:** the curl Nathan gave returned `{"kind":"sighting",…,"direction":"E","minutesSince":10,…,"unsure":["reliability"],"flags":["water"]}`, HTTP 200.
+  - **Tests:** `node --test`: 124 pass.
+  - **Scores:** before → after, fields right, then dangerous:
+
+    | Set | Backup reader | Jev (`jev-1.14.0`) |
+    |---|---|---|
+    | jev-cases | 97% / 0 → 98% / 0 | 92% / 1 medium (a scorer bug) → 100% / 0 |
+    | safety-cases | 99% / 0 → 99% / 0 | 94% / 0 → 97% / 0 |
+    | blind-dev | 72% / 9 (7 high) → 92% / 0 | 81% / 1 medium → 95% / 0 |
+
+  - **Replay check:** the saved answers reproduce every proxy draft.
+- **Known issues / not done:**
+  - **blind-test is not scored yet:** that comes next, once, on this commit.
+  - The fixes were found on blind-dev, so dev numbers overstate how well the readers would do on new reports.
+  - The backup reader still can't read transliterated place names (ウォルナット通り, 泰森泻湖).
+  - The screen still doesn't show flags.
+- **Next:** score blind-test once with both readers and record it.
+
+
 ### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
 - **Date:** 2026-11-22
 - **Stage:** Finishing (safety), branch `agent-contract` (Nathan)

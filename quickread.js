@@ -68,10 +68,26 @@ const QUESTION = [
 
 const any = (patterns, text) => patterns.some((re) => re.test(text));
 
+// "We found him", "ya la encontramos", "找到了", "見つかりました": the search is over. A message
+// for everyone, never a sighting. (The "not found" words are taken out first: "没找到" has "找到".)
+const FOUND = [
+  /\b(we found (him|her|them)|found (him|her|them)|(he|she)('s| is) (ok|okay|safe|fine|home|back)|(he|she) (has|have) been found|(he|she) was found|is safe now|we have (him|her) now)\b/,
+  /\b(ya (lo|la) (encontramos|encontraron|tenemos)|(lo|la) (encontramos|encontraron)|ya aparecio|aparecio sano|aparecio sana)\b/,
+  /(on (l'a|les a) (re)?trouvee?s?|nous l'avons (re)?trouvee?|(il|elle) est (sain et sauf|saine et sauve|en securite)|(il|elle) a ete (re)?trouvee?)/,
+  /(找到了|找到他了|找到她了|已经找到|平安无事|他没事|她没事)/,
+  /(見つかりました|見つかった|見つけました|保護され|無事です|無事でした)/,
+];
+export function readFound(text) {
+  const p = plain(text).replace(/(没找到|没有找到|找不到|找到不)/g, ' ');
+  return any(FOUND, p);
+}
+
 export function readKind(text) {
   const p = plain(text);
   const l = lower(text);
-  if (any(QUESTION, p)) return 'message';
+  if (readFound(text)) return 'message';
+  // A question ("¿...?", "...?", "...？") is a message to the others, not a report.
+  if (any(QUESTION, p) || /[?？]\s*$/.test(l) || /^\s*¿/.test(l)) return 'message';
   if (any(NOT_FOUND, p) || any(NOT_FOUND, l)) return 'searched';
   if (any(SAW, p) || any(SAW, l)) return 'sighting';
   if (any(SEARCHED, p) || any(SEARCHED, l)) return 'searched';
@@ -151,11 +167,11 @@ export function readDirection(text) {
 
 // Checked in this order: "not sure" must win over "sure".
 const UNSURE = [
-  /\b(maybe|might|not sure|unsure|possibly|perhaps|could have been|could be|not certain|hard to tell)\b/,
-  /\b(quizas|quiza|tal vez|a lo mejor|no estoy segur|puede que|posiblemente)/,
-  /\b(peut-etre|peut etre|pas sur|pas certain|possible|il me semble)/,
-  /(可能|也许|不确定|不太确定|好像|不知道是不是)/,
-  /(かもしれ|たぶん|多分|自信がない|ような気がする|わからない)/,
+  /\b(maybe|might|not sure|unsure|possibly|perhaps|could have been|could be|not certain|hard to tell|far away|too far|from a distance|from far)\b/,
+  /\b(quizas|quiza|tal vez|a lo mejor|no estoy segur|puede que|posiblemente|lejos)/,
+  /\b(peut-etre|peut etre|pas sur|pas certain|possible|il me semble|de loin|trop loin)/,
+  /(可能|也许|不确定|不太确定|好像|不知道是不是|很远|离得远|太远)/,
+  /(かもしれ|たぶん|多分|自信がない|ような気がする|わからない|遠く|遠くて)/,
 ];
 // "I think it was him": fairly sure (0.6), checked before the "certain" words.
 const FAIRLY = [
@@ -167,11 +183,25 @@ const FAIRLY = [
 ];
 const CERTAIN = [
   /\b(definitely|for sure|i'm sure|i am sure|certain|certainly|absolutely|100%|no doubt|it was (him|her|them))\b/,
-  /\b(seguro|segura|definitivamente|sin duda|era el|era ella|estoy segur)/,
+  /\b(seguro|segura|segurisim|definitivamente|sin duda|era el|era ella|estoy segur)/,
   /\b(certain|certaine|c'etait lui|c'etait elle|sans aucun doute)\b/,
   /(肯定|确定|一定是|就是他|就是她)/,
-  /(間違いない|確かに|絶対|確実)/,
+  /(間違いない|間違いなく|確かに|絶対|確実)/,
 ];
+
+// "The mailman says he saw her", "la vecina dice que lo vio", "un monsieur dit avoir vu",
+// "邮递员说...看到", "見たって": someone else saw them. Second-hand is "maybe" (0.3).
+const SECOND_HAND = [
+  /\b(says|said|told (me|us)|according to|apparently|i heard|reportedly)\b/,
+  /\b(dice que|dijo que|dicen que|me dijo|me dijeron|segun|al parecer)\b/,
+  /(dit avoir vu|dit qu|m'a dit|on m'a dit|selon|apparemment|aurait vu)/,
+  /(说|听说|据说|据)/,
+  /(って言|と言って|そうです|らしい|だって|によると|見たって)/,
+];
+export function readSecondHand(text) {
+  const p = plain(text);
+  return any(SECOND_HAND, p) && (any(SAW, p) || any(SAW, lower(text)));
+}
 
 export function readReliability(text) {
   const p = plain(text);
@@ -189,20 +219,12 @@ const STREET_SUFFIX = /\s+(parkway|pkwy|street|st|avenue|ave|road|rd|boulevard|b
 
 // The nearby place whose name appears in the report (the longest match wins, so
 // "Fremont Central Park" beats "Central Park"). places = [{ name, lat, lng }].
+// (Only places where the person was count: not "toward X" or "from X", see placeMentions.)
 export function readPlace(text, places = []) {
-  const l = lower(text);
-  let best = null;
-  let bestLen = 0;
-  for (const p of places) {
-    if (!p || typeof p.name !== 'string' || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
-    const full = lower(p.name).trim();
-    const short = full.replace(STREET_SUFFIX, '');
-    for (const key of [full, short]) {
-      if (key.length < 4 || key.length <= bestLen) continue;
-      if (l.includes(key)) { best = p; bestLen = key.length; }
-    }
-  }
-  return best;
+  const found = readAllPlaces(text, places);
+  if (!found.length) return null;
+  const keyLength = (p) => Math.max(...placeMentions(text, [p]).map((m) => m.key.length));
+  return found.reduce((best, p) => (keyLength(p) > keyLength(best) ? p : best));
 }
 
 // ---- Places by kind ("the lake") ----------------------------------------------------------------
@@ -231,7 +253,9 @@ const escapeRe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // anywhere for Chinese / Japanese characters. Both should already be plain() text.
 export function hasWord(text, word) {
   if (/[぀-ヿ㐀-鿿]/.test(word)) return text.includes(word);
-  return new RegExp(`(^|[^\\p{L}])${escapeRe(word)}($|[^\\p{L}])`, 'u').test(text);
+  // The edges are "not a Latin letter or digit": a Chinese or Japanese character next to the
+  // word ("在Lake Elizabeth附近") is an edge too.
+  return new RegExp(`(^|[^a-z0-9\\u00c0-\\u024f])${escapeRe(word)}($|[^a-z0-9\\u00c0-\\u024f])`).test(text);
 }
 
 // "By the lake", "junto al lago", "湖边": the one nearby place of that kind, or null if there
@@ -446,20 +470,60 @@ const UNSURE_STRIP = [
 
 // Every nearby place the report names. A shorter name inside a longer one ("Central Park" in
 // "Fremont Central Park") counts once, as the longer one.
-export function readAllPlaces(text, places = []) {
-  const l = lower(text);
-  const found = []; // { place, key }
+// What a place is in the report: where they were ('at'), a landmark next to it ('near'), where
+// they were going ('toward'), or where a searched stretch started ('from'). Only 'at' places (or,
+// if there are none, 'near' places) are where the person was: "walking up Walnut toward the
+// BART" is on Walnut. A street's short name followed by "station" is the station, not the street
+// ("BART station", "BART駅" is not BART Way).
+const BEFORE_TOWARD = /(\b(toward|towards|heading to|headed to|going to|on (his|her|their) way to|in the direction of|hacia|rumbo a|camino a|en direccion a|vers|en direction de|direction)(\s+(the|el|la|al|le|du|l'))?\s*|(往|朝|向|去))$/;
+const AFTER_TOWARD = /^\s*(へ|に向か|の方|方面)/;
+const BEFORE_FROM = /(\b(from|desde|depuis)(\s+(the|el|la|le|l'))?\s*|(从))$/;
+const AFTER_FROM = /^\s*(から)/;
+const BEFORE_NEAR = /(\b(near|by|next to|close to|beside|cerca de|cerca del|junto a|junto al|pres de|pres du|a cote de)(\s+(the|el|la|le|l'))?\s*)$/;
+const AFTER_NEAR = /^\s*(附近|旁边|の近く|のそば|近く)/;
+const AFTER_STATION = /^\s*(station|stop|estacion|parada|gare|arret|駅|站|车站)/;
+
+export function placeMentions(text, places = []) {
+  const l = plain(text);
+  const found = []; // { place, key, at, role }
   for (const p of places) {
     if (!p || typeof p.name !== 'string' || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
-    const full = lower(p.name).trim();
+    const full = plain(p.name).trim();
     const short = full.replace(STREET_SUFFIX, '');
-    const key = [full, short].find((k) => k.length >= 4 && l.includes(k));
-    if (key) found.push({ place: p, key });
+    for (const key of full === short ? [full] : [full, short]) {
+      if (key.length < 4) continue;
+      const at = l.indexOf(key);
+      if (at < 0) continue;
+      const before = l.slice(0, at);
+      const after = l.slice(at + key.length);
+      if (key === short && key !== full && AFTER_STATION.test(after)) continue; // the station, not the street
+      let role = 'at';
+      if (BEFORE_TOWARD.test(before) || AFTER_TOWARD.test(after)) role = 'toward';
+      else if (BEFORE_FROM.test(before) || AFTER_FROM.test(after)) role = 'from';
+      else if (BEFORE_NEAR.test(before) || AFTER_NEAR.test(after)) role = 'near';
+      found.push({ place: p, key, at, role });
+      break;
+    }
   }
-  return found
-    .filter((a) => !found.some((b) => b !== a && b.key.length > a.key.length && b.key.includes(a.key)))
-    .map((a) => a.place)
-    .filter((p, i, all) => all.findIndex((q) => q.name === p.name) === i);
+  // A shorter name inside a longer one ("Central Park" in "Fremont Central Park") is the longer one.
+  const kept = found.filter((a) => !found.some((b) => b !== a && b.key.length > a.key.length && b.key.includes(a.key)));
+  // "Near X" is only a landmark when it comes right after another place in the same clause
+  // ("Walnut near the BART"). Otherwise "by Lake Elizabeth" is where they were.
+  for (const m of kept) {
+    if (m.role !== 'near') continue;
+    const landmark = kept.some((o) => o !== m && o.at < m.at && m.at - (o.at + o.key.length) <= 30
+      && !/[.!?;。！？；]/.test(l.slice(o.at + o.key.length, m.at)));
+    if (!landmark) m.role = 'at';
+  }
+  return kept;
+}
+
+// The places where the report says the person WAS (see placeMentions), without repeats.
+export function readAllPlaces(text, places = []) {
+  const mentions = placeMentions(text, places);
+  const at = mentions.filter((m) => m.role === 'at');
+  const chosen = at.length ? at : mentions.filter((m) => m.role === 'near');
+  return chosen.map((m) => m.place).filter((p, i, all) => all.findIndex((q) => q.name === p.name) === i);
 }
 
 // Every direction the report gives (after a "heading" word), without repeats.
@@ -504,13 +568,17 @@ export function readAllMinutes(text) {
 //              'direction', 'minutesSince', or 'reliability' ("definitely" + "not sure").
 //              A field in conflict is left empty (reliability goes to "maybe").
 //   notSeen    true for "I can't find him", "he's gone" (nobody has seen them)
+//   found      true for "we found him" (the search is over: a message)
+//   secondHand true for "the mailman says he saw her" (reliability "maybe")
 export function readSignals(text, places = [], { intersections = [], lang = 'en' } = {}) {
   const p = plain(text);
   const l = lower(text);
   const flags = [];
   if (any(EMERGENCY, p)) flags.push('emergency');
   if (any(WATER, p)) flags.push('water');
-  if (VEHICLE[guessLanguage(text, lang)].test(p)) flags.push('vehicle');
+  // "Bus stop", "parada de autobús", "バス停" are places, not vehicles.
+  const noStops = p.replace(/\b(bus stop|bus station|bus shelter|parada de(l)? (autobus|bus)|arret de bus|arret du bus)\b|(公交车站|公交站|巴士站|バス停)/g, ' ');
+  if (VEHICLE[guessLanguage(text, lang)].test(noStops)) flags.push('vehicle');
   // "是不是他" ("was it him?") contains "不是他" ("not him"): take the question out first.
   if (any(OTHER_PERSON, p.replace(/是不是/g, ''))) flags.push('other_person');
   if (any(JOKE, p) || any(JOKE, l)) flags.push('joke');
@@ -528,7 +596,19 @@ export function readSignals(text, places = [], { intersections = [], lang = 'en'
     if (any(CERTAIN, rest) || /\bsûre?\b/.test(restLower)) conflicts.push('reliability');
   }
   if (conflicts.length) flags.push('conflict');
-  return { flags, conflicts, notSeen: any(NOT_SEEN, p) };
+  return { flags, conflicts, notSeen: any(NOT_SEEN, p), found: readFound(text), secondHand: readSecondHand(text) };
+}
+
+// A sighting told without a "saw" verb: someone is somewhere right now, or "it's him".
+const PRESENCE = [
+  /\b((he|she|someone|somebody|an old (man|woman|lady|guy)|a (man|woman|lady|guy)|an elderly (man|woman)|old (man|woman|lady)) (is|was|'s) (sitting|standing|walking|waiting|lying|wandering|at the|on the|in the|by the|near the)|matching the (photo|description)|it'?s (definitely )?(him|her)|that'?s (him|her))\b/,
+  /\b((el|ella|alguien|un senor|una senora|un anciano|una anciana|una viejita|un viejito) (esta|estaba) (sentad[oa]|parad[oa]|caminando|esperando|en el|en la|junto)|es (el|ella)|es mi (papa|mama|abuel[oa]))\b/,
+  /\b((il|elle|quelqu'un|un monsieur|une dame|une vieille dame|un vieux monsieur) (est|etait) (assise?|debout|en train de|sur le|sur la|au|a la|pres)|quelqu'un dans l'eau|c'est (lui|elle))/,
+  /((有个|有一个|一个)(老人|老太太|老爷爷|老奶奶|人)|(他|她)(正)?(站在|坐在|躺在)|就是(他|她)|是(他|她)没错)/,
+  /((が|は)(立って|座って|歩いて|しゃがんで)|(母|父|祖母|祖父|彼|彼女|本人)(です|でした|だと思う|っぽい)|間違いなく)/,
+];
+export function readPresence(text) {
+  return any(PRESENCE, plain(text));
 }
 
 // ---- The whole draft --------------------------------------------------------------------------
@@ -555,8 +635,14 @@ export function readLocally(text, context = {}) {
 
   let kind = readKind(note);
   const joke = flags.has('joke');
+  const sawWords = kind === 'sighting';
   if (joke) { kind = 'message'; unsure.add('kind'); }
   else if (flags.has('other_person') && kind === 'sighting') kind = 'message';
+  // "He took the car" with no "saw" words is for the police: a message, never "searched".
+  else if (flags.has('vehicle') && !sawWords && !signals.found) kind = 'message';
+  // A sighting told without a "saw" word: "he was sitting on a bench", "間違いなく母です".
+  else if (kind === 'message' && !signals.found && !signals.notSeen && !flags.has('guess')
+    && !flags.has('other_person') && !flags.has('vehicle') && readPresence(note)) kind = 'sighting';
 
   // Where: a street corner, else a place by name, else the one place of a kind ("the lake").
   // A water word only adds the water flag: it never stops a sighting from being pinned.
@@ -571,8 +657,11 @@ export function readLocally(text, context = {}) {
     else direction = readDirection(note);
     if (conflicts.has('minutesSince')) unsure.add('minutesSince');
     else minutesSince = readMinutes(note);
+  } else if (kind === 'searched' && !conflicts.has('minutesSince')) {
+    minutesSince = readMinutes(note); // for a searched report: how long they searched ("40分かけて")
   }
-  const reliability = conflicts.has('reliability') ? 0.3 : readReliability(note);
+  // Second-hand ("the mailman says he saw her") or far away is "maybe".
+  const reliability = conflicts.has('reliability') || signals.secondHand ? 0.3 : readReliability(note);
 
   const draft = {
     kind,

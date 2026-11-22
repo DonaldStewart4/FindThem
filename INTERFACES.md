@@ -226,7 +226,7 @@ ReportDraft = {
   placeText: 'Lake Elizabeth',   // only ever one of the place or corner names the phone sent, or ''
   lat, lng,                      // that place's own point, or null: the user taps the map
   direction: 'E' | null,
-  minutesSince: 10 | null,
+  minutesSince: 10 | null,       // a sighting: minutes since seen; a 'searched' report: minutes spent searching
   reliability: 0.3 | 0.6 | 0.9,  // from wording: "maybe" / "I think" / "definitely"
   note: 'blue coat',             // only ever the person's own words
   unsure: ['direction'],         // optional, version 2: fields the reader wasn't sure about
