@@ -8,6 +8,7 @@
 // Driveways and parking aisles ("service" ways) are left out unless the sector has nothing else.
 
 import { sectorBoundsXY, SEARCH_SPEED_MPS } from './grid.js';
+import { latLngToXY } from './surface.js';
 
 export function routeFor(area, prediction, sectorId) {
   const { nodes, edges } = area.graph;
@@ -18,11 +19,14 @@ export function routeFor(area, prediction, sectorId) {
   const b = sectorBoundsXY(sectorId);
   if (!b) return empty;
 
-  // Streets whose middle is inside the sector.
+  // Streets whose middle is inside the sector. Sectors are measured from the case's grid
+  // origin (see grid.js), so the street's middle is converted to those meters first.
+  const origin = prediction.grid.origin || area.origin;
   const inside = (e) => {
-    const mx = (nodes[e.a].x + nodes[e.b].x) / 2;
-    const my = (nodes[e.a].y + nodes[e.b].y) / 2;
-    return mx >= b.minX && mx < b.maxX && my >= b.minY && my < b.maxY;
+    const a = nodes[e.a];
+    const c = nodes[e.b];
+    const m = latLngToXY(origin, (a.lat + c.lat) / 2, (a.lng + c.lng) / 2);
+    return m.x >= b.minX && m.x < b.maxX && m.y >= b.minY && m.y < b.maxY;
   };
   let chosen = [];
   edges.forEach((e, i) => { if (inside(e) && e.highway !== 'service') chosen.push(i); });

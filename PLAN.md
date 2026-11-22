@@ -30,6 +30,8 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - laptop layout fixed: only the side panel scrolls; the loading bar no longer hides under the map search box
 - first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar
 
+**On branch `prior-v2` (Nov 22, not merged, not pushed):** Nathan's engine rewrite, in four committed stages: ground map and walkers as particles, ISRID statistics map and blend, rest of world, hazard layer, two-phase download, engine in a worker, calibration (`tools/calibrate.js`), evaluation (`bench/prior-report.md`). 103 tests. Before merging: BenStew reads `BEN.md` and `INTERFACES.md`; try it on a real phone.
+
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
 2. **Proxy deployed** at `https://findthem-proxy.findthem-evohacks.workers.dev` with the Deepgram and ElevenLabs keys; `PROXY_URL` is set. **Still needed:** the TypeSafe key (Nathan, `NATHAN.md`).
@@ -104,7 +106,19 @@ The official rules encourage AI use; we disclose who and what built each part.
 
 "This is a guide to help focus the search, not a guarantee" shows under the results.
 
-## The engine (BenStew, built with Claude Code)
+## The engine, version 2 (branch `prior-v2`, Nathan with Claude Code, Nov 22)
+
+The section below this one describes the first engine, which is what `main` runs. On branch `prior-v2` the prior was rewritten. In short (design in `docs/PRIOR-V2.md`, results in `bench/prior-report.md`, contract in `INTERFACES.md`):
+- **Ground map:** a 10 m raster from OSM (roads, paths, buildings, fences, rail, water, creeks, yards, lots, parks), anchored to the case, not to the phone's download.
+- **Walkers as particles:** 5,000, each with its own speed, time moving, kind and road habit, stored minute by minute. They can leave roads.
+- **A map for "t minutes since last seen"**, with "still missing" evidence (not noticed on busy roads).
+- **A blend** of the walkers and an ISRID statistics map (urban distances × find-location shares); the blend weight is set by evaluation.
+- **Rest of world:** an explicit chance that the person is off the map.
+- **Two layers:** where they probably are, and where it's dangerous (water and channels near the likely area).
+- **Calibrated** to the urban ISRID statistics by `tools/calibrate.js`; **evaluated** on held-out start points by `bench/prior-eval.js`.
+- Searches and sightings re-weigh whole walker paths, in time order.
+
+## The first engine (BenStew, built with Claude Code)
 - **Prior: the hard part.** A "smart map" built from several reliable public sources:
   - Koester's lost-person statistics for dementia (distance from the last-seen point, distance from roads, where people were found)
   - OSM streets, paths and trap features
@@ -140,7 +154,9 @@ The official rules encourage AI use; we disclose who and what built each part.
 | `proxy/worker.js`, `proxy/jev.js` | BenStew (Nathan tunes the questions) | Cloudflare Worker that holds the Jev key, asks Jev five questions, returns a `ReportDraft` |
 | `i18n.js` | BenStew | all UI text in 5 languages, emergency numbers, units |
 | `sw.js`, `manifest.json`, `icons/`, `lib/` | BenStew | PWA, Leaflet 1.9.4 (Leaflet.heat removed Nov 21 evening: replaced by likely-area bands) |
-| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (with Claude Code) | graph, walkers, grid math, routes |
+| `engine/graph.js`, `engine/sim.js`, `engine/grid.js`, `engine/routes.js`, `engine/index.js` | BenStew (with Claude Code); rewritten on branch `prior-v2` by Nathan (with Claude Code) | graph, walkers, grid math, routes |
+| `engine/surface.js`, `engine/prior.js`, `engine/params.js`, `engine/calibrated.js`, `engine/host.js`, `engine/worker.js` | Nathan (with Claude Code), branch `prior-v2` | 10 m ground map, ISRID statistics map, every tunable number, fitted values, the engine in a Web Worker |
+| `tools/calibrate.js`, `bench/prior-eval.js`, `bench/prior-report.js` | Nathan (with Claude Code), branch `prior-v2` | fit to ISRID, evaluation on held-out start points, the report |
 | `tests/*.test.js`, `bench/` | Nathan | `node --test`, speed checks, later the benchmark |
 | `INTERFACES.md` | all | exact function signatures and data shapes; change only by agreement |
 | ~~`engine/fake.js`~~ | — | dev-only fake engine; **deleted** when the real engine was integrated |

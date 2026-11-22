@@ -554,12 +554,96 @@ function readCase() {
     mobility: readMobility(),
     familiarPlaces: state.familiarPlaces.map((p, i) => ({ lat: p.lat, lng: p.lng, label: p.label || t('familiarDefault', { n: i + 1 }) })),
     seed: state.seed,
+    // The clock time at which `minutes` was true. With it the engine can tell WHEN each search
+    // and sighting happened (a sighting spreads out as time passes; a search doesn't count
+    // against a person who arrived later). It is already in the share link and the shared case.
+    minutesAt: state.minutesAt,
   };
 }
 
 // ---- Running the prediction -------------------------------------------------------
 
-let areaCache = { key: null, area: null, osm: null }; // so a re-run on the same area is fast
+// The map area in use. `version` goes up whenever the area or its ground layers change, so the
+// background worker knows when it needs the new data.
+let areaCache = { key: null, area: null, osm: null, version: 0 }; // so a re-run on the same area is fast
+
+// ---- The engine runs in a background worker ---------------------------------------------
+// Drawing the 10 m ground map and running 5,000 walkers takes a second or two on a phone. In a
+// Web Worker (engine/worker.js) that happens on another thread, so the page keeps scrolling and
+// the loading bar keeps moving. If the worker can't start (an old browser) or stops answering,
+// the engine runs on the page itself, as it did before.
+const WORKER_TIMEOUT_MS = 20000;
+let engineWorker = null;
+let workerBroken = typeof Worker === 'undefined';
+let workerArea = null;      // "key#version" of the area the worker holds
+let workerLayers = null;    // "key#version" once it also holds that area's ground layers
+let nextMessageId = 1;
+const waitingForWorker = new Map(); // message id → { resolve, reject, timer }
+
+// Starts the worker (once). Called when the page opens, so the worker has warmed the engine up
+// (see engine/host.js) by the time the first map is asked for.
+function startWorker() {
+  if (engineWorker || workerBroken) return;
+  try {
+    engineWorker = new Worker('engine/worker.js', { type: 'module' });
+  } catch (err) {
+    workerBroken = true;
+    return;
+  }
+  engineWorker.onmessage = (event) => {
+    const waiting = waitingForWorker.get(event.data.id);
+    if (!waiting) return;
+    waitingForWorker.delete(event.data.id);
+    clearTimeout(waiting.timer);
+    if (event.data.ok) waiting.resolve(event.data);
+    else waiting.reject(new Error(event.data.error));
+  };
+  engineWorker.onerror = (event) => failWorker(new Error((event && event.message) || 'worker error'));
+}
+
+function askWorker(message, transfer = []) {
+  return new Promise((resolve, reject) => {
+    startWorker();
+    if (!engineWorker) { reject(new Error('no worker')); return; }
+    const id = nextMessageId++;
+    const timer = setTimeout(() => failWorker(new Error('worker timed out')), WORKER_TIMEOUT_MS);
+    waitingForWorker.set(id, { resolve, reject, timer });
+    engineWorker.postMessage({ ...message, id }, transfer);
+  });
+}
+
+// The worker failed: give up on it for this visit and let every waiting request fall back.
+function failWorker(err) {
+  console.warn('Engine worker unavailable, running on the page instead:', err.message);
+  workerBroken = true;
+  if (engineWorker) { engineWorker.terminate(); engineWorker = null; }
+  for (const waiting of waitingForWorker.values()) { clearTimeout(waiting.timer); waiting.reject(err); }
+  waitingForWorker.clear();
+}
+
+// Runs the engine for the current area: { prediction, spots }.
+async function runEngine(caseInput, events) {
+  const cache = areaCache;
+  if (!workerBroken) {
+    try {
+      const stamp = `${cache.key}#${cache.version}`;
+      if (workerArea !== `${cache.key}#${cache.areaVersion}`) {
+        await askWorker({ type: 'area', key: cache.key, osm: cache.osm });
+        workerArea = `${cache.key}#${cache.areaVersion}`;
+        workerLayers = stamp;
+      } else if (workerLayers !== stamp) {
+        // Same streets, but the ground layers have arrived since: send only those.
+        await askWorker({ type: 'layers', key: cache.key, layers: cache.osm.layers });
+        workerLayers = stamp;
+      }
+      return await askWorker({ type: 'replay', key: cache.key, caseInput, events, spotsMax: SPOTS_MAX });
+    } catch (err) {
+      if (!workerBroken) failWorker(err);
+    }
+  }
+  const prediction = engine.replay(cache.area, caseInput, events);
+  return { prediction, spots: engine.topSpots(cache.area, prediction, SPOTS_MAX) };
+}
 
 // ---- Loading bar ---------------------------------------------------------------------
 // Shown while streets download and the engine runs. Overpass doesn't say how big its answer
@@ -649,9 +733,16 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
       clearInterval(progressTimer);
       showProgress(85, t('progressReading'));
       await nextFrame();
-      areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm };
+      const version = areaCache.version + 1;
+      areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm, version, areaVersion: version };
       drawStreets(loaded.osm);
       if (loaded.fromCache && loaded.savedAt) savedNotice = t('usingSaved', { date: i18n.formatDateTime(loaded.savedAt) });
+      // Two-phase load: the streets are enough for a full map now. Buildings, fences and land
+      // use arrive in a second, bigger download; when they do, the map is worked out again.
+      if (loaded.more) {
+        savedNotice = t('mapRefining');
+        loaded.more.then((better) => refineArea(key, version, better));
+      }
     }
     state.areaSource = useDemoData ? 'demo' : 'live';
     if (!state.caseStartedAt) state.caseStartedAt = Date.now();
@@ -661,7 +752,7 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     await nextFrame();
     state.showAllSpots = false;
     state.selectedArea = null;
-    recompute();
+    await recompute();
     els.firstSteps.open = false; // first steps are done once a search is running
     els.caseInputs.open = false; // fold "What you know" so the results are right there
     renderCaseRecap();
@@ -708,12 +799,42 @@ function renderCaseRecap() {
 
 // Runs the engine on the current case + all events, then redraws every result.
 // Called after a run, after "searched", and after a sighting.
-function recompute() {
+// The engine runs in the background worker (see runEngine), so this returns a promise that
+// settles once the new results are on screen. If several requests overlap (events arriving
+// quickly), only the newest one is drawn.
+let recomputeSerial = 0;
+let recomputing = 0; // how many requests are with the engine right now
+async function recompute() {
+  const serial = ++recomputeSerial;
   const caseInput = readCase();
-  state.prediction = engine.replay(areaCache.area, caseInput, currentEvents());
-  state.lastSpots = engine.topSpots(areaCache.area, state.prediction, SPOTS_MAX);
-  state.engineEventsKey = engineEventsKey();
+  const eventsKey = engineEventsKey();
+  recomputing += 1;
+  let result;
+  try {
+    result = await runEngine(caseInput, currentEvents());
+  } finally {
+    recomputing -= 1;
+  }
+  if (serial !== recomputeSerial) return; // a newer request is on its way
+  state.prediction = result.prediction;
+  state.lastSpots = result.spots;
+  state.engineEventsKey = eventsKey;
   drawResults();
+}
+
+// Second phase of the area download: the ground layers (buildings, fences, land use) have
+// arrived for the area we're showing. Swap them in and work the map out again.
+// `better` is { osm, savedAt }, or null if they couldn't be fetched (the map stays as it is).
+function refineArea(key, version, better) {
+  if (!better || areaCache.key !== key || areaCache.areaVersion !== version) return; // moved on to another area
+  areaCache = {
+    ...areaCache,
+    area: engine.withLayers(areaCache.area, better.osm.layers),
+    osm: better.osm,
+    version: areaCache.version + 1,
+  };
+  if (!state.prediction && !recomputing) return; // no map asked for yet
+  recompute().then(() => showStatus(t('mapRefined')));
 }
 
 // All events for this search: from Firebase, plus ones this phone sent that haven't
@@ -979,6 +1100,12 @@ function renderSpots() {
       hazard.className = 'spot-hazard';
       hazard.textContent = t('hazard');
       text.append(hazard);
+    } else if (spot.hazardNearby) {
+      // From the engine's hazard layer: water or a drainage channel close to this spot.
+      const near = document.createElement('span');
+      near.className = 'spot-hazard';
+      near.textContent = t('spotHazardNear', { dist: i18n.formatDistance(spot.hazardNearby.distanceM, state.units) });
+      text.append(near);
     }
 
     button.append(num, text);
@@ -1055,6 +1182,14 @@ function renderAreas() {
       done.className = 'area-searched';
       done.textContent = t('searchedMinutes', { min: sector.searchedMinutes });
       text.append(done);
+    }
+    if (sector.hazard) {
+      // From the engine's hazard layer: water or a drainage channel in this area, near where
+      // the person is likely to be.
+      const water = document.createElement('span');
+      water.className = 'spot-hazard';
+      water.textContent = t('areaHazard');
+      text.append(water);
     }
     head.append(badge, text);
     head.addEventListener('click', () => {
@@ -1616,7 +1751,9 @@ async function saveHomeArea() {
   try {
     showProgress(3, t('progressChecking'));
     // Downloads and stores it (or finds it saved).
-    const result = await data.loadArea(point.lat, point.lng, { onProgress: onDownloadProgress });
+    // A bigger square than a search downloads, so a last-seen point up to about 1 km from
+    // home is still fully covered with no signal.
+    const result = await data.loadArea(point.lat, point.lng, { radiusM: data.HOME_RADIUS_M, onProgress: onDownloadProgress });
     state.home = { lat: point.lat, lng: point.lng, savedAt: result.savedAt };
     state.homeDraft = null;
     remember('home', JSON.stringify(state.home));
@@ -2128,6 +2265,7 @@ function start() {
   setInterval(onClockTick, CLOCK_CHECK_MS); // redraws the map every 5 minutes as time passes
 
   setMode('lastSeen');
+  startWorker(); // in the background: warms the engine up before the first map is asked for
   joinFromLink().then((joined) => { if (joined) setMode(null); });
 }
 

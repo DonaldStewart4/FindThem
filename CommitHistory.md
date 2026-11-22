@@ -47,7 +47,8 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
-- **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes.
+- **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes. *(On branch `prior-v2`, 2026-11-22, where the "true" people come from a different walker model than the app's: 19% / 28% / 40% / 86%. The 54% had been helped by both sides sharing one model.)*
+- **Branch `prior-v2` (2026-11-22, Nathan, not merged):** the engine's prior was rewritten: a 10 m ground map, walkers stored minute by minute, an ISRID statistics map blended in (95% / 5% by evaluation), an explicit rest-of-world share, a hazard layer, a grid anchored to the case, calibration (`tools/calibrate.js`) and an evaluation on held-out start points (`bench/prior-report.md`). Nathan now owns `engine/`. `BEN.md` lists what changed in the screen files; `INTERFACES.md` has the new contract.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
@@ -59,6 +60,180 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Real-world check: 161 real cases as a held-out test (public copy only)
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), after stage 4
+- **What changed:**
+  - **Privacy first.** Nathan added real-case research data under `docs/research/` (161 news-reported cases of people with dementia who walked away and were found). Its source URLs often contain the person's name and this repo is public, so:
+    - `.gitignore` (in the stage 4 commit) ignores the files with URLs: `docs/research/cases.csv`, `cases2.csv`, `cases*.geojson`, and `sources-private.csv`.
+    - New `tools/make-public-cases.js` writes `docs/research/cases-public.csv`: the same rows, with `source_urls` replaced by `sources` = publisher + case month + a source id (`wfmj.com 2023-07 [S0042]`). The id → URL list goes to the git-ignored `sources-private.csv`. The tool refuses to write if the public file would contain anything that looks like a URL, a piece of a source URL, or a house number with a street.
+    - Committed: `cases-public.csv`, `REPORT.md` and `DATA_DICTIONARY.md` (neither has a URL or a name), and a new `docs/research/CASES-PUBLIC.md` explaining the public copy.
+  - **New `bench/real-cases.js`:** compares the model with the real cases, with no network: distance from the last-seen point in bins cut at the ISRID urban quartiles (all, strict, street-level, stated in the article, neighborhood-only with the near bins merged, by setting, by outcome); distance by time missing; find-type mix; where the deceased were found against what the hazard layer flags. Writes `bench/real-cases-results.json`.
+  - **New `bench/real-cases-maps.js`** (needs the internet): for the 18 cases with both points located to street level, downloads that town's streets and water (cached in the git-ignored `bench/.cache/`) and scores the prior on the real found place. **Not finished at the time of this commit**: the public map servers were answering one request in several minutes. If `bench/real-cases-maps.json` appears in a later commit, the report gains a section 5.
+  - `bench/prior-report.js`: a new section "Real-world check" with two charts, and a verdict line. `bench/prior-report.md` and `.html` regenerated.
+  - `README.md`: a paragraph on the real-world check, two limits, files and sources. `CLAUDE.md`: the privacy rule for the case data.
+- **Why:** Nathan asked for the real cases to be used only as a held-out check, never for calibration, with the biases stated, and for nothing with a source URL to reach the public repo.
+- **Decisions:**
+  - **Nothing in the model was changed because of this data.** `tools/calibrate.js` does not read it.
+  - The public file keeps everything except the URLs (town, month, age, place descriptions without house numbers, points rounded to about 110 m), as the research file's own privacy rules describe. Source ids are assigned in file order and are not stable across rebuilds.
+  - Bins at the ISRID urban quartile distances (0.3 / 1.1 / 3.2 km), so "25% in each" is what ISRID urban predicts and the neighborhood-precision cases can still be used with the two near bins merged.
+  - `docs/research/FREMONT.md`, `OUTREACH.md`, `hazards.geojson` and `docs/INTAKE-SPEC.md` were in the working folder too. They are not part of this request and were **left uncommitted**.
+- **How it was verified:** `node tools/make-public-cases.js`: 161 cases, 207 distinct sources; `grep -c http docs/research/cases-public.csv` gives 0; `git check-ignore` confirms the four private files are ignored. `node bench/real-cases.js` output:
+  - Distance (85 cases): 15% within 0.3 km, 34% from 0.3 to 1.1, 22% from 1.1 to 3.2, 28% beyond 3.2 km; ISRID urban says 25% each; the calibrated walkers 26 / 24 / 31 / 20%. Urban cases (n = 14): median 4.72 km, 57% beyond 3.2 km. Suburban (43): median 1.5 km. Rural (28): 0.61 km.
+  - Time: half the cases with a time were missing more than 21 hours; only 2 of the 41 with both a time and a distance are within three hours.
+  - Find type: real urban cases 41% structure and 35% road (n = 17; ISRID urban 35 and 36); suburban woods 23%, water 25%; rural woods 37%.
+  - Deceased (70; 65 with a find type): 43% in water or a drainage, 29% in woods. 68% of water and drainage finds were deaths, against 35% elsewhere. Median distance 1.88 km against 0.8 km for those found alive.
+  - `node --test`: 103 pass (no engine code changed).
+- **Known issues / not done:**
+  - The data cannot test the first hour, which is what the app is for.
+  - What it questions and nobody has acted on: a 3.2 km map in cities; the urban ISRID column used for suburbs and open country (the temperate column is already in `engine/prior.js`); a hazard layer with no woods or brush; the walkers' thin far tail.
+  - `bench/real-cases-maps.js` had scored 1 of 18 cases when this was committed.
+  - The research file's own caveats apply: `setting` is a judgment, distances are rounded by journalists, 38% of cases could not be geocoded.
+- **Next:** Let the map run finish and add its table; decide with Nathan whether to pick the ISRID column by setting and add woods to the hazard layer (both would need a re-run of calibration and evaluation).
+
+### Prior v2, stage 4: calibration, evaluation and the report
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 4 of 4
+- **What changed:**
+  - **New `tools/calibrate.js`:** fits 17 ASSUMPTION numbers of the walkers to the urban ISRID statistics. 24 Fremont start points on the wide map (60 others are held out); 300 walkers per start for 12 h with spotting on; a random search (140 settings) then an evolution strategy (260 small changes to the best so far), all on the same seeds; the best six re-tested with 1,000 walkers per start and new seeds. Then, in a fresh process, it chooses `BLEND_WALKERS` by evaluation: every blend from 0 to 1 scored on ISRID-drawn true locations at 30, 60, 120 minutes and the end state. Writes `engine/calibrated.json`, `engine/calibrated.js` and `tools/calibration.json`. About 5 minutes.
+  - **New `bench/eval-lib.js`:** what calibration and evaluation share: the wide map, start points (calibration and held-out sets never overlap), the statistics and their weights, `measure()`, `placeTruth()` (true locations from ISRID statistics only), the area and R scores.
+  - **New `bench/prior-eval.js`:** the evaluation. 60 held-out starts × 20 truths × 5 times (15 / 30 / 60 / 120 min and the end state) = 6,000 cases, scored for distance rings, the ISRID statistics map (upper bound), the old engine (raw, and blurred as its app drew it) and the new prior. Also: the 100-told-60 mismatch, stability across seeds, the calibration check on held-out starts, sensitivity (±50%, DATA ±20%), replay time. Writes `bench/prior-results.json`. About 4.5 minutes.
+  - **New `bench/prior-report.js`:** writes `bench/prior-report.md` and a self-contained `bench/prior-report.html` (seven charts drawn as SVG by a script in the page, hover values, light and dark, no outside files).
+  - **Engine changes made while calibrating:**
+    - `engine/sim.js`: a walker whose mobility runs out on a road or path **steps off it** (to a building's edge if one is beside it, else the nearest open ground within 20 m). So "found on a road" can only happen by being noticed, which ties `SPOT_RATE_PER_MIN` to ISRID's 36% road finds. The per-walker code moved into `walkOne()` and the walkers use step masks worked out on first visit: same output bit for bit (checked by checksum), about 20% faster and no longer twice as slow on the first run in a fresh page. New `goalBound` per walker.
+    - `engine/grid.js`: walkers heading for a familiar place get their own share of the map (`SHARE_GOAL`, 25%), outside the blend. Walkers are simulated in 15-minute blocks (was 30). `replay()` takes a fourth, tools-only argument `{ blend }`.
+    - `engine/prior.js`: a yard that backs onto a channel and touches a house counts as "structure", not "drainage".
+    - `engine/host.js` / `engine/worker.js`: `warmUp()` runs the engine once on a tiny made-up area when the worker starts. `app.js`: new `startWorker()`, called when the page opens.
+    - `engine/calibrated.js` / `.json`: the fitted values.
+  - `bench/benchmark.js` re-run; its limits text rewritten. `bench/results.md`, `bench/phone-budget.json` (from `tools/browser/budget.mjs`, which now also times cases 4 and 12 hours old).
+  - `tools/browser/`: scripts now close leftover tabs first; `newarea.mjs` starts from an empty saved-areas store unless `--keep`.
+  - Docs: `README.md` (how the prediction works, "How good is the map?", benchmark, who built what, files, limits, sources), `ShortPlan.md`, `PLAN.md`, `CLAUDE.md` (Nathan owns the engine on this branch; rules for calibrated values and the worker), `docs/PRIOR-V2.md` ("As built"), `INTERFACES.md`, `BEN.md`. `sw.js` `v30` → `v31`.
+- **Why:** Stage 4 of Nathan's brief: calibrate, evaluate, and write a report he can read in three minutes, verdict first.
+- **Decisions:**
+  - **Distance (urban, n = 336) is the primary target**, with 10 of the score's 16 weight points. **Mobility hours (n = 42) are not fitted** and the mismatch is reported: the model's median is 2.65 h against ISRID's 0.25 h. At 0.62 m/s nobody covers ISRID's median 1.1 km in 15 minutes, so the two samples cannot both hold.
+  - **The spotting rate is fitted jointly**: 0.0102 per minute on a main road gives 37.6% road finds on held-out starts (ISRID 36%) with 36.6% of walkers ending by being noticed, and the same rate leaves 54% of the weight on a walker who spent an hour on a main road (90% on a residential street).
+  - **`BLEND_WALKERS` = 0.05**, chosen by evaluation. The curve is flat from 0 to 0.1 and rises after. Not at its limit, but close: with no clues and ISRID-drawn truths the statistics map is hard to beat. Because of that, familiar places were given their own share (`SHARE_GOAL`), an assumption the evaluation cannot score; without it a familiar place would have moved 5% of a quarter of the map.
+  - **The old engine is shown two ways.** Its raw 25 m map puts half the truths on an even floor (median 4.10 km²); blurred as its app drew it, 2.54 km². The report leads with the blurred one as the fair comparison.
+  - **Two numbers ended at a limit:** `MOBILE_SIGMA` (low, 0.5) and `P_STRUCT_STAYER` (high, 1). Together with a fitted median mobility of 19 h they mean walkers almost never stop from tiredness; they stop by being noticed, at a structure, in terrain or water, or by leaving the map.
+  - The other project's name appears nowhere in the repo (Nathan's instruction); the comparison with its published numbers was given to Nathan directly, not written here.
+- **How it was verified:**
+  - `node --test`: 103 pass, 0 fail.
+  - **Calibration:** score 44.25 → 4.06 on the calibration starts; 3.90 on 24 held-out starts. Held out: 26.4 / 49.9 / 80.5% found within 0.3 / 1.1 / 3.2 km (ISRID 25 / 50 / 75); structure 38.3 (35), road 37.6 (36), path 8.8 (9), field 1.7 (6), water 5.4 (6), drainage 8.1 (4), woods 0.0 (3), brush 0.0 (1); track offset median 14 m (15), 75% 34 m (71); dispersion median 31° (23).
+  - **Evaluation (6,000 cases, 350 off the map):** median ground searched for the end state: new prior 0.989 km², rings 1.30, old engine 2.54 as drawn (4.10 raw), statistics map 1.03. At 60 minutes: 0.920 / 1.21 / 2.06 / 0.896. New prior against rings (end state): 458 wins, 190 ties, 244 losses; total ground 14% less. Told 60 when gone 100 minutes: 1.69 km² against 1.63 told correctly. Hot-zone overlap between two seeds: 97% at 60 minutes, 95% at the end (walkers alone: 55% and 34%).
+  - **Speed (Chrome, processor slowed 4×, clean browser):** cold replay 886 ms (Demo), 1,432 and 1,302 ms (75 minutes, 7 searches, 3 sightings), 1,197 ms (4 h), 1,775 ms (12 h). An earlier run with 27 leftover test tabs open read up to 2,182 ms.
+  - **Browser:** Demo on screen 0.76 s after the tap (1.33 s slowed 4×), no fallback from the worker. Two tabs on a shared search: same spots and areas before and after a search, which crossed in 102 ms; `minutesAt` in the link and the database case. A new area with a fresh live download (central Fremont) worked in two phases, but slowly: first map after 292 s, "Map sharpened with buildings and land use." at 596 s, because `overpass-api.de` answered 502, `overpass.private.coffee` was refused by the browser (no CORS header on its error answer) and only the third mirror delivered. My own evaluation downloads were using the same servers at that moment. The same check in stage 3 took 39 s and 66 s. With the area already saved, the map came up in 0.7 s.
+  - **Old benchmark re-run** (truths from the first engine's walkers): after 1,500 searcher-minutes, on their own 19%, ring sweep 28%, FindThem 40%, + sighting 86%.
+- **Known issues / not done:**
+  - No real cases anywhere: the evaluation's truths are drawn from the statistics the map is built from. "Close to the upper bound" is partly by construction.
+  - Field (1.7% against 6%), drainage (8.1% against 4%), woods and brush (0% against 3% and 1%) do not fit; Fremont has almost no woods or brush near the start points.
+  - ISRID's 95% distance (12.6 km) can't be tested on a 3.2 km map.
+  - Not run on a real phone or in Safari. Timings vary with what else the laptop is doing.
+  - A live download depends on the public Overpass servers; when they are busy the first map can take minutes (see the new-area check above). The second mirror in `data.js` (`overpass.private.coffee`) failed the browser's CORS check in that run.
+  - `hazardSpots` and `restOfWorld` are still not shown on screen.
+  - Direction, familiar places, sightings and searches are tested by unit tests but are not part of the evaluation.
+  - Not merged, not pushed. BenStew has not reviewed `BEN.md` or `INTERFACES.md`.
+- **Next:** Nathan reads `bench/prior-report.html`; BenStew reviews `BEN.md`; a real-phone test; then decide whether to merge before the 9:30 freeze.
+
+### Prior v2, stage 3: statistics map blend, rest of world, hazard layer, two-phase load, worker
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 3 of 4
+- **What changed:**
+  - **Engine**
+    - **New `engine/prior.js`:** the ISRID statistics map. Urban distance percentiles (0.3 / 1.1 / 3.2 / 12.6 km) limited by how far a person could have gone in t minutes (the smaller of "where they'd end up" and "pace × t"), times the urban find-location share of each kind of ground within every 50 m ring, times the dispersion angle when a direction is given. `findTypes()` gives each 10 m square one ISRID find type; `statsMap()` returns the 25 m map and the share beyond its edge.
+    - **`engine/grid.js`:** the prior is now `BLEND_WALKERS × walkers + (1 − BLEND_WALKERS) × statistics map` (0.5 until stage 4 sets it by evaluation). The even 2% floor is gone. **Rest of world** is real: walkers that left the map plus the statistics map's mass beyond it. Each "story" (the last-seen start, each sighting) has its own walkers and its own statistics layer; a search discounts the statistics layer only by the share of its chance that was already there at the time of the search. **Hazard layer:** `grid.hazard` (for each water / creek / wetland square, the chance that the person is within 150 m) and `grid.hazardType`; sectors get `hazard` and `hazardScore`; spots get `hazardNearby`; new export `hazardSpots()`. `spot.hazard` now comes from that layer.
+    - **`engine/sim.js`:** each walker-minute is 4 bytes: a 16-bit square of the 25 m map (`pos`) and a 16-bit running total of exposure to the public (`seen`), instead of a 32-bit 10 m square. "Still missing" is now `(1 − rate)^(exposure-minutes)` read straight from `seen`, so a clock tick no longer walks every path again. `trace: true` keeps the 10 m path for tests and tools. The familiar-place cost field covers only the box around the last-seen point and the place (plus 1 km).
+    - **New `engine/host.js` and `engine/worker.js`:** the engine behind a Web Worker. New `withLayers(area, layers)` in `engine/graph.js`.
+    - `engine/surface.js`: square downloads (`osm.bounds`); `noDataShare`.
+    - `engine/params.js`: `ISRID_PROFILE`, `BLEND_WALKERS`, `N_SIGHTING_WALKERS`.
+  - **Screen (BenStew's files; all listed with reasons in the new `BEN.md`)**
+    - `app.js`: `readCase()` passes `minutesAt`; the engine runs in the worker with a fallback to the page (`askWorker`, `runEngine`); `recompute()` is async; two-phase load (`refineArea`); hazard lines for spots and areas; home areas saved bigger.
+    - `data.js`: the download is a square around the case's grid origin (3.4 km each way; home areas 4.2 km), in two requests (`buildQuery`, `buildLayersQuery`); `loadArea` returns `more`; a saved area is reused only if it covers the whole map (`coversGrid`).
+    - `i18n.js`: `mapRefining`, `mapRefined`, `areaHazard`, `spotHazardNear` in five languages.
+    - `sw.js`: three more engine files in the offline list, `v29` → `v30`.
+  - **Data:** `tests/fixtures/demo-area.json` re-downloaded as a square centered on the Demo's grid origin (37.541, −121.98): 11,805 ways, 322 features, 33,977 buildings, 6.9 MB. New `tools/data/fremont-wide.json.gz` (2.8 MB gzipped): a 11.2 km square for calibration and evaluation start points, never loaded by the app. `tools/make-fixture.js` rewritten to make both.
+  - **Tests:** 103 (was 86). New: statistics map sums and percentiles; rest of world grows with time; familiar places; slow mobility; hazard layer (three tests); a real brute-force allocation; no-data limit; the worker host; memory; two-phase load, coverage rule and lake relations in `tests/data.test.js`. `tools/browser/`: scripts that drive headless Chrome (Demo, two tabs, new area, time budget). `bench/phone-budget.js`: time and memory in Node.
+  - **Docs:** `INTERFACES.md` rewritten for the new contract; new `BEN.md`; `CLAUDE.md` points to both.
+- **Why:** Stage 3 of Nathan's brief, plus the six additions he made when approving stage 2 (joint spotting calibration, distance as the primary target, the no-data bug, the phone budget with a worker, two-phase load, `minutesAt`). The two calibration items are stage 4's.
+- **Decisions:**
+  - **Positions at 25 m, not 10 m.** Sectors, the map and the Bayes arithmetic only need the 25 m square; what needed the 10 m path was the road exposure, which is now added up while walking. Same 4 bytes as a 32-bit index, but a clock tick is 7–40 ms instead of re-reading every path.
+  - **Box, not circle**, for the download: it matches the square map and Overpass answers it faster.
+  - **The first map never waits for buildings.** Two phones can therefore differ for the minute or so one of them is still waiting; they agree once both have the layers.
+  - **The worker gets its own copy of the map data.** The page still prepares the street graph itself (for drawing streets and routes).
+  - `spot.hazard` keeps its meaning ("this spot is at water: for professionals"). Water *near* a spot is the new `hazardNearby`, shown with a different sentence ("look from the bank, don't go in"), so a likely street is not labeled "leave to professionals" because a channel runs 100 m away.
+  - Hazard reach 150 m and flag threshold 0.5% are assumptions.
+  - The familiar-place cost field is tied to the last-seen point for every story, so two phones that learned of sightings in a different order still use the same field.
+- **How it was verified:**
+  - `node --test`: 103 pass, 0 fail.
+  - **Chrome with the processor slowed 4× (`tools/browser/budget.mjs`):** cold replay 1,017 ms for the Demo case, 1,352 and 1,306 ms for new cases with 7 searches and 3 sightings; clock tick 21–40 ms. Unslowed: 299 / 404 / 345 ms.
+  - **Memory (`node --expose-gc bench/phone-budget.js`):** walkers 2.2 MB for a case at 45 min, 3.4 MB at 2 h, 15.4 MB at the 12 h cap; ground map 1.6 MB; one familiar-place field 1.6 MB; the result sent to the page 0.85 MB. The map data dominates: the 6.9 MB Demo file is 23 MB once read, plus 29 MB for the street network.
+  - **Browser (headless Chrome):** Demo on screen 0.9 s after the tap (1.3 s slowed 4×). Two tabs on a shared search (mock database): same spots, `minutesAt` in the link and the database case, a search in one tab reached the other in 106 ms. A new area with a live download: first map at 38.8 s from streets alone, "Map sharpened with buildings and land use." at 66.2 s, 28,628 buildings saved.
+  - The Demo's map has 0% no data (was 32%).
+- **Known issues / not done:**
+  - **Still not calibrated** (stage 4): distances are too short and `BLEND_WALKERS` is a placeholder.
+  - The worker doubles the map data in memory (about 50 MB more for the Demo's area).
+  - Not tried on a real phone, in Safari, or offline through the service worker with the new files. Module workers need Safari 15+ / Firefox 114+; older browsers use the fallback.
+  - `hazardSpots` and `restOfWorld` are not shown on screen.
+  - The sea is treated as plain ground (no OSM polygon for it).
+  - Areas saved before today are circles and are re-downloaded once when there is signal.
+  - `npm run bench` not re-run; README numbers are for the old engine.
+  - The four new sentences in es / fr / zh / ja are unreviewed.
+- **Next:** Stage 4: calibration (`tools/calibrate.js`), evaluation (`bench/prior-eval.js`), the report.
+
+### Prior v2, stage 2: ground map, walkers as particles, time-aware map
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 2 of 4
+- **What changed:**
+  - **New `engine/surface.js`:** the 10 m ground map (640 × 640 squares, ±3.2 km), built from OSM for the case's grid origin. 16 ground classes (road, path, service way, building, fence/rail/motorway, water, creek, wetland, woods, brush, grass, park, yard, open lot, plain ground, no data). Roads are drawn last, so bridges and gates stay open. Also per square: how exposed to the public a way is (road type, bus stops), "beside a building", joined to the main street network, and (worked out only when asked for) distance to the nearest road and to water. `snapToNetwork()` moves a start point in a house, a lake or a cut-off scrap of path onto walkable ground joined to the streets.
+  - **`engine/sim.js` rewritten:** walkers move square by square over the ground map and their position is stored **every minute**. Each has its own speed (0.62 ± 0.23 m/s, Toots et al. 2019), share of time moving, minutes of mobility, kind (keeps a course / wanders / heads for a familiar place / stays near a structure) and road habit (34% follow roads, ISRID). They stop when mobility runs out, at a structure, stuck in brush / woods / wetland / a drainage channel, or in water (decided once per walker). Familiar places pull through a walking-cost field (`costToGoal`), so goal-seekers go around lakes and blocks. Each walker has its own random stream, so its first hour is the same whether one hour or twelve are simulated.
+  - **New `engine/params.js`:** every tunable number, labeled DATA / EXPERT / ASSUMPTION with its source. **New `engine/calibrated.js`:** empty for now (stage 4 fills it).
+  - **`engine/grid.js` rewritten around particles:**
+    - The grid is anchored to the **case** (`gridOriginFor`: `caseInput.gridOrigin`, or the last-seen point rounded to 3 decimals), and coordinates are read at the share link's 6 decimals, so every phone means the same ground by the same sector id.
+    - The map is for **t minutes since last seen** (where each walker is at minute t), with **"still missing"** evidence: weight × (1 − rate × exposure) for every minute on a road.
+    - A search re-weighs the walkers that were in that sector **at the time of the search** (needs `caseInput.minutesAt`; without it every event counts as "now", as before).
+    - A sighting starts new walkers from the sighting point that walk for as long as it has been since (grows with the clock), is **not** discounted by searches made before it, and is discounted by searches made after it.
+    - `Number(ev.minutes)`; ties in `at` are ordered by code point like `sync.js`; `topSpots` checks the 150 m spacing after moving a pin onto a creek or park.
+    - New fields: `Prediction.restOfWorld` (walkers that left the map; `grid.p` now sums to `1 − restOfWorld`), `Prediction.minutes`, `grid.origin`. New exports: `gridOriginFor`, `sectorIdAt`, `groundClassAt`.
+    - Smoothing never crosses a sector's edge, so the sector Bayes arithmetic is exact.
+  - `engine/graph.js`: `prepareArea` also keeps a reference to `osm` (the ground map is drawn later, once the case is known). `engine/routes.js`: sector membership is measured from the grid origin.
+  - **`data.js` (BenStew's file; Nathan's brief allowed the query change):** the Overpass query also asks for buildings (sent without tags), fences / walls / hedges, rail, motorways, land use, pitches, parking, schools, bus stops, and lakes / parks stored as relations. New `parseLayers`, `packPoints`, `relationFeatures`; `parseOverpass` adds `osm.layers` when the answer has them. **Cost, measured on Nov 22 for Fremont:** buildings alone are about 3.7 MB on the wire and took 55 s on a busy public server (the old query's live download was 35 s).
+  - `tools/make-fixture.js`: new `--add file ...` mode that adds layers and relations to the existing fixture without touching its streets. `tests/fixtures/demo-area.json` regenerated that way: 22,582 buildings, 198 fences, 70 rail pieces, 334 residential areas, 475 lots, 425 green areas, 178 bus stops, and 5 relations including **Lake Elizabeth, which the old data did not have at all**. 3.0 → 4.6 MB.
+  - `sw.js` (BenStew's file): the three new engine files added to the offline list, `v28` → `v29`. Without this the app would not start offline.
+  - `bench/old-engine/`: a frozen copy of `main`'s `graph.js`, `sim.js`, `grid.js`, for comparing old and new. `bench/benchmark.js` now places its "true" people with those old walkers, so the app is no longer graded on its own model.
+  - `tests/engine.test.js` rewritten: 29 tests (was 16).
+- **Why:** Stage 2 of Nathan's brief: a movement surface, walkers stored as particles with per-walker variety, and a prior for "t minutes since last seen".
+- **Decisions:**
+  - The grid origin is derived inside the engine from the last-seen point, so sharing works with **no change to `app.js`**. `caseInput.gridOrigin` is honored if a later version wants to pass one.
+  - The probability map stays 256 × 256 squares of 25 m and sectors stay 200 m, so the screen draws it as before; only the walkers use the 10 m map.
+  - Buildings are stored as packed whole-number steps (about a third the size of `{lat, lng}` objects).
+  - Sightings use 2,500 walkers (the base run keeps 5,000) and walkers are simulated in half-hour blocks, to keep a cold replay fast.
+  - The even 2% floor is still there; stage 3 replaces it with the ISRID statistics map and the full rest-of-world share.
+  - Elevation skipped (see the design note).
+- **How it was verified:** `node --test`: 86 pass, 0 fail. On the laptop a cold replay of a new case with 7 searches and 3 sightings took 283–471 ms (the first run in a new process is the slow one), the 5-minute clock tick 12–24 ms, the Demo's cold replay about 250 ms. With the default (uncalibrated) numbers, from the map center: median straight-line distance 177 m at 15 min, 340 m at 60 min, 372 m at 12 h (ISRID urban says 1,100 m for where people are found, so the defaults are too short: that is what stage 4 fits). Busy roads hold 27% of the walkers at 120 min but 4% of the weight after "still missing". A familiar place 600 m away raises the chance within 200 m of it from 0.017 to 0.130 at 45 min; the Lake Elizabeth pin 1.7 km away from 0.001 to 0.023 within 400 m at 90 min (the old engine: 0.000 both ways).
+- **Known issues / not done:**
+  - **Not calibrated.** Distances are far too short until stage 4.
+  - `INTERFACES.md` is not updated yet (stage 3 does it, with the exact list for BenStew).
+  - The Demo's last-seen point is 1.6 km from the center of the bundled area, so 32% of its ground map is "no data".
+  - Two phones holding different downloads agree on the grid and on everything inside both downloads; walkers that reach ground only one phone has data for will differ.
+  - Hazard flags still come from the old trap lookup; the Demo's top spots show none yet (stage 3).
+  - The full benchmark (`npm run bench`) was not re-run; its numbers in the README are for the old engine.
+  - Not tried in a browser or on a phone.
+- **Next:** Stage 3: ISRID statistics map and blend, rest of world, hazard layer, remaining audit fixes, tests.
+
+### Prior v2, stage 1: design note
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 1 of 4
+- **What changed:** New `docs/PRIOR-V2.md`: what is wrong with the current prior (from Nathan's audit of `main`), the design of its replacement (10 m ground map, walkers stored as per-minute particles with their own speed / time moving / behavior, a map for "t minutes since last seen" with "still missing" evidence, a blend with an ISRID statistics map, an explicit "rest of world" share, a separate hazard layer, calibration and evaluation), the published numbers it uses, and the contract changes it will need.
+- **Why:** Nathan asked for the prior to be replaced with one as close to a real search team's method as the data allows, built in four committed stages on a branch, starting with a short design note.
+- **Decisions:**
+  - Urban ISRID dementia row for Fremont, temperate as the alternative.
+  - **Elevation is skipped**: the urban row has no elevation statistic, the test area is flat, and terrain tiles would add a download to the first minutes of a search.
+  - The grid will be anchored to the case (its last-seen point, rounded), not to each phone's download.
+  - `grid.p` will sum to `1 − restOfWorld` rather than 1. This and the new optional fields change `INTERFACES.md`, so they need BenStew's OK before any merge.
+  - Every tunable constant is labeled DATA, EXPERT or ASSUMPTION with its source.
+- **How it was verified:** Each ISRID number was read from Koester's dementia chapter (the PDF's text, extracted on the laptop): all matched, and the urban find-location row also lists linear 9, woods 3 and brush 1, which makes it sum to 100. Rowe 2011 was read in full: 53% of walkers within 1 mile is right, but "those found dead were mostly within 0.5 mile" is really **50%**. The gait-speed figure (0.62 ± 0.23 m/s, n = 309) is Toots et al. 2019. Sava et al.'s R formula and the 0.78 for rings were confirmed from the authors' preprint and the published abstract.
+- **Known issues / not done:** No engine code changed yet. No urban sweep width was found in the literature, so the search-coverage constants remain assumptions.
+- **Next:** Stage 2: the ground map, the new walkers, and time conditioning.
 
 ### PLAN.md: tonight's test pass noted
 - **Date:** 2026-11-21
