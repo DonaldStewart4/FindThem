@@ -61,6 +61,32 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Planner, stage 3: benchmark, report, merge plan, source check
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), stage 3 of 3
+- **What changed:**
+  - New `bench/planner-eval.js` (`npm run planner-eval`, about 3 minutes): calls the real planner and the real old pipeline on the Fremont map. People come from ISRID statistics (distance and kind of place), not the app's walkers, and may still be walking; searchers travel on the street graph, vary in pace, and skip one task in five; true sweep widths differ from the planner's by up to ±50% per setup. Ten strategies: four baselines, the planner, and five planner variants. Writes `bench/planner-report.md` and `bench/planner-results.json`.
+  - New `tests/planner-bench.test.js` (3 smoke tests) and the `planner-eval` script in `package.json`.
+  - New `docs/PLANNER-MERGE.md`: the exact merge plan for `engine/index.js`, the worker, the Firebase rules, `INTERFACES.md` and the screen, including the GPS-trail recording spec (active task only, every 10 s, attached to the `completed` event).
+  - New `UPDATESBYNATE.md`: nothing on the screen was touched; the table of what the screen will need.
+  - `engine/planner/world.js`: searchers are placed on the main street network only. `engine/planner/adapter.js` + `params.js`: the 25 m map is shared out over 10 m squares by ISRID find-location shares (`MAP_SPLIT`), with the even split kept as an option.
+  - `tests/planner.test.js`: 2 more tests (34 planner tests).
+  - `docs/PLANNER.md`: benchmark results, the source check, the review decisions.
+- **Why:** Stage 3 of Nathan's brief, and his decision 6 (re-run the source check).
+- **Decisions:**
+  - **The hazard-first rule and containment are left ON as specified, and the report recommends turning both off.** The benchmark does not support either (below). They are one parameter each in `engine/planner/params.js`. This is Nathan's call.
+  - Searchers on the main street network only: found when a benchmark searcher was snapped onto a cut-off scrap of footpath and could reach nothing. 1,953 of 49,379 walkable street points in the fixture are on such scraps, so this would have happened to real users.
+  - The first two full benchmark runs were thrown away: reading the setup-by-setup table showed 0% for some baselines, which was the harness (the stranded searcher above, and zero-minute turns for old-style areas with almost no street), not a result. Old-style baselines now give each area a 20 to 30 minute turn.
+  - The planner is given no GPS trails in the benchmark: it believes its routes were walked as planned, including by the searchers who did something else and pressed "done".
+- **How it was verified:** `node --test` passes (see the commit's run: planner 34, benchmark smoke 3, the rest unchanged). The benchmark's final run, 16 setups × 250 people = 4,000 cases, found by 180 minutes with 95% intervals by setup: on their own 21% (18–25), ring sweep 24% (21–28), greedy on the statistics map 24% (22–27), old app 22% (19–24), **planner 24% (21–27)**, planner on the statistics map 26% (23–29). Paired, planner minus old app: +2 points at 120 and 180 minutes (+0 to +4). Planner minus ring sweep: −1 (−3 to +1). Planner minus greedy-on-statistics: −2 at 30 and 60 minutes (interval excludes 0), level later. Hazard-first on minus off: +0 points for people in water or a drainage (−3 to +4), about −1 point for everyone. Containment on minus off: −1 point at 180 minutes (−2 to −0). Door-knocking: about +1 point.
+- **Source check:** CONFIRMED from PubMed abstracts: Koester et al. 2014 (W = 1.8 / 1.6 / 1.1 × detection range by visibility; nothing on night, vehicles or towns), Bohannon 1997 (comfortable walking 1.27–1.46 m/s; `TRAVEL_SPEED_MPS` is now DATA), Rowe et al. 2011 ("deaths most commonly occurred in unpopulated areas due to exposure and drowning"). NOT FOUND: any measured night sweep width, urban sweep width, detection from a vehicle, or door-knocking effectiveness; those constants stay ASSUMPTION. NOT CHECKED: definitions of hasty search and containment; the documents refused automated download (403) and were not fetched another way. Two PubMed ids first tried were wrong and returned unrelated papers; the right ones were found by title search.
+- **Known issues / not done:**
+  - **The planner does not beat a ring sweep or the old greedy rule on a good statistics map in this simulation.** It is slightly ahead of the old app and of uncoordinated volunteers. See `docs/PLANNER.md`, "Benchmark results", for why.
+  - Everything in the benchmark is simulated: one town, daylight, six searchers on foot, a detection model of the same shape as the planner's own.
+  - No phone has run the planner. Nothing is wired to the screen.
+  - This session was paused for about seven hours overnight (usage limit); the last benchmark run and this commit were made at about 9:30 am on Nov 22.
+- **Next:** Nathan and BenStew decide: merge per `docs/PLANNER-MERGE.md` or keep the old flow for the deadline; and whether to switch off hazard-first and containment.
+
 ### Planner: merge prior-v2 stage 3 into the planner branch
 - **Date:** 2026-11-22
 - **Stage:** Search planner (branch `planner`, Nathan), integration

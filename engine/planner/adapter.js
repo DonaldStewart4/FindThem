@@ -83,17 +83,56 @@ export function plannerWorld(area, caseInput, overrides) {
     busStops,
     lastSeen: toXY(frame, caseInput.lastSeen.lat, caseInput.lastSeen.lng),
   }, P);
+  world.findWeight = findWeights(world, surface.nearBuilding, P);
   const built = { world, segs: buildSegments(world, P) };
   cache.set(key, built);
   return built;
 }
 
+// How often people are found on each 10 m square's kind of ground, per square of that kind:
+// ISRID's find-location share for the kind ÷ how many squares of that kind the map has.
+//   structure  building squares and the open ground touching a building (the engine's own
+//              "at a structure" layer); road; linear = paths and service ways; field = grass,
+//              parks, lots, yards and plain ground away from buildings; water = the water's
+//              edge; drainage = creeks and channels; woods; brush.
+// Spreading "structure" evenly over inside and beside the building is an ASSUMPTION.
+function findWeights(world, nearBuilding, P) {
+  const { n, cls, hazardCell } = world;
+  const kinds = Object.keys(P.FIND_SHARE);
+  const kindOf = new Int8Array(n * n).fill(-1);
+  const counts = new Float64Array(kinds.length);
+  const K = Object.fromEntries(kinds.map((k, i) => [k, i]));
+  for (let i = 0; i < cls.length; i++) {
+    const v = cls[i];
+    let kind = -1;
+    if (v === G.BUILDING || (nearBuilding && nearBuilding[i])) kind = K.structure;
+    else if (v === G.ROAD) kind = K.road;
+    else if (v === G.PATH || v === G.SERVICE) kind = K.linear;
+    else if (v === G.CREEK) kind = K.drainage;
+    else if (v === G.WATER || v === G.WETLAND) {
+      const c = i % n; // only the water's edge: a square of water with dry ground beside it
+      const dry = (c > 0 && !hazardCell[i - 1]) || (c < n - 1 && !hazardCell[i + 1]) || (i >= n && !hazardCell[i - n]) || (i + n < cls.length && !hazardCell[i + n]);
+      if (dry) kind = K.water;
+    } else if (v === G.WOODS) kind = K.woods;
+    else if (v === G.BRUSH) kind = K.brush;
+    else if (v === G.GRASS || v === G.PARK || v === G.LOT || v === G.DEVELOPED || v === G.YARD) kind = K.field;
+    kindOf[i] = kind;
+    if (kind >= 0) counts[kind] += 1;
+  }
+  const weight = new Float32Array(n * n);
+  for (let i = 0; i < weight.length; i++) if (kindOf[i] >= 0) weight[i] = P.FIND_SHARE[kinds[kindOf[i]]] / counts[kindOf[i]];
+  return weight;
+}
+
 // The engine's map as the planner needs it: probability per 10 m square.
-// MERGE: today grid.p is on 25 m squares; each square's value is split evenly over the 10 m
-// squares whose middle falls in it (ASSUMPTION; the total is unchanged). When the engine gives
-// a 10 m map (p.length === 640 × 640) it is passed through as it is.
+// MERGE: today grid.p is on 25 m squares. Each square's value is shared among the 10 m squares
+// whose middle falls in it, in proportion to findWeights() above (MAP_SPLIT 'find-location';
+// the total is unchanged), or evenly (MAP_SPLIT 'even'). When the engine gives a 10 m map
+// (p.length === 640 × 640) it is passed through as it is and none of this is used.
 export function plannerMap(world, prediction, P = withParams()) {
-  if (maps.has(prediction)) return maps.get(prediction);
+  if (!maps.has(prediction)) maps.set(prediction, new Map());
+  const made = maps.get(prediction);
+  if (made.has(P.MAP_SPLIT)) return made.get(P.MAP_SPLIT);
   const { n, cellM } = world;
   const grid = prediction.grid;
   let p;
@@ -115,7 +154,18 @@ export function plannerMap(world, prediction, P = withParams()) {
     }
     coarse = world.coarse;
     p = new Float64Array(n * n);
-    for (let i = 0; i < p.length; i++) p[i] = grid.p[coarse.index[i]] / coarse.count[coarse.index[i]];
+    const weight = P.MAP_SPLIT === 'find-location' ? world.findWeight : null;
+    if (weight) {
+      const sum = new Float64Array(grid.cols * grid.rows); // total weight inside each engine square
+      for (let i = 0; i < p.length; i++) sum[coarse.index[i]] += weight[i];
+      for (let i = 0; i < p.length; i++) {
+        const k = coarse.index[i];
+        // A square with no findable ground in it (the middle of a lake) is split evenly.
+        p[i] = sum[k] > 0 ? (grid.p[k] * weight[i]) / sum[k] : grid.p[k] / coarse.count[k];
+      }
+    } else {
+      for (let i = 0; i < p.length; i++) p[i] = grid.p[coarse.index[i]] / coarse.count[coarse.index[i]];
+    }
   }
   // The hazard layer. MERGE: the prior session's grid.hazard is on the engine's squares; it is
   // read per 10 m square. Without it, the same statistic is worked out here: for each water,
@@ -144,7 +194,7 @@ export function plannerMap(world, prediction, P = withParams()) {
     }
   }
   const out = { p, restOfWorld: Number(prediction.restOfWorld) || 0, hazard };
-  maps.set(prediction, out);
+  made.set(P.MAP_SPLIT, out);
   return out;
 }
 

@@ -48,8 +48,8 @@ Each re-plan:
 
 What the adapter covers until the prior session lands:
 
-- Today `grid.p` is on 25 m squares. The adapter splits each square's value **evenly** over its 10 m squares (ASSUMPTION; the sum is unchanged). When the engine gives a 10 m map, the adapter passes it through.
-- Today there is no `grid.hazard` on this branch. The adapter then works out the same statistic itself: for each water, creek or wetland square, the probability within 100 m.
+- Today `grid.p` is on 25 m squares. **As built:** the adapter shares each square's value among its 10 m squares in proportion to how often people are found on that kind of ground, per square of it: ISRID urban find-location shares (structure 35, road 36, linear 9, field 6, water 6, drainage 4, woods 3, brush 1; DATA) ÷ how many squares of that kind the map has. "Structure" is building squares plus the open ground touching a building (the engine's own "at a structure" layer); spreading it evenly over both is an ASSUMPTION. The total, and each 25 m square's own value, are unchanged. The first version split evenly; the benchmark runs both. When the engine gives a 10 m map, the adapter passes it through and none of this is used.
+- The hazard layer: the prior's `grid.hazard` (25 m) is read per 10 m square. Without it the adapter works out the same statistic itself: for each water, creek or wetland square, the probability within 100 m.
 
 ## 2. Tasks, not squares
 
@@ -93,6 +93,7 @@ Every square has a visibility class. Detection is worked out per square from the
 - Pace changes `W`: hasty walking ×0.7, driving ×0.5 (ASSUMPTION).
 - **Canvass.** A `yards` task knocks at each building. That gives the building's squares and the yards behind it a POD of their own: `POD_CANVASS_BUILDING = 0.4`, `POD_CANVASS_YARD = 0.5` (ASSUMPTION: about half of residents answer, and most who answer would check and find). Without the ask-permission task these squares get only what the street view gives.
 - **As built: a block's doors count once.** A second person knocking on the same doors gets the same answers, so those looks are not independent. Within `CANVASS_REPEAT_MIN = 120` minutes (ASSUMPTION) only the first canvass of a block is credited; anyone else sent there is offered a walk past (no doors, no permission needed, shorter) and credited only for what they see from the street. This was found when the first working planner sent three searchers to canvass the same block.
+- **Buildings (Nathan's rule, Nov 22).** Probability inside a building is real (ISRID urban: 35% of finds are at structures), but volunteers cannot search inside private buildings. A building square is credited **only** by the door-knocking of the ask-permission task, with its own value (`POD_CANVASS_BUILDING = 0.4`, ASSUMPTION). No walk, drive, park sweep or containment post ever credits one: their sweep width for buildings is 0, and building squares are left out of a post's catchment. The rule lives in the detection code, not in the adapter, so it holds whatever map arrives; a test feeds a 640 × 640 map with all the probability inside one block's buildings and checks that only the canvass gains anything.
 - **Night** comes from the case clock and the sun's height at the last-seen point (standard solar-position formula; night = sun more than 6° below the horizon).
 
 ## 4. Routes
@@ -122,9 +123,12 @@ Events (added to the shared search like any other; the engine ignores types it d
 { id, type: 'assigned',  searcherId, taskId, at, expiresAt, track, searchMin, canvass?, partnerId? }
 { id, type: 'released',  searcherId, taskId, at, track? }          // gave it up; partial trail optional
 { id, type: 'completed', searcherId, taskId, at, track?, partnerId? } // done; GPS trail optional
+{ id, type: 'found',     lat, lng, by, at, note }                     // the person has been found
 ```
 
 - A searcher's task is their latest `assigned` that is not released, completed or past `expiresAt`. Events are ordered by `at`, then `id`, as the engine does.
+- **`found` ends the search.** The plan comes back with `over: true` and the `found` details; nobody is assigned anything, and each searcher's held task is listed under `released` (no `released` events are needed). The screen shows a pin.
+- **GPS trails (in scope since Nov 22).** A `completed` or `released` event may carry `track`: the 10 m squares of the trail actually walked (`trackFromLatLngs` makes it from GPS points). It then replaces the planned route when the work is scored. Recording on the phone is specified in `docs/PLANNER-MERGE.md`: during an active task only, a point every 10 s, attached to the `completed` event.
 - **Work in progress counts.** Every active assignment's route lowers the map the others are scored on, square by square, by `CLAIM_CREDIT = 0.8` × its detection (ASSUMPTION: not everyone follows the route). The credit fades when the searcher's last update is older than 10 minutes.
 - Because the accounting is per square, a second searcher on the same ground only gains what the first would miss. Shrinking returns are not a special rule; they are the arithmetic.
 - **What is maximized (as built).** Each searcher's *marginal* gain per minute, travel included: what their route would find that everyone else's routes would not. This is search theory's rule for dividing effort: put each bit of effort where the return on it is highest (Koopman; Stone, *Theory of Optimal Search*, 1975). When every task takes the same time it is exactly "maximize the joint chance of finding the person".
@@ -133,7 +137,7 @@ Events (added to the shared search like any other; the engine ignores types it d
   - Brute force on the tiny test town (every assignment listed, scored by a separate evaluator): the planner found the best assignment in **80 of 80** equal-time cases with 2 and 3 searchers. With unequal times and 2–4 searchers, **0 of 675** single-searcher moves would have done better.
 - **Doubling up** on a task someone else holds must beat the searcher's best other option by `DOUBLE_UP_FACTOR = 1.25` (ASSUMPTION). A second searcher on a block only walks past it (section 3). A containment point takes one watcher, never two.
 - **The POS gain shown for an assigned route** counts what teammates who *finish earlier* would not already have found (work in progress first, then routes by their minutes). Added up over the team these gains are exactly the chance that someone finds the person; the tests check that sum against the Bayes update after everything is completed. Alternatives are shown with the cautious figure: what they would add if every teammate finished first.
-- Searchers who hold a task are offered block, park and containment alternatives; hasty routes (the costly ones to build) are built for free searchers only.
+- Searchers who hold a task get the same kinds of alternatives as free ones, hasty routes included.
 - **Pairs.** `hazard_check` needs two searchers who walk together and count as one look. A lone searcher is never assigned one; the task is listed as needing a partner.
 - **Hysteresis.** A searcher keeps their task unless another option's gain per minute beats the remaining gain per minute of the current one by `SWITCH_FACTOR = 1.5` (ASSUMPTION).
 
@@ -194,7 +198,8 @@ A street piece belongs to a block when at least two of its squares touch the blo
 - **Measured on the laptop** (Node 22, Fremont fixture, median of 9 runs, while another session was using the machine): all 10 searchers free **31 ms**; all 10 holding a task **16 ms**; 1 free and 9 holding (the usual re-plan) **22 ms**. No phone has run it yet; that is on Nathan's test list.
 - One-off costs: building the world and segments about 0.4–0.6 s; the first plan of a case about 0.3–0.5 s (tours and footprints are built once and kept).
 - Where the time went, and what was done: a shortest-path search at every step of the hasty router (replaced), a team score recomputed from scratch for every trial move (replaced by marginal gains), and 13 MB of whole-map arrays allocated per re-plan (now reused).
-- `engine/planner/worker.js` wraps the planner for a Web Worker: one message with the static world, one per re-plan. No DOM, no `Date.now()`, no `Math.random()`.
+- `engine/planner/host.js` and `worker.js` run the engine replay and the planner together in a Web Worker: `area` once per map, `plan` per re-plan. The planner's world is built once per case and kept; the engine is replayed only when a `searched` or `sighting` event changes. No DOM, no `Date.now()`, no `Math.random()`; the clock comes in with each message. A test runs the worker file in a real worker thread and compares its plan with the in-page one.
+- **At 4× laptop slowdown** (measured inside the worker, message copying included, on the merged engine, with the laptop under heavy load from another session): re-plan **150–240 ms**; first plan of a case (engine replay + planner world + first plan) **7–8.5 s**, once, off the page's thread. On a quiet laptop before the merge the same re-plans took 22–24 ms (93–98 ms at 4×).
 
 ## 10. Tests (`tests/planner.test.js`)
 
@@ -219,6 +224,34 @@ All built; 27 tests, results in the test output's diagnostic lines.
 - **Variants:** hazard-first on and off; containment on and off.
 - **Reported:** found-by-time curves, expected time to find (capped at the run length), and 95% intervals from resampling **setups**, then cases inside them, so the interval reflects how few start points there are. Differences against each baseline are paired on the same people.
 
+### Benchmark results (run of Nov 22, 16 setups × 250 people = 4,000 cases; full tables in `bench/planner-report.md`)
+
+Everything is simulated; ranges are 95% intervals by setup.
+
+| Strategy | Found by 60 min | Found by 180 min | Minutes to find (capped at 180) |
+|---|---|---|---|
+| On their own, with memory | 14% (10–17) | 21% (18–25) | 153 |
+| Ring sweep, cycling | 18% (15–22) | 24% (21–28) | 146 |
+| Greedy on the plain statistics map | 19% (16–22) | 24% (22–27) | 145 |
+| Old app (`nextSectors` + `routeFor`) | 17% (14–20) | 22% (19–24) | 149 |
+| **Planner** | 18% (15–20) | 24% (21–27) | 147 |
+| Planner on the plain statistics map | 19% (16–21) | 26% (23–29) | 145 |
+
+What it says, plainly:
+
+- **The planner is not better than a well-run ring sweep or the old greedy rule on a good statistics map.** Against the ring sweep: −1 point at 180 minutes (−3 to +1). Against greedy-on-statistics: −2 points at 30 and 60 minutes (the interval excludes 0: that baseline is ahead early), level later.
+- **It is a little better than the old app:** +2 points at 120 and 180 minutes (+0 to +4), level before that. And better than volunteers on their own: +2 to +4 points, 5 minutes sooner.
+- **Most people are out of reach of any strategy here.** Half are still walking away when the search starts and a fifth end up off the map; under 6% of those are found by anyone. Of people who had already stopped, the planner finds about 4 in 10.
+- **The map matters about as much as the method.** Given the statistics map instead of the app's, the planner finds 2 more points (1 to 4).
+- **The hazard-first rule is not supported.** For people in water or a drainage it changes nothing measurable (+0 points at 180 minutes, −3 to +4; no change in time to find). For everyone it costs about 1 point (−2 to +0) and 2 minutes. It was left ON, as specified; `HAZARD_FIRST: false` in `engine/planner/params.js` turns it off. **Recommendation: turn it off**, unless there is a reason outside this simulation (survival in water is not modeled, only whether and when someone is found).
+- **Containment did not earn its place:** off is 1 point better at 180 minutes (0 to 2). In this simulation people walk away and then stop, so a watcher near the last-seen point sees nobody pass. Left ON; `CONTAINMENT: false` turns it off. **Recommendation: off** until posts are placed where people are still moving.
+- **Door-knocking is worth about 1 point** at 2 to 3 hours (−0 to +2), and nothing before.
+- **Sharing the 25 m map out by find location instead of evenly made no measurable difference.**
+
+Why the planner does not pull ahead, as far as this run shows: the baselines spend 22–50% of their time walking between areas, and in the simulation a walking searcher still sees people on the street, so their travel is itself a wide, fast sweep. The planner travels 12% of the time and gives itself no credit for looking while it walks. Its tasks are also tighter around the last-seen point than where ISRID puts people.
+
+Two bugs found by reading the setup-by-setup table, both fixed before these numbers: a searcher snapped onto a cut-off scrap of footpath could reach no task (now searchers are placed on the main street network only; 1,953 of 49,379 walkable street points in the fixture are on such scraps), and the old-style baselines were given zero-minute turns in areas with almost no street.
+
 ## 12. Constants
 
 | Constant | Value | Label and source |
@@ -231,7 +264,8 @@ All built; 27 tests, results in the test output's diagnostic lines.
 | `WATER_NEAR_MIN_M` | 100 | ASSUMPTION |
 | `SEARCH_SPEED_MPS` | 0.8 | ASSUMPTION (the engine's value) |
 | `HASTY_SPEED_MPS` | 1.2 | ASSUMPTION |
-| `TRAVEL_SPEED_MPS` | 1.3 | ASSUMPTION until Bohannon 1997 is re-read |
+| `TRAVEL_SPEED_MPS` | 1.3 | DATA: Bohannon 1997, Age Ageing 26(1):15–19: mean comfortable gait speed 1.27–1.46 m/s across age and sex groups, 230 healthy adults (abstract read Nov 22) |
+| `FIND_SHARE` (25 m → 10 m split) | 35 / 36 / 9 / 6 / 6 / 4 / 3 / 1 | DATA: ISRID urban find location (checked) |
 | `DRIVE_SEARCH_MPS` / `DRIVE_TRAVEL_MPS` | 6.7 / 8.9 | ASSUMPTION (15 and 20 mph) |
 | `KNOCK_MIN` per building | 1.0 | ASSUMPTION |
 | `TASK_MAX_MIN` / `TASK_MIN_MIN` | 45 / 3 | Nathan's requirement / ASSUMPTION |
@@ -243,7 +277,20 @@ All built; 27 tests, results in the test output's diagnostic lines.
 | Mobility over time | 0 / 0.25 / 3.8 / 18 h | DATA: ISRID temperate, n = 42 (checked) |
 | `ROW_EXPAND`, `MIN_USEFUL_RATE` | 0.5, 0.0002 /min | ASSUMPTION |
 
-**Not checked.** A background check of the remaining sources (night sweep widths, urban or vehicle detection, canvass effectiveness, walking speed, the standard definitions of hasty search and containment) was started and was cut off by a usage limit before it returned anything. Nothing in this table was upgraded from ASSUMPTION because of it. All tunable numbers live in `engine/planner/params.js` with these labels.
+**Source check, re-run Nov 22 (night).** What could be read, and what could not:
+
+| Looked for | Result |
+|---|---|
+| Sweep width from detection range | CONFIRMED (abstract read): Koester, Chiacchia, Twardy, Cooper, Frost & Robe 2014, Wilderness Environ Med 25(2):132–42, 10 detection experiments in North America: W = 1.8 × Rd in high visibility, 1.6 × Rd in medium, 1.1 × Rd in low. The abstract says nothing about night, vehicles or towns. Not used as a number here; it supports treating low visibility as a much narrower sweep. |
+| Comfortable walking speed | CONFIRMED (abstract read): Bohannon 1997, 127.2–146.2 cm/s. `TRAVEL_SPEED_MPS` is now DATA. |
+| Deaths from exposure and drowning | CONFIRMED (abstract read): Rowe et al. 2011, BMC Geriatr 11:28: "Deaths most commonly occurred in unpopulated areas due to exposure and drowning." It backs the concern behind the hazard-first rule, not the rule's numbers. |
+| **Night** sweep width | NOT FOUND. No measured day-to-night figure turned up in a web search. `W_NIGHT` stays ASSUMPTION. |
+| **Urban** sweep width (streets, yards) | NOT FOUND. `W_DAY` for street, open ground and yards stays ASSUMPTION (the 16 m for water or brush is still the low end of Koester et al. 2004). |
+| Detection from a **vehicle** | NOT FOUND. `DRIVE_W_FACTOR` and `DRIVE_SEARCH_MPS` stay ASSUMPTION. |
+| **Door-knocking** effectiveness | NOT FOUND. No study gives a share of people found by canvassing. `POD_CANVASS_BUILDING`, `POD_CANVASS_YARD`, `KNOCK_MIN`, `CANVASS_REPEAT_MIN` stay ASSUMPTION. |
+| Definitions of hasty search, containment, segment size | NOT CHECKED. The documents that would hold them (DTIC ADA511593, the US Coast Guard's land-search experiment guide) refused automated download (403), and they were not fetched another way. The terms are used here in their ordinary search-and-rescue sense, uncited. |
+
+All tunable numbers live in `engine/planner/params.js` with these labels.
 
 ## 13. What merging will need
 

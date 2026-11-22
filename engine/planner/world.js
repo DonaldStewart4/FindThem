@@ -142,6 +142,30 @@ export function buildWorld(spec, P = DEFAULTS) {
     adjNode[fill[eb[e]]] = ea[e]; adjEdge[fill[eb[e]]++] = e;
     nodeModes[ea[e]] |= eflags[e]; nodeModes[eb[e]] |= eflags[e];
   }
+  // A searcher is placed on the MAIN street network only: the biggest joined-up set of streets
+  // they can use. OpenStreetMap has scraps of path that join nothing; someone standing beside
+  // one must not be snapped onto it, or no task would be in reach.
+  for (const bit of [FOOT, CAR]) {
+    const group = new Int32Array(N).fill(-1);
+    const sizes = [];
+    const queue = new Int32Array(N);
+    for (let start = 0; start < N; start++) {
+      if (group[start] >= 0 || !(nodeModes[start] & bit)) continue;
+      let head = 0; let tail = 0;
+      queue[tail++] = start; group[start] = sizes.length;
+      while (head < tail) {
+        const at = queue[head++];
+        for (let k = adjOff[at]; k < adjOff[at + 1]; k++) {
+          if (!(eflags[adjEdge[k]] & bit) || group[adjNode[k]] >= 0) continue;
+          group[adjNode[k]] = sizes.length; queue[tail++] = adjNode[k];
+        }
+      }
+      sizes.push(tail);
+    }
+    let main = 0;
+    for (let k = 1; k < sizes.length; k++) if (sizes[k] > sizes[main]) main = k;
+    for (let i = 0; i < N; i++) if (group[i] !== main) nodeModes[i] &= ~bit;
+  }
   world.g = { N, E, nx, ny, ea, eb, etype, elen, eflags, cellOff, ecells, adjOff, adjNode, adjEdge, nodeModes };
 
   // Street points sorted into 100 m boxes, to find the nearest one quickly.
@@ -226,7 +250,7 @@ export function toXY(world, lat, lng) {
   return { x: (lng - world.origin.lng) * mPerDegLng, y: (lat - world.origin.lat) * M_PER_DEG_LAT };
 }
 
-// The nearest street point a searcher of this kind (FOOT or CAR) can use, or -1.
+// The nearest street point on the main network a searcher of this kind (FOOT or CAR) can use, or -1.
 export function nearestNode(world, x, y, bit) {
   const { boxM, nb, boxOff, boxNodes } = world.boxes;
   const { nx, ny, nodeModes } = world.g;

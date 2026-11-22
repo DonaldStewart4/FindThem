@@ -556,6 +556,39 @@ test('adapter: ground classes match the engine, the 10 m map keeps the total, ha
   for (const task of segs.areas) if (task.type === 'yards') assert.ok(task.baseMin <= DEFAULTS.TASK_MAX_MIN + 1e-9 || task.cells.length < 2 * DEFAULTS.MIN_SEGMENT_CELLS, `${task.id}: ${task.baseMin} min`);
 });
 
+test('adapter: the 25 m map is shared out by where people are found (ISRID), or evenly; the total never changes', (t) => {
+  const { world } = planner.plannerWorld(area, CASES[0]);
+  const byFind = planner.plannerMap(world, predictions[0], withParams());
+  const even = planner.plannerMap(world, predictions[0], withParams({ MAP_SPLIT: 'even' }));
+  const total = (p) => { let sum = 0; for (const v of p) sum += v; return sum; };
+  assert.ok(near(total(byFind.p), total(even.p), 1e-9));
+  assert.ok(near(total(byFind.p) + byFind.restOfWorld, 1, 1e-9));
+  // Every 25 m square keeps exactly its own probability, however it is shared out inside.
+  const grid = predictions[0].grid;
+  const back = new Float64Array(grid.p.length);
+  for (let i = 0; i < byFind.p.length; i++) back[world.coarse.index[i]] += byFind.p[i];
+  for (let k = 0; k < back.length; k += 97) assert.ok(Math.abs(back[k] - grid.p[k]) < 1e-12);
+  // Where it sits, by what a searcher can see.
+  const share = (p) => { const out = new Float64Array(6); for (let i = 0; i < p.length; i++) out[world.vis[i]] += p[i]; return Array.from(out, (v) => Math.round(1000 * v / total(p)) / 10); };
+  const a = share(byFind.p); const b = share(even.p);
+  t.diagnostic(`share of the map by visibility class (street / open / back yard / building / water or brush / none): by find location ${a.join(' / ')}%; split evenly ${b.join(' / ')}%`);
+  assert.ok(a[V.STREET] > b[V.STREET], 'more of it on streets and what is seen from them');
+  assert.ok(a[V.YARD] < b[V.YARD], 'less of it deep in back yards');
+  // Inside one 25 m square, a road square gets more than a yard square (people are found on
+  // roads far more often per square of ground); split evenly, they get the same.
+  let checked = 0;
+  for (let i = 0; i < byFind.p.length && checked < 200; i += 13) {
+    if (world.cls[i] !== G.ROAD || byFind.p[i] === 0) continue;
+    for (const j of [i + 1, i - 1, i + world.n, i - world.n, i + 2, i - 2, i + 2 * world.n, i - 2 * world.n]) {
+      if (j < 0 || j >= byFind.p.length || world.coarse.index[j] !== world.coarse.index[i] || world.cls[j] !== G.YARD) continue;
+      assert.ok(byFind.p[i] > byFind.p[j]);
+      assert.equal(even.p[i], even.p[j]);
+      checked += 1;
+    }
+  }
+  assert.ok(checked > 10);
+});
+
 test('safety rules on the real map: no water, yards, buildings, rail or driveways; pairs for hazards; cars on roads', (t) => {
   let routes = 0; let hazardPairs = 0; let railCrossings = 0; let crossings = 0;
   const seenTypes = new Set();
@@ -612,6 +645,30 @@ test('safety rules on the real map: no water, yards, buildings, rail or driveway
   t.diagnostic(`${routes} routes checked; types seen: ${[...seenTypes].sort().join(', ')}; ${hazardPairs / 2} hazard pairs; ${crossings} routes with a high-traffic crossing, ${railCrossings} with a rail crossing`);
   assert.ok(hazardPairs > 0, 'the hazard-first rule sent at least one pair');
   for (const type of ['yards', 'containment', 'drive', 'hazard_check', 'hasty']) assert.ok(seenTypes.has(type), `${type} appeared`);
+});
+
+test('a searcher beside a cut-off scrap of path is placed on the main street network and still gets tasks', (t) => {
+  const { world } = planner.plannerWorld(area, CASES[0]);
+  const { g } = world;
+  // Every street point a searcher can be placed on reaches the last-seen point's network.
+  const run = shortestFrom(world, world.lastSeenNode, FOOT);
+  let usable = 0; let scraps = 0; let scrap = -1;
+  for (let i = 0; i < g.N; i++) {
+    if (g.nodeModes[i] & FOOT) { usable += 1; assert.ok(run.dist[i] < Infinity, 'a usable street point that joins nothing'); continue; }
+    // A point with a walkable street that is NOT on the main network: a scrap.
+    let walkable = false;
+    for (let k = g.adjOff[i]; k < g.adjOff[i + 1]; k++) if (g.eflags[g.adjEdge[k]] & FOOT) walkable = true;
+    if (walkable) { scraps += 1; if (scrap < 0 && Math.hypot(g.nx[i] - world.lastSeen.x, g.ny[i] - world.lastSeen.y) < 1500) scrap = i; }
+  }
+  t.diagnostic(`${usable} street points on the main walking network; ${scraps} on cut-off scraps`);
+  assert.ok(usable > 20000);
+  if (scrap >= 0) {
+    // Stand exactly on a scrap: the planner still finds tasks for this searcher.
+    const at = planner.plannerWorld(area, CASES[0]).world;
+    const here = { lat: at.origin.lat + g.ny[scrap] / 111320, lng: at.origin.lng + g.nx[scrap] / (111320 * Math.cos((at.origin.lat * Math.PI) / 180)) };
+    const plan = planReal(0, [{ id: 'lost', mode: 'foot', at: NOON, ...here }], [], NOON, { HAZARD_FIRST: false });
+    assert.ok(plan.searchers[0].primary, 'a task is offered');
+  }
 });
 
 test('a lone searcher is never sent to water; the unchecked hazard is reported instead', () => {

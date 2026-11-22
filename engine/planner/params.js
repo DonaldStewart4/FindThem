@@ -11,6 +11,12 @@
 //             Rescue", DTIC ADA511593 (checked Nov 22): 16–142 m for an adult-sized target in
 //             forest and wildland. No urban, night or vehicle figure was found.
 //   ISRID     Koester, "Lost Person Behavior", dementia chapter (checked Nov 22)
+//   K2014     Koester, Chiacchia, Twardy, Cooper, Frost & Robe 2014, Wilderness Environ Med
+//             25(2):132-42 (abstract read Nov 22): W = 1.8 / 1.6 / 1.1 × detection range in
+//             high / medium / low visibility. Nothing on night, vehicles or towns.
+// A search on Nov 22 found NO measured figure for night sweep widths, urban sweep widths,
+// detection from a vehicle, or how many people door-knocking finds. Every such number below is
+// labeled ASSUMPTION. The list is in docs/PLANNER.md section 12.
 
 // Ground classes of the 10 m ground map. These must equal engine/surface.js `C`; the planner
 // core does not import the engine, so tests/planner.test.js checks the two lists match.
@@ -48,7 +54,8 @@ export const DEFAULTS = {
   HASTY_W_FACTOR: 0.7,     // ASSUMPTION
   DRIVE_SEARCH_MPS: 6.7,   // ASSUMPTION: 15 mph, looking
   DRIVE_W_FACTOR: 0.5,     // ASSUMPTION
-  TRAVEL_SPEED_MPS: 1.3,   // ASSUMPTION: an adult's ordinary walk (no looking credited)
+  TRAVEL_SPEED_MPS: 1.3,   // DATA: Bohannon 1997, Age Ageing 26(1):15-19: comfortable gait speed
+                           // 1.27-1.46 m/s across age groups, n = 230 (no looking is credited)
   DRIVE_TRAVEL_MPS: 8.9,   // ASSUMPTION: 20 mph through town, stops included
   FOOTPRINT_CELLS: 4,      // squares either side of the track that a look can reach (40 m)
   MIN_DET: 0.002,          // smaller detection values are dropped
@@ -65,6 +72,14 @@ export const DEFAULTS = {
   // Park sweep: lines one sweep width apart is coverage 1 → POD = 1 − e^(−1) = 63% (Koopman).
   PARK_COVERAGE: 1.0,          // EXPERT
   NIGHT_SUN_DEG: -6,           // DATA: civil twilight; below this it is dark
+
+  // ---- From the engine's 25 m map to 10 m squares (adapter.js) ------------------------------------
+  // 'find-location': inside each 25 m square the probability goes to its 10 m squares in
+  // proportion to how often people are found on that kind of ground, per unit of ground.
+  // 'even': split evenly (the first version; kept for comparison in the benchmark).
+  MAP_SPLIT: 'find-location',
+  // DATA (ISRID urban dementia, n = 223; checked Nov 22): where people are found, in percent.
+  FIND_SHARE: { structure: 35, road: 36, linear: 9, field: 6, water: 6, drainage: 4, woods: 3, brush: 1 },
 
   // ---- Segments (section 2) -------------------------------------------------------------------
   TASK_MAX_MIN: 45,        // Nathan's requirement: tasks of about 30–45 minutes
