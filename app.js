@@ -95,6 +95,7 @@ const state = {
   searchers: {},           // { id: { lat, lng, at, name } } everyone's position in the shared search
   lastPosSent: null,       // { lat, lng, at } the position we last shared
   minutesAt: null,         // the time (ms) at which "minutes since last seen" had the typed value
+  fromDemo: false,         // the inputs hold the Demo's details (cleared when a real search starts)
 };
 
 // The map keeps up with time: every 5 minutes, "minutes since last seen" goes up by 5 and
@@ -408,6 +409,7 @@ function placeAt(point, label = '') {
     state.seed = newSeed();   // a new case gets a new seed...
     state.events = [];        // ...and starts with no searches or sightings
     leaveSharedSearch();      // ...and is not the shared search any more
+    if (state.fromDemo) clearDemoDetails(); // the Demo's made-up details must not leak into a real search
     setMode(null);
   } else if (state.mode === 'familiar') {
     if (state.familiarPlaces.length < MAX_FAMILIAR) {
@@ -1637,7 +1639,20 @@ function showHomeSaved() {
 
 // ---- Demo ---------------------------------------------------------------------------
 
+// After trying the Demo, a new last-seen point starts a real search: clear what the Demo
+// filled in (minutes, direction, how they walk, Lake Elizabeth) so none of it is used by mistake.
+function clearDemoDetails() {
+  state.fromDemo = false;
+  els.minutes.value = '';
+  els.direction.value = '';
+  setMobility('normal');
+  state.familiarPlaces = [];
+  renderFamiliarList();
+  showStatus(t('demoCleared'));
+}
+
 async function runDemo() {
+  state.fromDemo = true;
   state.lastSeen = { ...DEMO_CASE.lastSeen };
   state.familiarPlaces = DEMO_CASE.familiarPlaces.map((p) => ({ ...p }));
   state.seed = DEMO_CASE.seed;

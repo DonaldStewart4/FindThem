@@ -60,6 +60,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 6: the Demo's details no longer leak into a real search
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:** `app.js`: `runDemo()` sets `state.fromDemo`; when a new last-seen point is placed after a Demo, `clearDemoDetails()` empties the minutes, sets the direction to unknown and the pace to normal, removes the Demo's familiar place (Lake Elizabeth), and shows "The Demo's details were cleared. Enter what you know about your person." `i18n.js`: `demoCleared` in 5 languages. `sw.js` `v26` → `v27`.
+- **Why:** Found while testing a brand-new area (Palo Alto City Hall, live download in 35 s): the result's top spot was "89% chance", and the hand-off sheet showed why: the search had silently kept the Demo's "Slowly", "Northeast" and a familiar place in Fremont, 25 km away. Trying the Demo and then starting a real search is a likely real path.
+- **Decisions:** Only Demo details are cleared; a real case's details are kept when the last-seen point is moved (people often just correct the point). Not changed: the engine itself. With "Slowly" + "Northeast" for 15 minutes in downtown Palo Alto it puts 85% of the chance in one spot (48% with no direction; 19% at normal pace with no direction). That's the walkers following the model with those inputs, but it's very concentrated and worth a look after the deadline.
+- **How it was verified:** Browser pane: Demo (45 min, NE, slowly, 1 familiar place) → set a new last-seen point → minutes empty, direction Unknown, pace Normal, no familiar places, the status message shown. Engine run in the page on the downloaded Palo Alto streets confirmed the 85–88% came from the carried-over inputs. `node --test` 73/73. Also in this session: a share link made 12 minutes earlier opened at 55 minutes (45 + 10); a first visit with cleared storage opened cleanly.
+- **Known issues / not done:** Not pushed.
+- **Next:** Push after BenStew's OK; real-phone tests.
+
 ### Testing pass 5: message drafts don't say "check every field"
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)
