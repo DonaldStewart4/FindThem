@@ -145,12 +145,12 @@ The same area once phase 2 of the download has arrived. The street graph is shar
 
 ### `replay(area, caseInput, events) → Prediction`
 **The main call.** The map for "`minutes` since last seen":
-- **Prior (new):** a blend of two maps. (1) 5,000 simulated walkers on a 10 m ground map, each stored minute by minute, where they are at that minute; walkers that spent long on busy roads count for less, because the person is still missing. (2) The ISRID statistics map: the urban distance curve, limited by how far a person could have gone in that time, times the find-location share of each kind of ground. The walkers' share is `BLEND_WALKERS` in `engine/params.js`.
+- **Prior (new):** a blend of two maps (95% statistics map, 5% walkers, set by evaluation; when the case lists familiar places a further `SHARE_GOAL` = 25% of the map goes to the walkers heading there). (1) 5,000 simulated walkers on a 10 m ground map, each stored minute by minute, where they are at that minute; walkers that spent long on busy roads count for less, because the person is still missing. (2) The ISRID statistics map: the urban distance curve, limited by how far a person could have gone in that time, times the find-location share of each kind of ground. The walkers' share is `BLEND_WALKERS` in `engine/params.js`.
 - `searched` → the walkers that were in that sector **at the time of the search** count for less by (1 − POD); the statistics map is discounted by the share of its chance that was already there then. Everything else rises (Bayes).
 - `sighting` → 2,500 walkers and a statistics map from the sighting point (seed `(caseInput.seed + 7919 * k) >>> 0` for the k-th sighting, k from 1), for as long as it has been since the person was seen there, blended in as `(1 − r) · current + r · sighting`. Searches made before the sighting don't count against it; searches made after it do.
 - Events are sorted by `at`, then by `id` in code-point order (as `sync.js` does). `minutes` on a `searched` event is read with `Number()`.
 
-The screen calls it on every change, through `engine/worker.js` (below). A cold replay takes 1.0–1.4 s in Chrome with the processor slowed four times; a 5-minute clock tick 20–40 ms.
+The screen calls it on every change, through `engine/worker.js` (below). A cold replay takes 0.9–1.5 s in Chrome with the processor slowed four times (first-hour cases). Walkers are simulated in 15-minute blocks, so two clock ticks in three take a few milliseconds and the third re-runs the walkers (0.3–0.5 s slowed four times). A fourth argument, `replay(area, caseInput, events, { blend })`, exists for the calibration and evaluation tools only.
 
 ```js
 Prediction = {
@@ -250,7 +250,7 @@ The screen starts `new Worker('engine/worker.js', { type: 'module' })` and sends
 { id, type: 'replay', key, caseInput, events, spotsMax }
 ```
 
-Each is answered with `{ id, ok: true, ... }` or `{ id, ok: false, error }`. A `replay` answer carries `{ prediction, spots, hazards, ms }` (`spots` = `topSpots`, `hazards` = `hazardSpots`; `prediction.sim.endpoints` is empty). If the worker can't start or doesn't answer within 20 s, `app.js` calls `engine.replay` on the page instead. `engine/host.js` is the same logic without the worker wrapper, so tests can run it.
+Each is answered with `{ id, ok: true, ... }` or `{ id, ok: false, error }`. A `replay` answer carries `{ prediction, spots, hazards, ms }` (`spots` = `topSpots`, `hazards` = `hazardSpots`; `prediction.sim.endpoints` is empty). If the worker can't start or doesn't answer within 20 s, `app.js` calls `engine.replay` on the page instead. `engine/host.js` is the same logic without the worker wrapper, so tests can run it. The worker is started when the page opens and runs the engine once on a tiny made-up area (`warmUp`), so the browser has optimized the engine's code before the first real map.
 
 ## 3. Tunable constants
 

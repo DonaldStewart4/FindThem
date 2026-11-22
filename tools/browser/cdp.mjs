@@ -30,3 +30,11 @@ export class Tab {
   }
 }
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Closes every page left open in the headless Chrome. Call it at the start of a script: tabs
+// from earlier runs keep their live database connections, and a browser only allows a handful
+// of connections per site, so leftover tabs make the next shared-search check hang.
+export async function closeAllTabs(port) {
+  const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  for (const t of list) if (t.type === 'page') await fetch(`http://127.0.0.1:${port}/json/close/${t.id}`);
+}

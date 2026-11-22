@@ -6,9 +6,13 @@
 // Every message is answered with { id, ok: true, ... } or { id, ok: false, error }.
 // If the worker can't start (an old browser), app.js runs the engine on the page instead.
 
-import { createHost } from './host.js';
+import { createHost, warmUp } from './host.js';
 
 const host = createHost();
+
+// Warm the engine up right away (see host.js): the worker starts when the page opens, long
+// before the first map is asked for. Messages that arrive meanwhile simply wait their turn.
+try { warmUp(); } catch (err) { console.warn('engine warm-up failed', err); }
 
 self.onmessage = (event) => {
   const m = event.data;

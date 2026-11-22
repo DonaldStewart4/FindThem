@@ -14,3 +14,17 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Real-case research data WITH source URLs. The URLs often contain the missing person's name
+# and this repo is public: NEVER commit these. The public copy is docs/research/cases-public.csv
+# (made by tools/make-public-cases.js: each URL replaced by publisher + month + a source id).
+docs/research/cases.csv
+docs/research/cases2.csv
+docs/research/cases*.geojson
+docs/research/cases/cases.csv
+docs/research/cases/cases2.csv
+docs/research/cases/*.geojson
+docs/research/**/sources-private.csv
+sources-private.csv
+# Map downloads cached by bench/real-cases.js (one per real case location).
+bench/.cache/

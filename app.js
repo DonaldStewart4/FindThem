@@ -580,20 +580,31 @@ let workerLayers = null;    // "key#version" once it also holds that area's grou
 let nextMessageId = 1;
 const waitingForWorker = new Map(); // message id → { resolve, reject, timer }
 
+// Starts the worker (once). Called when the page opens, so the worker has warmed the engine up
+// (see engine/host.js) by the time the first map is asked for.
+function startWorker() {
+  if (engineWorker || workerBroken) return;
+  try {
+    engineWorker = new Worker('engine/worker.js', { type: 'module' });
+  } catch (err) {
+    workerBroken = true;
+    return;
+  }
+  engineWorker.onmessage = (event) => {
+    const waiting = waitingForWorker.get(event.data.id);
+    if (!waiting) return;
+    waitingForWorker.delete(event.data.id);
+    clearTimeout(waiting.timer);
+    if (event.data.ok) waiting.resolve(event.data);
+    else waiting.reject(new Error(event.data.error));
+  };
+  engineWorker.onerror = (event) => failWorker(new Error((event && event.message) || 'worker error'));
+}
+
 function askWorker(message, transfer = []) {
   return new Promise((resolve, reject) => {
-    if (!engineWorker) {
-      engineWorker = new Worker('engine/worker.js', { type: 'module' });
-      engineWorker.onmessage = (event) => {
-        const waiting = waitingForWorker.get(event.data.id);
-        if (!waiting) return;
-        waitingForWorker.delete(event.data.id);
-        clearTimeout(waiting.timer);
-        if (event.data.ok) waiting.resolve(event.data);
-        else waiting.reject(new Error(event.data.error));
-      };
-      engineWorker.onerror = (event) => failWorker(new Error((event && event.message) || 'worker error'));
-    }
+    startWorker();
+    if (!engineWorker) { reject(new Error('no worker')); return; }
     const id = nextMessageId++;
     const timer = setTimeout(() => failWorker(new Error('worker timed out')), WORKER_TIMEOUT_MS);
     waitingForWorker.set(id, { resolve, reject, timer });
@@ -2254,6 +2265,7 @@ function start() {
   setInterval(onClockTick, CLOCK_CHECK_MS); // redraws the map every 5 minutes as time passes
 
   setMode('lastSeen');
+  startWorker(); // in the background: warms the engine up before the first map is asked for
   joinFromLink().then((joined) => { if (joined) setMode(null); });
 }
 

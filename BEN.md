@@ -9,7 +9,8 @@ Branch `prior-v2` (Nathan's engine rewrite, Nov 22). Not merged, not pushed. Thi
 | Where | What | Why |
 |---|---|---|
 | `readCase()` | Adds `minutesAt: state.minutesAt`. | The engine needs the clock to place events in time: a sighting now spreads as time passes, and a search doesn't count against someone who arrived later. `shareLink()` and the shared case already carried `minutesAt`; they still set it the same way. |
-| after `areaCache` | New block "The engine runs in a background worker": `askWorker`, `failWorker`, `runEngine`, and the variables above them. | A cold replay takes 1.0–1.4 s on a slow phone. In a Web Worker (`engine/worker.js`) the page doesn't freeze. If the worker can't start, or doesn't answer in 20 s, `runEngine` calls `engine.replay` on the page as before. |
+| after `areaCache` | New block "The engine runs in a background worker": `startWorker`, `askWorker`, `failWorker`, `runEngine`, and the variables above them. | A cold replay takes 0.9–1.5 s with the processor slowed four times. In a Web Worker (`engine/worker.js`) the page doesn't freeze. If the worker can't start, or doesn't answer in 20 s, `runEngine` calls `engine.replay` on the page as before. |
+| start-up (`boot`) and new `startWorker()` | The worker is started when the page opens, not at the first map. | The worker warms the engine up on a tiny made-up area (`engine/host.js` `warmUp`), so the first real map isn't the browser's slow first run of that code. |
 | `areaCache` | Now `{ key, area, osm, version, areaVersion }`. | `version` goes up when the area or its layers change, so the worker knows when to take new data. |
 | `recompute()` | Now `async`: it asks `runEngine` and draws when the answer is back. `state.lastSpots` comes from the worker's answer. If two requests overlap, only the newest is drawn. | The worker. |
 | `runPrediction()` | `await recompute()`. Sets `areaVersion`. If `loaded.more` exists, shows `mapRefining` and calls `refineArea` when it settles. | Two-phase load. |
@@ -33,7 +34,7 @@ Callers of `recompute()` that don't `await` it (clock tick, `recordEvent`, the l
 
 ## `sw.js`
 
-- `CACHE_VERSION` `v28` → `v30`.
+- `CACHE_VERSION` `v28` → `v31`.
 - `SHELL_FILES` gained `engine/surface.js`, `engine/params.js`, `engine/calibrated.js`, `engine/prior.js`, `engine/host.js`, `engine/worker.js`. **If you bump the version again, keep these.**
 
 ## `i18n.js`

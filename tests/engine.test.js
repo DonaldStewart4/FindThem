@@ -662,7 +662,7 @@ test('fast enough for a phone: a cold replay with 7 searches and 3 sightings', (
   const T0 = 1_700_000_000_000;
   const coldRun = (lastSeen, seed) => {
     const fresh = prepareArea(osm);
-    const cold = { ...CASE, lastSeen, minutes: 75, minutesAt: T0 + 75 * 60000, seed };
+    const cold = { ...CASE, lastSeen, minutes: 70, minutesAt: T0 + 70 * 60000, seed };
     const origin = gridOriginFor(cold);
     const events = [];
     for (let k = 0; k < 7; k++) {
@@ -675,9 +675,14 @@ test('fast enough for a phone: a cold replay with 7 searches and 3 sightings', (
     const pred = engine.replay(fresh, cold, events);
     const ms = performance.now() - t0;
     near1(total(pred));
+    // The 5-minute clock tick. Walkers are simulated in 15-minute blocks, so two ticks in
+    // three reuse them (70 → 75 here) and the third starts a new block (75 → 80).
     const t1 = performance.now();
-    engine.replay(fresh, { ...cold, minutes: 80, minutesAt: T0 + 80 * 60000 }, events); // the 5-minute clock tick
-    return { ms, tick: performance.now() - t1 };
+    engine.replay(fresh, { ...cold, minutes: 75, minutesAt: T0 + 75 * 60000 }, events);
+    const tick = performance.now() - t1;
+    const t2 = performance.now();
+    engine.replay(fresh, { ...cold, minutes: 80, minutesAt: T0 + 80 * 60000 }, events);
+    return { ms, tick, blockTick: performance.now() - t2 };
   };
   const runs = [
     coldRun({ lat: 37.5461, lng: -121.9762 }, 99),
@@ -686,8 +691,10 @@ test('fast enough for a phone: a cold replay with 7 searches and 3 sightings', (
   ];
   const ms = Math.min(...runs.map((r) => r.ms));
   const tick = Math.min(...runs.map((r) => r.tick));
+  const blockTick = Math.min(...runs.map((r) => r.blockTick));
   assert.ok(ms < 650, `cold replay took ${ms.toFixed(0)} ms`);
-  assert.ok(tick < 150, `the clock-tick replay took ${tick.toFixed(0)} ms`);
+  assert.ok(tick < 100, `the clock-tick replay took ${tick.toFixed(0)} ms`);
+  assert.ok(blockTick < 400, `the clock tick that starts a new block of walking took ${blockTick.toFixed(0)} ms`);
 });
 
 test('memory: what one search keeps in a phone\'s memory', () => {

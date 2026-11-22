@@ -15,8 +15,9 @@ EvoHacks II project (theme: social good). **Deadline: Sun Nov 22, 2026, 12:00 pm
 The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's TypeSafe AI's Jev model, used only in the report box (see below).
 - **BenStew** (repo owner, the person in Claude Code sessions here):
   - **Screen + hosting**, with AI help. Files: `index.html`, `style.css`, `app.js`, `data.js`, `sync.js`, `report.js`, `quickread.js`, `proxy/`, `i18n.js`, `sw.js`, `manifest.json`, `icons/`, `lib/`. Also researches hosting, the AI provider and security.
-  - **The engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), now **built with Claude Code** at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
+  - **The first engine** (`engine/`: `graph.js`, `sim.js`, `grid.js`, `routes.js`, `index.js`), built with Claude Code at BenStew's request. The official EvoHacks 2 rules *encourage* AI use (see "Event rules" below), so the earlier "AI must not write engine code" rule is dropped. Disclose it honestly in the README and Devpost.
 - **Nathan**: **tests, debugging, speed and reliability** (`tests/`, `bench/`), plus tuning the Jev questions in `proxy/jev.js` with real reports. AI may help write tests; Nathan reviews them and must be able to explain them.
+  - **Since Nov 22 (branch `prior-v2`): the engine too.** Nathan rewrote the prior with Claude Code ("prior v2": `engine/surface.js`, `sim.js`, `prior.js`, `grid.js`, `params.js`, `host.js`, `worker.js`, plus `tools/calibrate.js` and `bench/prior-eval.js`). `docs/PRIOR-V2.md` is the design, `bench/prior-report.md` the evaluation. Changes he made to BenStew's screen files are listed in `BEN.md`.
 - `INTERFACES.md` is the contract between the parts. Change it only when BenStew and Nathan agree.
 - The real engine is integrated: `app.js` imports `engine/index.js`. (`engine/fake.js` was a dev-only stand-in and was deleted at integration.)
 
@@ -51,9 +52,11 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
   - **A tiny Cloudflare Worker** (`proxy/`) that holds the API keys as environment variables (Worker secrets): Jev (TypeSafe) to turn a report into a `ReportDraft`, and, optional, Deepgram (speech → text, all 5 languages) and ElevenLabs (reading the form back aloud, **English only**) for the voice bot. If a voice key is missing, the app falls back to the phone's own speech recognition and doesn't speak. No FastAPI or other server.
 - **Never put an API key in the website's code** or commit one to the repo.
 - Engine code is pure and deterministic (seeded random numbers, no DOM), so every phone computes the same map from the same inputs and events. Tests run with `node --test`.
+- Every tunable engine number is labeled **DATA**, **EXPERT** or **ASSUMPTION** with its source (`engine/params.js`, `engine/prior.js`). Fitted values live in `engine/calibrated.js`, which `tools/calibrate.js` writes: don't edit it by hand. If the walkers change, re-run `node tools/calibrate.js`, `node bench/prior-eval.js` and `node bench/prior-report.js`.
+- The app runs the engine in a Web Worker (`engine/worker.js`) with a fallback to the page. New engine files must be added to `SHELL_FILES` in `sw.js`.
 - The repo owner is new to HTML/CSS/JS. Keep code simple, comment it well, and briefly explain changes in plain language.
 - Overpass, Nominatim and IndexedDB code lives in `data.js`. All UI text lives in `i18n.js` in all five languages; never hard-code UI text elsewhere.
-- Tunable numbers are named constants at the top of engine files.
+- Tunable numbers are named constants at the top of engine files (see the labels rule above).
 - Libraries live in `/lib`. Don't load scripts from a CDN.
 - OSM tile usage policy: only cache tiles the user has viewed. Never bulk-download or prefetch tiles.
 - Mobile-first: big tap targets, high contrast, small page weight. Always show "call emergency services first".

@@ -73,10 +73,11 @@ const typeCache = new WeakMap(); // surface → Uint8Array of FIND_TYPES indexes
 //   blocked    inside a building or fence line; open water away from the shore; ground cut
 //              off from the street network (a walled yard, an island)
 //   water      lake, pond or river within WATER_EDGE_M of the shore; wetland
-//   drainage   a creek, ditch or channel, and the bank squares right beside one
+//   drainage   a creek, ditch or channel
 //   road       streets and service ways
 //   linear     paths, footways, cycleways
 //   structure  open ground touching a building
+//   drainage   (again) the bank squares right beside a creek, if not touching a building
 //   brush, woods
 //   field      everything else (grass, parks, lots, yards, plain or unknown ground)
 export function findTypes(surface) {
@@ -117,8 +118,9 @@ export function findTypes(surface) {
           if (cls[rr * n + c2] === C.CREEK) { bank = true; break; }
         }
       }
-      if (bank) type[i] = T.drainage;
-      else if (nearBuilding[i]) type[i] = T.structure;
+      // A yard that backs onto a channel AND touches a house is "at a structure".
+      if (nearBuilding[i]) type[i] = T.structure;
+      else if (bank) type[i] = T.drainage;
       else if (v === C.BRUSH) type[i] = T.brush;
       else if (v === C.WOODS) type[i] = T.woods;
       else type[i] = T.field;
