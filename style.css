@@ -783,7 +783,8 @@ button.small {
 }
 
 /* ---- "What you know": numbered steps that fold up after Find ---- */
-#case-inputs { counter-reset: step; padding-bottom: 12px; }
-#case-inputs .step::before { counter-increment: step; content: counter(step) ". "; } /* 1. 2. 3. ... */
+/* "First steps" already has 1 (call 911) and 2 (check the house), so these go on from 3. */
+#case-inputs { counter-reset: step 2; padding-bottom: 12px; }
+#case-inputs .step::before { counter-increment: step; content: counter(step) ". "; } /* 3. 4. 5. ... */
 #case-inputs[open] .recap { display: none; }  /* the short summary only shows while folded */
 .recap { display: block; margin-top: 4px; font-weight: 400; font-size: 16px; color: #444; }

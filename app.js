@@ -1432,7 +1432,7 @@ async function runMapSearch(e) {
     if (!results.length) { searchMessage(t('searchNone')); return; }
     searchMessage('');
     for (const r of results) {
-      const parts = r.label.split(',').map((x) => x.trim());
+      const parts = shortPlaceParts(r.label);
       const li = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
@@ -1451,6 +1451,22 @@ async function runMapSearch(e) {
   } finally {
     els.searchGo.disabled = false;
   }
+}
+
+// Splits a search result's address into parts, without lone numbers: "Lake Elizabeth, 40000,
+// Fremont" → ["Lake Elizabeth", "Fremont"]. A house number first stays with its street:
+// "40000, Paseo Padre Parkway, Fremont" → ["40000 Paseo Padre Parkway", "Fremont"].
+function shortPlaceParts(label) {
+  const raw = String(label || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (/^\d+[a-z]?$/i.test(raw[i])) {
+      if (i === 0 && raw[1]) { out.push(`${raw[0]} ${raw[1]}`); i++; }
+      continue; // a ZIP code or lone number on its own isn't a name
+    }
+    out.push(raw[i]);
+  }
+  return out.length ? out : raw;
 }
 
 function chooseSearchResult(result, shortName) {
@@ -1882,7 +1898,11 @@ function handoffText(lang) {
   const lines = [];
   lines.push(tr('handoffTitle'), '='.repeat(30));
   lines.push(tr('handoffMade', { time: i18n.formatDateTime(new Date().toISOString()) }), '');
-  lines.push(tr('handoffLastSeen', { coords: coords(c.lastSeen), time: i18n.formatTime(started - c.minutes * 60000), min: c.minutes }));
+  // When they were last seen: the minutes field counts from state.minutesAt (it goes up by 5
+  // every 5 minutes), so last seen = minutesAt − minutes, and "x min before the search started".
+  const lastSeenAt = (state.minutesAt || started) - c.minutes * 60000;
+  const minBefore = Math.max(0, Math.round((started - lastSeenAt) / 60000));
+  lines.push(tr('handoffLastSeen', { coords: coords(c.lastSeen), time: i18n.formatTime(lastSeenAt), min: minBefore }));
   lines.push(tr('handoffWalks', { mobility: tr('mob_' + c.mobility) }));
   lines.push(tr('handoffHeading', { direction: c.direction ? tr('dir_' + c.direction) : tr('dirUnknown') }));
   if (c.familiarPlaces.length) {

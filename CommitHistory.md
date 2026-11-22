@@ -60,6 +60,20 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Testing pass 1: hand-off time after the map ages, step numbers, search names
+- **Date:** 2026-11-21
+- **Stage:** Finishing (testing)
+- **What changed:**
+  - `app.js` hand-off sheet: "Last seen … about 8:35 PM (45 min before the search started)" now uses `state.minutesAt − minutes`. It used `search start − minutes`, which became wrong once the minutes field started going up every 5 minutes (after 10 minutes it would have moved the last-seen time 10 minutes earlier).
+  - `app.js` map search: new `shortPlaceParts()` drops lone numbers from a result's address, so a familiar place picked by search is "Lake Elizabeth, Fremont", not "Lake Elizabeth, 40000"; a house number at the start stays with its street ("40000 Paseo Padre Parkway").
+  - `style.css`: the "What you know" steps are numbered 3–7, continuing after "First steps" (1. Call 911, 2. Check the house), instead of a second "1.".
+  - `sw.js` `v20` → `v21`.
+- **Why:** BenStew asked for a 30-minute test of the app; these came out of walking through it at phone size.
+- **Decisions:** Top spots keep showing "% of walkers" after a search: by design (`INTERFACES.md`: `walkerShare` is the share of base walkers); the area chances are what drop.
+- **How it was verified:** Browser pane, 375×812: tapped the map for the last-seen point; Find with no minutes opened the steps and focused the field; arrow keys turned the direction to East; familiar place via the blue bar's search; Find (saved streets, 1 s) folded the steps; "Searched, nobody found" on Area A moved it 46% → 37%. Hand-off sheet after moving the clock 11 minutes ahead (minutes 45 → 55): still "about 8:35 PM (45 min before the search started)". Steps read 3, 4, 5… `node --test` 72/72.
+- **Known issues / not done:** Not pushed.
+- **Next:** Languages, shared search, offline.
+
 ### Numbered "What you know" steps that fold up; map redraws every 5 minutes
 - **Date:** 2026-11-21
 - **Stage:** Finishing (UI feedback)
