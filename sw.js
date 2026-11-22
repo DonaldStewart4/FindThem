@@ -1,6 +1,6 @@
 // sw.js: the service worker. It lets FindThem open and work with no signal.
 // Bump CACHE_VERSION whenever any app file changes, so phones fetch the new copies.
-const CACHE_VERSION = 'v47';
+const CACHE_VERSION = 'v49';
 const SHELL_CACHE = 'findthem-shell-' + CACHE_VERSION;
 const TILE_CACHE = 'findthem-tiles'; // kept across versions; tiles don't change with our code
 const MAX_TILES = 2000;              // oldest tiles are deleted past this many

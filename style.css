@@ -128,6 +128,7 @@ fieldset {
   margin: 0;
   padding: 0;
   border: 0;
+  min-width: 0;   /* a fieldset otherwise grows to fit its widest row and spills off narrow phones */
 }
 
 /* Radio buttons shown as big tappable rows */
@@ -200,6 +201,7 @@ button:disabled { opacity: 0.5; }
   align-items: center;
 }
 .row > * { flex: 1; margin: 8px 0; }
+.row > input, .row > select { min-width: 0; } /* text boxes shrink instead of pushing buttons off narrow phones */
 .row #units { flex: 0 0 72px; }
 
 /* ---- Familiar places list ---- */
@@ -216,6 +218,7 @@ button:disabled { opacity: 0.5; }
 }
 #familiar-list input {
   flex: 1;
+  min-width: 0;   /* let the text box shrink so the Remove button stays on screen */
   min-height: 48px;
   padding: 6px 10px;
   border: 2px solid var(--line);
@@ -223,6 +226,7 @@ button:disabled { opacity: 0.5; }
   font: inherit;
 }
 #familiar-list button {
+  flex: none;
   min-height: 48px;
   padding: 0 12px;
   border: 2px solid var(--ink);

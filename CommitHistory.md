@@ -81,6 +81,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Narrow phones: nothing spills off the right edge
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI feedback)
+- **What changed:** `style.css`: `fieldset { min-width: 0 }`; familiar-place text boxes `min-width: 0` and their Remove buttons `flex: none`; every `.row > input, .row > select` gets `min-width: 0`. `sw.js` `v47` → `v49`.
+- **Why:** BenStew's phone screenshot: in "Familiar places" the Remove button and "Add a familiar place" ran off the right edge. A text box has a built-in minimum width, so text box + button was wider than a narrow phone; the fieldset then grew to fit and pushed everything in it wider. A scan found the same in the message row (text box + new mic + Send) and the home-address row.
+- **Decisions:** One general rule for rows instead of fixing each row.
+- **How it was verified:** Browser pane at 320×700 (narrowest common phone), Demo, with the steps, First steps, report box, sighting form and home area all open: no element extends past the panel's right edge (before: Remove, Add, Send at 406 px, Find at 360 px). Familiar row: text box ends at 190 px, Remove at 290 px.
+- **Known issues / not done:** Not pushed.
+- **Next:** Push.
+
 ### Outlined mic icon instead of the emoji
 - **Date:** 2026-11-22
 - **Stage:** Finishing (BenStew's UI feedback)
