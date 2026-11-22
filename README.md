@@ -12,7 +12,7 @@ This is a guide to help focus the search, not a guarantee.
 
 Built for EvoHacks II (theme: social good).
 
-> **Status (Nov 21, 2026, evening):** everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. **Live sharing runs on our real Firebase database** (tested with two devices' worth of tabs). The report box works against a local test server; the Jev proxy still needs a TypeSafe key and a Cloudflare deploy (steps below). The benchmark is done (below).
+> **Status (Nov 21, 2026, night):** live at **https://donaldstewart4.github.io/FindThem/**. Everything runs on the real engine (`engine/`): 5,000 simulated walkers on Fremont's real streets, the Bayesian probability map, next areas with walking routes, and top spots. **Live sharing runs on our real Firebase database**, including each searcher's position on the map. **The proxy is deployed** on Cloudflare with the Deepgram and ElevenLabs keys; the TypeSafe key for Jev is still to come, so until then the report box fills in forms with the backup word rules on the phone. The benchmark is done (below). Not yet tried on real phones: voice with a real microphone, and two phones sharing.
 
 ## What it does
 
@@ -198,8 +198,9 @@ After changing the app, bump `CACHE_VERSION` at the top of `sw.js` so phones pic
 - Untrained volunteers should not go into water or dense brush; the app flags those for professionals.
 - Browser GPS only works while the page is open.
 - Anyone with a search link can see and add to that search. There are no accounts yet.
-- Report-box text leaves the phone and goes to TypeSafe (Jev), with nearby place names but no coordinates. Spoken reports also go to Google or Apple to be turned into text, or, with the voice bot set up, the recording goes to Deepgram and the read-back sentence (which can include a place name) to ElevenLabs. The app asks people to leave out names and medical details.
-- Voice input usually needs signal and isn't available in Firefox (people type instead). It hasn't been tested with a real microphone yet.
+- In a shared search, each phone's position (rounded to about 1 m) and the name you typed go to our Firebase database, where anyone with the search link can see them. Positions are only shown as dots; they're overwritten as you move, not kept as a trail.
+- Report-box text leaves the phone and goes to TypeSafe (Jev), with nearby place names but no coordinates. (The backup word rules run on the phone and send nothing.) Spoken reports also go to Google or Apple to be turned into text, or, with the voice bot set up, the recording goes to Deepgram and the read-back sentence (which can include a place name) to ElevenLabs. The app asks people to leave out names and medical details.
+- Voice input needs signal. In Firefox it only works through the voice bot (Deepgram), since Firefox has no built-in speech recognition. Deepgram was tested with a recorded sentence, not yet with a real phone's microphone.
 - The map doesn't grow with time after the search starts (the minutes are fixed when the search is created).
 
 ## Data and credits

@@ -11,28 +11,29 @@ This merges three sources:
 
 EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**, with freeze at 9:30 am.
 
-## Status (Nov 21, evening)
+## Status (Nov 21, night)
 **Done and pushed:**
 - all five screens
 - the real engine, calibrated to the research
 - live sharing on real Firebase (`findthem-f4e5c`, rules tested)
-- report box code (Jev proxy, tested with a fake Jev), plus an optional voice bot (Deepgram speech → text, ElevenLabs read-back) that falls back to the phone's voice input without keys
+- report box code (Jev proxy, tested with a fake Jev), plus a voice bot (Deepgram speech → text, ElevenLabs read-back in English) that falls back to the phone's voice input without keys; proxy deployed with both voice keys
 - map search (magnifying glass), clear offline messages, Demo offline
 - offline PWA
 - 5 languages
 - the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
 - 72 tests
 - report box backup reader on the phone (`quickread.js`, 5 languages) for when Jev can't answer, and a 40-report scorer for Jev (`npm run jev-eval`)
-- the app asks for location on start; searchers see each other as green dots in a shared search (needs the updated `firebase-rules.json` published)
+- the app asks for location on start; searchers see each other as green dots in a shared search (rules published and tested on the live database)
 - commit emails switched to the GitHub noreply address
+- laptop layout fixed: only the side panel scrolls; the loading bar no longer hides under the map search box
 - first phone feedback fixed: red/orange/yellow likely areas instead of the all-blue heatmap, a clear "tap the map" bar, a turnable direction arrow, a loading bar
 
 **Left, in order:**
 1. ✅ **Repo public, GitHub Pages on:** live at **https://donaldstewart4.github.io/FindThem/**. Checked: all files load, Demo 0.6 s, sharing through Firebase, offline worker registered.
 2. **Proxy deployed** at `https://findthem-proxy.findthem-evohacks.workers.dev` with the Deepgram and ElevenLabs keys; `PROXY_URL` is set. **Still needed:** the TypeSafe key (Nathan, `NATHAN.md`).
-3. **Test on two real phones:** sharing, **voice with a real microphone**, offline, and the speed of the Demo.
-4. Nathan's UI review (his full list is in `NATHAN.md`).
-5. **2–3 minute video**, then the **Devpost** write-up (description, setup steps, public repo link).
+3. **Test on two real phones:** sharing and the green searcher dots, **voice with a real microphone** (iPhone especially), offline, and the speed of the Demo.
+4. Nathan's UI review and Jev scoring once the key is in (his full list is in `NATHAN.md`).
+5. **Video script and Devpost write-up** (not started), then **film** (Sun 8–10 am), Nathan edits and submits by 11:00.
 
 
 ## The user and the moment

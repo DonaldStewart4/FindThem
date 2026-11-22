@@ -72,7 +72,9 @@ curl https://findthem-proxy.<you>.workers.dev/voice -H 'Origin: https://donaldst
    npx wrangler deploy
    ```
 
-6. Wrangler prints the address, like `https://findthem-proxy.<you>.workers.dev`. Put it in `PROXY_URL` in `config.js`.
+   The first time, it asks you to register a **workers.dev subdomain** for your account (a public name, once per account). Ours is `findthem-evohacks`. A new subdomain can take a few minutes to start answering.
+
+6. Wrangler prints the address, like `https://findthem-proxy.<you>.workers.dev`. Put it in `PROXY_URL` in `config.js`. **Ours is live at `https://findthem-proxy.findthem-evohacks.workers.dev`** (Deepgram and ElevenLabs keys set; TypeSafe key still to come). Without the TypeSafe key, `POST /` answers `500 no_key` and the app fills in the form with its backup word rules (`quickread.js`) instead.
 7. `ALLOWED_ORIGIN` in `wrangler.toml` is already `https://donaldstewart4.github.io`, so only the live site can use the proxy. To test from `localhost`, set it to `"*"` temporarily and deploy again.
 
 Test it (English, then try Spanish, French, Chinese and Japanese; Jev's language support isn't documented):
@@ -85,7 +87,7 @@ curl -X POST https://findthem-proxy.<you>.workers.dev -H 'Content-Type: applicat
 
 - Text is cut at 1,000 characters; at most 60 nearby places.
 - About 20 requests per minute per IP (best effort, kept in worker memory). If Jev is busy (429/529), the worker retries once.
-- Only POST (and the browser's OPTIONS check) is allowed.
+- Only `GET /voice`, POST and the browser's OPTIONS check are allowed.
 
 ## Privacy
 

@@ -32,7 +32,7 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
 ## Must not be forgotten
 - **The benchmark is done** (`bench/benchmark.js`, `npm run bench`; results in the README and `bench/results.md`). Re-run it and update both tables if the engine's numbers change.
 - Must-haves by the deadline: routes for searchers, messaging between searchers, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
-- **Never call the report box a "chatbot"** anywhere in the UI. Jev only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine. Jev answers multiple-choice questions with a confidence; answers below `MIN_CONFIDENCE` are left empty for the person to fill in.
+- **Never call the report box a "chatbot"** anywhere in the UI. Jev only turns a report into a draft the person confirms; it never sets probabilities, and nothing unconfirmed reaches the engine. Jev answers multiple-choice questions with a confidence; answers below `MIN_CONFIDENCE` are left empty for the person to fill in. When Jev can't answer, `quickread.js` fills the same draft with simple word rules on the phone; the same confirm step applies.
 - Demo and tuning area: **Fremont, CA** (Central Park / Lake Elizabeth). Skip `waterway=pressurised` (underground pipes) when finding creeks.
 
 ## Every commit
@@ -46,7 +46,7 @@ The team is **two people: BenStew and Nathan.** "Jev" is **not a person**: it's 
 ## Code rules
 - Plain HTML, CSS and vanilla JavaScript. No frameworks, no build step, no npm packages at runtime.
 - Online parts are only these two, and the prediction always runs on the phone:
-  - **Firebase Realtime Database** for the shared search (case, events, messages), used through its REST API (`fetch` + `EventSource`) in `sync.js`, with no SDK. Supabase is the fallback.
+  - **Firebase Realtime Database** for the shared search (case, events, messages, and each searcher's latest position for the map), used through its REST API (`fetch` + `EventSource`) in `sync.js`, with no SDK. Supabase is the fallback.
   - **A tiny Cloudflare Worker** (`proxy/`) that holds the API keys as environment variables (Worker secrets): Jev (TypeSafe) to turn a report into a `ReportDraft`, and, optional, Deepgram (speech → text, all 5 languages) and ElevenLabs (reading the form back aloud, **English only**) for the voice bot. If a voice key is missing, the app falls back to the phone's own speech recognition and doesn't speak. No FastAPI or other server.
 - **Never put an API key in the website's code** or commit one to the repo.
 - Engine code is pure and deterministic (seeded random numbers, no DOM), so every phone computes the same map from the same inputs and events. Tests run with `node --test`.

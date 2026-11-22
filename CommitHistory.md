@@ -29,7 +29,7 @@ Template:
 
 ## Project context
 
-Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Components of What We're Going to Build") into `PLAN.md`. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
+Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions, backup report reader); first written after merging the team's planning doc ("Components of What We're Going to Build") into `PLAN.md`. `PLAN.md` has the full plan; this section overrides the original prompt where they differ.
 
 - **What it is:** FindThem, a phone-first PWA for the first hour after a person with dementia goes missing. Simulated walkers on the real OpenStreetMap street graph give a starting probability map on a 25 m grid. Searchers join by share link and each gets a sector and a walking route. A shared message feed and a voice/text report box keep everyone in touch. Each empty search and each confirmed sighting updates the map with Bayesian search theory, live on every phone. A hand-off sheet goes to police at the end.
 - **Event:** EvoHacks II, theme social good. **Deadline Sun Nov 22, 2026, 12:00 pm**; code freeze 9:30 am; submit by 11:00 am. **Official EvoHacks 2 rules (posted Nov 21): AI use is encouraged**; fresh code only (Nov 21 9:00 AM – Nov 22 12:00 PM PST); submit on Devpost with a description, setup instructions, a public repo and a 2–3 minute video; judged 25% each on impact, technical execution, creativity and presentation. (An earlier "AI may not build the whole project" rule came from the game plan's reading of an older page and is dropped.)
@@ -40,10 +40,10 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
   - `INTERFACES.md` is the contract; changes need both to agree.
 - **Tech:**
   - plain HTML/CSS/vanilla JS, no frameworks, no build step
-  - Leaflet 1.9.4 + Leaflet.heat 0.2.0 in `/lib`
+  - Leaflet 1.9.4 in `/lib` (Leaflet.heat was removed on 2026-11-21 evening; the map draws red/orange/yellow likely-area bands itself)
   - OSM tiles; Overpass for streets and terrain; IndexedDB cache; service worker
-  - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback. **Live at `https://findthem-f4e5c-default-rtdb.firebaseio.com` since 2026-11-21**, with the rules from `firebase-rules.json` published.
-  - a Cloudflare Worker holding the API keys as Worker secrets: Jev (TypeSafe) for the report box, and since 2026-11-21 evening, optional Deepgram (speech → text) and ElevenLabs (read-back, **English only** since the next commit) keys for the voice bot, which falls back to the phone's own voice input without them; no FastAPI or other server
+  - Firebase Realtime Database through REST (no SDK) for the case, events and messages, with Supabase as the fallback. **Live at `https://findthem-f4e5c-default-rtdb.firebaseio.com` since 2026-11-21**, with the rules from `firebase-rules.json` published (updated 2026-11-21 night to allow each searcher's position under `searchers/`, shown as green dots; the engine never uses them).
+  - a Cloudflare Worker holding the API keys as Worker secrets: Jev (TypeSafe) for the report box, and since 2026-11-21 evening, optional Deepgram (speech → text) and ElevenLabs (read-back, **English only**) keys for the voice bot, which falls back to the phone's own voice input without them; no FastAPI or other server. **Deployed 2026-11-21 at `https://findthem-proxy.findthem-evohacks.workers.dev`** with both voice keys; the TypeSafe key is still missing (Nathan is getting it). When Jev can't answer, `quickread.js` fills in the report draft on the phone with simple word rules (5 languages)
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
@@ -58,6 +58,22 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
 
 ## Log
+
+### Docs check: every .md file matches what's live
+- **Date:** 2026-11-21
+- **Stage:** Finishing (docs)
+- **What changed:**
+  - `README.md`: the status line no longer says the proxy still needs deploying (it's live, with the voice keys; the TypeSafe key is still to come, and the backup word rules fill in until then; real-phone voice and two-phone sharing not yet tried). Limits: searcher positions and names go to Firebase and are visible to anyone with the link (shown as dots, overwritten, no trail); the backup reader sends nothing; Firefox voice works only through Deepgram; Deepgram tested with a recorded sentence, not a real phone mic.
+  - `PLAN.md`: status says the searcher-dot rules are published and tested, the proxy has both voice keys, and the laptop layout is fixed; "Left" now lists the green dots in the phone test, Jev scoring, and the video script and Devpost write-up (not started) before filming.
+  - `proxy/README.md`: deploy step for registering the workers.dev subdomain; our live address; what happens without the TypeSafe key (`500 no_key` → the app's backup reader); `GET /voice` added to the allowed methods.
+  - `CLAUDE.md`: Firebase also holds each searcher's latest position; `quickread.js` fills the draft when Jev can't answer.
+  - `CommitHistory.md` "Project context": Leaflet.heat marked removed; the Worker bullet says where it's deployed and what's missing; Firebase rules note the `searchers/` addition.
+  - `ShortPlan.md`: trimmed from 674 to 660 words, and mentions searcher positions among the online parts and English-only read-back.
+- **Why:** BenStew asked to check that all .md files are up to date before pushing.
+- **Decisions:** Old Log entries left as they are (the rules say add, don't rewrite). Checked and left unchanged: `INTERFACES.md`, `ROADMAP.md` (nothing on it got built; GPS-trail coverage is still roadmap), `NATHAN.md`, `bench/results.md` (engine unchanged, so the benchmark numbers stand).
+- **How it was verified:** Searched every .md for stale terms (Leaflet.heat, old test counts, "still needs", placeholder proxy addresses, old status lines) and compared against the code and the live proxy/database.
+- **Known issues / not done:** `ShortPlan.md` is still a bit over its ~600-word target (660).
+- **Next:** Push; video script and Devpost write-up.
 
 ### NATHAN.md brought up to date
 - **Date:** 2026-11-21

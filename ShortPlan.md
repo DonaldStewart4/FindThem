@@ -5,12 +5,11 @@
 ## Why
 - 6 in 10 people with dementia wander at least once.
 - About half of those not found within 24 hours are seriously hurt or die (Alzheimer's Association).
-- Families search with no plan and no record of who looked where. Search teams know where people usually end up; families don't.
+- Families search with no plan and no record of who looked where. Search teams know where people end up; families don't.
 
 ## Who it's for
 - The caregiver, family and neighbors who start searching **before police or search-and-rescue arrive**.
-- On a phone, stressed, outside, maybe with weak signal.
-- Demo area: **Fremont, CA**. It works anywhere.
+- On a phone, stressed, outside, maybe with weak signal. Demo area: **Fremont, CA**; it works anywhere.
 
 ## What it does
 1. **Call 911 first.** The banner is always on screen.
@@ -20,22 +19,21 @@
 5. **Share the link.** Each searcher who joins gets an area and a walking route, and everyone sees the others as green dots on the map.
 6. **Talk and report.**
    - A shared message feed.
-   - A report box: type or speak "saw him by the lake 10 min ago" and it becomes a sighting on the map once you confirm it. Optional voice bot reads the form back aloud.
+   - A report box: type or speak "saw him by the lake 10 min ago"; it becomes a sighting once you confirm it. A voice bot reads the form back (English).
 7. **Update as you go.** Searched routes and sightings shift the map for everyone.
 8. **Hand off to police.** One tap gives a sheet of what was searched, what was seen, and what's left.
 
 ## How it works (lightly)
 - Thousands of simulated "walkers" move along real streets the way research says people with dementia do: straight until stuck, usually within a mile, often just off the road in a creek or brush.
-- Where they end up becomes the starting map, built from public sources (search-and-rescue statistics, OpenStreetMap).
+- Where they end up becomes the starting map (search-and-rescue statistics, OpenStreetMap).
 - Each area searched with no luck drops on the map and the rest rise (Bayesian search theory). Routes update with it.
-- The prediction runs on the phone. Only the shared record, messages and Jev's report reading are online; without Jev, simple word rules on the phone fill in the report form.
+- The prediction runs on the phone. Online: the shared record, messages, searcher positions and Jev's report reading (word rules on the phone fill in when Jev can't).
 
 ## What it is NOT
 - **Not a replacement for 911**, police or search-and-rescue.
 - **Not a guarantee.** It's a guide to focus the search.
 - Not a chatbot. AI (Jev) only fills in a report form you confirm, and never sets the probabilities.
-- Not a tracker, GPS watch or wander alarm.
-- Not connected to cameras.
+- Not a tracker, GPS watch or wander alarm for the person, and not connected to cameras.
 - Not a missing-persons network. One person, one hour, one map.
 - Doesn't send volunteers into water or dense brush; those are flagged for professionals.
 
@@ -50,7 +48,7 @@
 - [x] Routes for each searcher
 - [x] Sightings update the map
 - [x] Messaging between searchers
-- [x] Voice/text report box (Jev once its key is in; simple word rules on the phone until then)
+- [x] Voice/text report box (Jev once its key is in; word rules until then)
 - [x] Share link
 - [x] Police hand-off sheet
 - [x] Works offline after the first visit
