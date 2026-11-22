@@ -57,8 +57,13 @@ export function scoreCase(c, draft) {
   const pinned = draft.lat !== null && draft.lng !== null;
   const danger = [];
 
-  // Must-have safety flags.
+  // Must-have safety flags, and flags that would mislead.
   for (const f of c.mustFlag || []) if (!flags.includes(f)) danger.push(`missing flag ${f}`);
+  for (const f of c.mustNotFlag || []) if (flags.includes(f)) danger.push(`wrong flag ${f}`);
+  // A flag may add a warning; it must never drop a true sighting.
+  if (right.kind === 'sighting' && (right.flags || []).length && draft.kind !== 'sighting') {
+    danger.push(`a true sighting became ${draft.kind}`);
+  }
 
   // Kind: a sighting that isn't one, or a sighting/searched swap, unless marked unsure.
   if ('kind' in right && draft.kind !== right.kind && !(ok.kind || []).includes(draft.kind) && !unsure.includes('kind')) {
@@ -112,8 +117,11 @@ export function scoreCase(c, draft) {
 // ---- Readers ----------------------------------------------------------------------------------
 
 // The phone's backup reader, exactly as app.js uses it.
-export function readWithBackup(c, data) {
-  return validateDraft(readLocally(c.text, { places: data.places }));
+// lang: the app's language (the case's language, as if the app were set to it); pass
+// { appLang: null } to read with no language, as app.js does today.
+export function readWithBackup(c, data, { appLang } = {}) {
+  const lang = appLang === undefined ? c.lang : appLang || undefined;
+  return validateDraft(readLocally(c.text, { places: data.places, intersections: data.intersections || [], lang }));
 }
 
 // A fake Jev that answers every question with confidence 0.95 and the wrong answer: the wrong
@@ -133,7 +141,7 @@ export function hostileJevAnswers(c, data, { rightKind = false } = {}) {
   };
 }
 export function readWithHostileJev(c, data, options) {
-  return validateDraft(safeJevDraft(hostileJevAnswers(c, data, options), c.text, data.places));
+  return validateDraft(safeJevDraft(hostileJevAnswers(c, data, options), c.text, data.places, { intersections: data.intersections || [], lang: c.lang }));
 }
 
 // Jev through a proxy. Throws with a clear message if the proxy can't answer.
@@ -141,7 +149,7 @@ async function readWithProxy(proxy, c, data) {
   const res = await fetch(proxy, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
-    body: JSON.stringify({ text: c.text, lang: c.lang, context: { lastSeen: data.lastSeen, places: data.places } }),
+    body: JSON.stringify({ text: c.text, lang: c.lang, context: { lastSeen: data.lastSeen, places: data.places, intersections: data.intersections || [] } }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {

@@ -205,6 +205,141 @@ export function readPlace(text, places = []) {
   return best;
 }
 
+// ---- Places by kind ("the lake") ----------------------------------------------------------------
+
+// Words in place names → the same idea in the 5 languages. Also used by proxy/jev.js to check
+// that Jev's place has words in the report to back it.
+export const PLACE_WORDS = {
+  lake: ['lake', 'pond', 'lago', 'estanque', 'lac', 'etang', '湖', '池'],
+  creek: ['creek', 'stream', 'arroyo', 'riachuelo', 'ruisseau', '溪', '小河', '河', '川'],
+  lagoon: ['lagoon', 'laguna', 'lagune', '潟湖', '泻湖', 'ラグーン'],
+  river: ['river', 'rio', 'riviere', 'fleuve', '河', '江', '川'],
+  park: ['park', 'parque', 'parc', '公园', '公園'],
+  street: ['street', 'calle', 'rue', '街', '路', '通り'],
+  avenue: ['avenue', 'avenida', '大道', '街', '通り'],
+  boulevard: ['boulevard', 'bulevar', '大道', '通り'],
+  drive: ['drive', 'calle', 'rue', '路', '通り'],
+  parkway: ['parkway', 'avenida', 'avenue', '大道', '通り'],
+  way: ['calle', 'rue', '路', '通り'],
+};
+// Only these kinds of place can be found from the word alone ("the lake" → Lake Elizabeth),
+// and only when exactly ONE nearby place is of that kind. "The street" names nothing.
+const FEATURE_KINDS = ['lake', 'creek', 'lagoon', 'river', 'park'];
+
+const escapeRe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// true if `word` is in `text`: as a whole word for letters ("lac" is not in "place"),
+// anywhere for Chinese / Japanese characters. Both should already be plain() text.
+export function hasWord(text, word) {
+  if (/[぀-ヿ㐀-鿿]/.test(word)) return text.includes(word);
+  return new RegExp(`(^|[^\\p{L}])${escapeRe(word)}($|[^\\p{L}])`, 'u').test(text);
+}
+
+// "By the lake", "junto al lago", "湖边": the one nearby place of that kind, or null if there
+// are none or several (then the person taps the map).
+export function readFeaturePlace(text, places = []) {
+  const t = plain(text);
+  const kinds = FEATURE_KINDS.filter((k) => PLACE_WORDS[k].some((w) => hasWord(t, w)));
+  if (!kinds.length) return null;
+  const found = [];
+  for (const p of places) {
+    if (!p || typeof p.name !== 'string' || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
+    const words = plain(p.name).split(/[^\p{L}\p{N}]+/u);
+    // "Quarry Lakes" is a lake too: a plural name must count, or two lakes would look like one.
+    if (kinds.some((k) => words.includes(k) || words.includes(`${k}s`)) && !found.some((q) => q.name === p.name)) found.push(p);
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
+// ---- Street corners ("Paseo Padre and Stevenson") -------------------------------------------------
+// The phone works out where the nearby streets cross from the map it downloaded
+// (findIntersections) and sends that list with the report. A report that names two streets
+// joined by "and" / "y" / "et" / "和" / "と", or with a corner word ("corner", "esquina",
+// "coin", "路口", "交差点"), is pinned to where those two streets cross. If they don't cross,
+// or cross in two different places, nothing is pinned: two places stay a conflict.
+
+export const MAX_INTERSECTIONS = 30;
+const SAME_CORNER_M = 120; // a divided road crosses at up to 4 nodes, all within this of each other
+
+// Meters between two { lat, lng } (equirectangular: fine at these distances).
+function meters(a, b) {
+  const k = Math.PI / 180;
+  const x = (b.lng - a.lng) * k * Math.cos(((a.lat + b.lat) / 2) * k);
+  const y = (b.lat - a.lat) * k;
+  return 6371000 * Math.hypot(x, y);
+}
+
+// Where the named streets cross: [{ name: 'A & B', streets: ['A', 'B'], lat, lng }], nearest
+// to `near` first. osm = OsmData (INTERFACES.md §1); streetNames = the names the phone sends.
+// The streets of a pair are in alphabetical order, and so is the name.
+export function findIntersections(osm, streetNames = [], near = null, limit = MAX_INTERSECTIONS) {
+  if (!osm || !Array.isArray(osm.ways) || !Array.isArray(osm.nodes)) return [];
+  const wanted = new Set(streetNames);
+  const namesAt = new Map(); // node id → Set of street names through it
+  for (const w of osm.ways) {
+    if (!w || !wanted.has(w.name) || !Array.isArray(w.nodeIds)) continue;
+    for (const id of w.nodeIds) {
+      if (!namesAt.has(id)) namesAt.set(id, new Set());
+      namesAt.get(id).add(w.name);
+    }
+  }
+  const nodeById = new Map(osm.nodes.map((n) => [n.id, n]));
+  const pairs = new Map(); // 'A\u0000B' → [node, ...]
+  for (const [id, names] of namesAt) {
+    const n = nodeById.get(id);
+    if (names.size < 2 || !n) continue;
+    const list = [...names].sort();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const key = `${list[i]}\u0000${list[j]}`;
+        if (!pairs.has(key)) pairs.set(key, []);
+        pairs.get(key).push(n);
+      }
+    }
+  }
+  const out = [];
+  for (const [key, nodes] of pairs) {
+    // The same two streets crossing in two places is ambiguous: leave that pair out.
+    if (nodes.some((a) => nodes.some((b) => meters(a, b) > SAME_CORNER_M))) continue;
+    const lat = nodes.reduce((sum, n) => sum + n.lat, 0) / nodes.length;
+    const lng = nodes.reduce((sum, n) => sum + n.lng, 0) / nodes.length;
+    const streets = key.split('\u0000');
+    out.push({ name: streets.join(' & '), streets, lat, lng, d: near ? meters(near, { lat, lng }) : 0 });
+  }
+  out.sort((a, b) => a.d - b.d || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return out.slice(0, limit).map(({ d, ...corner }) => corner);
+}
+
+const CORNER_WORDS = /\b(corner|intersection|crossing|cross street|esquina|cruce|interseccion|coin|angle|carrefour|croisement)\b|(路口|交叉口|十字路口|交界|交差点|角)/;
+const JOINER = /^[\s,]*(and|&|\/|at|y|con|et|和|与|跟|及|と)[\s,]*$/;
+
+// Where in the report a place's name appears: its index, or -1 (the same keys as readAllPlaces).
+function nameAt(l, name) {
+  const full = lower(name).trim();
+  const short = full.replace(STREET_SUFFIX, '');
+  for (const key of [full, short]) {
+    if (key.length >= 4 && l.includes(key)) return { at: l.indexOf(key), end: l.indexOf(key) + key.length };
+  }
+  return null;
+}
+
+// The street corner the report names, or null. It must be in `intersections`, both streets
+// must be among the places the phone sent, and the report must name no other place.
+export function readIntersection(text, places = [], intersections = []) {
+  if (!Array.isArray(intersections) || !intersections.length) return null;
+  const l = lower(text);
+  const named = readAllPlaces(text, places).map((p) => p.name);
+  const found = [];
+  for (const c of intersections) {
+    if (!c || !Array.isArray(c.streets) || c.streets.length !== 2 || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+    if (!c.streets.every((s) => named.includes(s)) || !named.every((n) => c.streets.includes(n))) continue;
+    const [a, b] = c.streets.map((s) => nameAt(l, s)).sort((x, y) => x.at - y.at);
+    if (!a || !b) continue;
+    const between = l.slice(a.end, b.at);
+    if (JOINER.test(between) || CORNER_WORDS.test(plain(text))) found.push(c);
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
 // ---- Safety signals ---------------------------------------------------------------------------
 // Word rules that only ever add caution. They are shared by both readers: proxy/jev.js runs
 // them on every report Jev reads, so the safety checks never depend on the AI being right.
@@ -221,13 +356,40 @@ const WATER = [
 ];
 // A car, bus or train: the person could be far outside the walking map. Street names like
 // "Civic Center Drive" and "BART Way", and "the BART station" (a place), are left out on purpose.
-const VEHICLE = [
-  /\b(car|cars|drove|driving|driven|drive (off|away)|bus|train|taxi|cab|uber|lyft|truck|vehicle|got a ride|(took|on|rode|riding|got on) (the )?bart)\b/,
-  /\b(coche|carro|auto|autobus|camion|camioneta|tren|taxi|manejando|conduciendo)\b/,
-  /\b(voiture|autobus|bus|taxi|camion|conduisait|metro|(le|un|du|au) train)\b/,
-  /(车|公交|巴士|火车|地铁|出租|的士)/,
-  /(車|バス|電車|タクシー|運転|乗っ|乗る|乗り)/,
-];
+// These words are only looked for in the report's own language (guessLanguage), because the
+// same letters mean different things: French "car" is "because", Spanish "van" is "they go".
+const VEHICLE = {
+  en: /\b(car|cars|drove|driving|driven|drive (off|away)|bus|train|taxi|cab|uber|lyft|truck|vehicle|got a ride|(took|on|rode|riding|got on) (the )?bart)\b/,
+  es: /\b(coche|carro|auto|autobus|bus|camion|camioneta|tren|taxi|uber|manejando|conduciendo)\b/,
+  fr: /\b(voiture|autobus|bus|taxi|uber|camion|conduisait|metro|(le|un|du|au) train)\b/,
+  zh: /(车|公交|巴士|火车|地铁|出租|的士)/,
+  ja: /(車|バス|電車|タクシー|運転|乗っ|乗る|乗り)/,
+};
+
+// Common short words of each language that writes with letters.
+const STOPWORDS = {
+  en: ['the', 'he', 'she', 'him', 'her', 'is', 'was', 'and', 'saw', 'on', 'at', 'in', 'to', 'of', 'it', 'by', 'ago', 'his', 'took', 'with', 'near', 'my', 'i'],
+  es: ['el', 'la', 'los', 'las', 'lo', 'es', 'y', 'en', 'que', 'se', 'un', 'una', 'del', 'al', 'hace', 'hacia', 'por', 'con', 'esta', 'no', 'mi', 'su', 'vi', 'llevo'],
+  fr: ['le', 'la', 'les', 'il', 'elle', 'est', 'et', 'je', 'un', 'une', 'des', 'du', 'dans', 'sur', 'vers', 'pas', 'ce', 'a', 'au', 'avec', 'pris', 'vu', 'ai', 'mais'], // not 'car': in a short report it is English
+};
+export const LANGS = ['en', 'es', 'fr', 'zh', 'ja'];
+
+// The report's language, from its own words: Japanese if it has kana, Chinese if it has Han
+// characters, else whichever of en / es / fr has the most common words. `fallback` (the app's
+// language) only breaks ties, because people don't always type in the app's language.
+export function guessLanguage(text, fallback = 'en') {
+  const fb = LANGS.includes(fallback) ? fallback : 'en';
+  const t = lower(text);
+  if (/[\u3040-\u30ff]/.test(t)) return 'ja';
+  if (/[\u3400-\u9fff]/.test(t)) return 'zh';
+  const words = plain(text).split(/[^a-z]+/).filter(Boolean);
+  const score = {};
+  for (const lang of ['en', 'es', 'fr']) score[lang] = words.filter((w) => STOPWORDS[lang].includes(w)).length;
+  const best = Math.max(score.en, score.es, score.fr);
+  if (best === 0) return fb;
+  const tied = ['en', 'es', 'fr'].filter((lang) => score[lang] === best);
+  return tied.includes(fb) ? fb : tied[0];
+}
 // Hurt, fallen, in the water: call emergency services now.
 const EMERGENCY = [
   /\b(hurt|injured|bleeding|fell|fallen|unconscious|not moving|not breathing|drown\w*|collapsed|face down|ambulance|in the (water|creek|lake|lagoon|river|pond|canal|channel))\b/,
@@ -336,25 +498,27 @@ export function readAllMinutes(text) {
 }
 
 // The safety signals in a report: { flags: [...], conflicts: [...], notSeen }.
+// options = { intersections, lang }: the street corners the phone sent, and the app's language.
 //   flags      codes from report.js DRAFT_FLAGS
 //   conflicts  draft fields the report gives two different answers for: 'place' (two places),
 //              'direction', 'minutesSince', or 'reliability' ("definitely" + "not sure").
 //              A field in conflict is left empty (reliability goes to "maybe").
 //   notSeen    true for "I can't find him", "he's gone" (nobody has seen them)
-export function readSignals(text, places = []) {
+export function readSignals(text, places = [], { intersections = [], lang = 'en' } = {}) {
   const p = plain(text);
   const l = lower(text);
   const flags = [];
   if (any(EMERGENCY, p)) flags.push('emergency');
   if (any(WATER, p)) flags.push('water');
-  if (any(VEHICLE, p)) flags.push('vehicle');
+  if (VEHICLE[guessLanguage(text, lang)].test(p)) flags.push('vehicle');
   // "是不是他" ("was it him?") contains "不是他" ("not him"): take the question out first.
   if (any(OTHER_PERSON, p.replace(/是不是/g, ''))) flags.push('other_person');
   if (any(JOKE, p) || any(JOKE, l)) flags.push('joke');
   if (any(GUESS, p)) flags.push('guess');
 
   const conflicts = [];
-  if (readAllPlaces(text, places).length > 1) conflicts.push('place');
+  // Two places, unless they are the two streets of a corner the report names.
+  if (readAllPlaces(text, places).length > 1 && !readIntersection(text, places, intersections)) conflicts.push('place');
   if (readAllDirections(text).length > 1) conflicts.push('direction');
   if (readAllMinutes(text).length > 1) conflicts.push('minutesSince');
   if (any(UNSURE, p)) {
@@ -375,14 +539,16 @@ const UNSURE_ORDER = ['kind', 'place', 'direction', 'minutesSince', 'reliability
 const FLAG_ORDER = ['emergency', 'water', 'vehicle', 'conflict', 'guess', 'other_person', 'joke'];
 const inOrder = (set, order) => order.filter((code) => set.has(code));
 
-// Reads a report with the rules above. context = { places: [{ name, lat, lng }] }.
+// Reads a report with the rules above. context = { places: [{ name, lat, lng }],
+// intersections: [{ name, streets, lat, lng }] (findIntersections), lang: the app's language }.
 // Returns a ReportDraft (INTERFACES.md section 5; version 2 in docs/AGENT-CONTRACT.md).
 // Safety first: a joke, or a sighting of someone else, is not a sighting; a field the report
 // gives two answers for is left empty and listed in `unsure`.
 export function readLocally(text, context = {}) {
   const note = String(text || '').trim().slice(0, 300);
   const places = context.places || [];
-  const signals = readSignals(note, places);
+  const intersections = context.intersections || [];
+  const signals = readSignals(note, places, { intersections, lang: context.lang });
   const flags = new Set(signals.flags);
   const conflicts = new Set(signals.conflicts);
   const unsure = new Set();
@@ -392,9 +558,11 @@ export function readLocally(text, context = {}) {
   if (joke) { kind = 'message'; unsure.add('kind'); }
   else if (flags.has('other_person') && kind === 'sighting') kind = 'message';
 
+  // Where: a street corner, else a place by name, else the one place of a kind ("the lake").
+  // A water word only adds the water flag: it never stops a sighting from being pinned.
   let place = null;
   if (!joke && conflicts.has('place')) unsure.add('place');
-  else if (!joke) place = readPlace(note, places);
+  else if (!joke) place = readIntersection(note, places, intersections) || readPlace(note, places) || readFeaturePlace(note, places);
 
   let direction = null;
   let minutesSince = null;

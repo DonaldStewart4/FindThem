@@ -6,7 +6,7 @@ This is the contract between the two halves of FindThem:
 - **Engine** (`engine/`): BenStew, built with Claude Code.
 - **Tests and speed** (`tests/`, `bench/`): Nathan, with AI help allowed.
 
-If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: implemented. `engine/` and the screen both follow it, and the tests check it. Not yet reviewed by Nathan.* ("Jev" is not a teammate; it's the AI model in the report box.)
+If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: implemented. `engine/` and the screen both follow it, and the tests check it. Section 5 (`ReportDraft` v2, street corners) and the `assigned` event's `toId` were approved by Nathan on 2026-11-22 with `docs/AGENT-CONTRACT.md`, the contract for anything an AI agent may read or propose.* ("Jev" is not a teammate; it's the AI model in the report box.)
 
 ## Ground rules
 
@@ -88,7 +88,8 @@ Event =
       minutesSince: 10,          // minutes from the sighting to when it was reported (fixed)
       reliability: 0.3 | 0.6 | 0.9,   // "maybe" / "probably" / "sure"
       note: 'blue coat', at }
-  | { id, type: 'assigned', sectorId, to: 'Ana', at }  // the engine ignores this one
+  | { id, type: 'assigned', sectorId, to: 'Ana', toId: '3f9a…', at }  // the engine ignores this one;
+                                 // toId = the searcher's id (optional, added 2026-11-22, for myAssignment)
   | { id, type: 'message', text: 'I have the park', by: 'Ana', at }  // the engine ignores this one
 ```
 
@@ -211,21 +212,46 @@ PRIOR_FLOOR (small, so no cell is exactly 0)
 
 ## 5. Report box (screen-only, here for reference)
 
-`report.js` sends the typed or spoken text, plus context (the last-seen point and up to 60 nearby named places as `{ name, lat, lng }`: streets, creeks, parks, lakes, nearest first), to the proxy. The proxy asks Jev five multiple-choice questions (`proxy/jev.js`) and returns **only** this JSON:
+`report.js` sends the typed or spoken text to the proxy, with context:
+
+- the last-seen point;
+- up to 60 nearby named places as `{ name, lat, lng }`: streets, creeks, parks, lakes, nearest first;
+- optional: up to 30 **street corners** (`Intersection` below), where those streets cross on the downloaded map (`quickread.js` `findIntersections`).
+
+The proxy asks Jev five multiple-choice questions (`proxy/jev.js`), runs the answers through the safety layer (`safeJevDraft`), and returns **only** this JSON (**version 2**; `report.js` `DRAFT_SCHEMA`):
 
 ```js
 ReportDraft = {
   kind: 'sighting' | 'searched' | 'message',
-  placeText: 'the lake by Paseo Padre',
-  lat, lng,                      // or null if the place couldn't be pinned; the user taps the map
+  placeText: 'Lake Elizabeth',   // only ever one of the place or corner names the phone sent, or ''
+  lat, lng,                      // that place's own point, or null: the user taps the map
   direction: 'E' | null,
   minutesSince: 10 | null,
   reliability: 0.3 | 0.6 | 0.9,  // from wording: "maybe" / "I think" / "definitely"
-  note: 'blue coat'
+  note: 'blue coat',             // only ever the person's own words
+  unsure: ['direction'],         // optional, version 2: fields the reader wasn't sure about
+  flags: ['water']               // optional, version 2: safety warnings, most urgent first
+}
+
+Intersection = {                 // a street corner
+  name: 'Paseo Padre Parkway & Stevenson Boulevard',   // the two streets, alphabetical, joined by ' & '
+  streets: ['Paseo Padre Parkway', 'Stevenson Boulevard'],
+  lat, lng                       // the middle of the crossing's map nodes (a divided road has up to 4)
 }
 ```
 
-If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
+- **`unsure`** ⊆ `kind, place, direction, minutesSince, reliability`.
+  - A `place`, `direction` or `minutesSince` in it is always empty.
+  - A `kind` or `reliability` in it holds a default the person must check.
+- **`flags`** ⊆ `emergency, water, vehicle, conflict, guess, other_person, joke`, in that order. They are codes; the screen turns them into words (`i18n.js`).
+  - A flag only adds a warning. It never changes the map.
+  - **`water` never stops a sighting:** "I saw him by the lake" is a sighting pinned at the lake, with the water warning.
+  - What does stop a sighting: `joke`, `other_person`, and, when the report has no "saw" words, `guess`, `vehicle`, or "I can't find him". Those come back as `message`.
+- Both lists are left out when empty, so a version-1 draft is a valid version-2 draft.
+- **Street corners:** a report that names two streets joined by "and / y / et / 和 / と", or with a corner word ("corner", "esquina", "coin", "路口", "交差点"), is pinned at their `Intersection`. If the streets don't cross, cross in two places, or no corner list was sent, the place stays empty (two places = `conflict`).
+- `report.js` `confineDraft` holds every proxy answer to these rules: the note is reset to the person's words, and a name the phone didn't send is dropped.
+
+If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js` `readLocally(text, { places, intersections, lang })`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
 
 **Optional voice bot** (same proxy, only if its keys are set; see `proxy/voice.js`):
 - `GET /voice` → `{ listen: bool, speak: bool }`. Both false → the app uses the phone's own speech recognition and doesn't speak (the behavior before the voice bot).

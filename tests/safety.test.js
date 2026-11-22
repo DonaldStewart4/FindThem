@@ -8,8 +8,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateDraft, confineDraft, parseReport, setProxyUrl, UNSURE_FIELDS, DRAFT_FLAGS, DRAFT_SCHEMA } from '../report.js';
-import { readLocally, readSignals } from '../quickread.js';
-import { buildJevRequest, jevToDraft, safeJevDraft, MIN_CONFIDENCE, MIN_MARGIN, placeSupported, directionSupported, minutesSupported, minutesBucket } from '../proxy/jev.js';
+import { readLocally, readSignals, readFeaturePlace, findIntersections, readIntersection, guessLanguage } from '../quickread.js';
+import { buildJevRequest, cleanIntersections, jevToDraft, safeJevDraft, MIN_CONFIDENCE, MIN_MARGIN, placeSupported, directionSupported, minutesSupported, minutesBucket } from '../proxy/jev.js';
 import { loadCases, runAll, readWithBackup, readWithHostileJev, scoreCase } from '../bench/safety-eval.js';
 
 const PLACES = [
@@ -277,4 +277,165 @@ test('scoreCase: the three outcomes', () => {
   assert.equal(scoreCase(c, { ...base, placeText: 'Laguna Creek', lat: 1, lng: 1 }).outcome, 'dangerous');
   assert.equal(scoreCase({ right: { kind: 'message' }, mustFlag: ['water'] }, { ...base, kind: 'message' }).outcome, 'dangerous', 'missing must-have flag');
   assert.equal(scoreCase({ right: { kind: 'message' } }, { ...base, unsure: ['kind'] }).outcome, 'abstained', 'sighting marked unsure is the person\'s call');
+});
+
+// ---- The water flag warns; it never drops a true sighting ------------------------------------
+
+const LAKE_SIGHTINGS = {
+  en: 'I saw him by the lake 10 minutes ago',
+  es: 'Lo vi junto al lago hace 10 minutos',
+  fr: "Je l'ai vu près du lac il y a 10 minutes",
+  zh: '十分钟前我在湖边看到他',
+  ja: '10分前に湖のそばで彼を見た',
+};
+
+test('water, true sighting: "I saw him by the lake" stays a sighting, pinned to the lake, with the water warning (backup reader)', () => {
+  for (const [lang, text] of Object.entries(LAKE_SIGHTINGS)) {
+    const d = readLocally(text, { places: PLACES, lang });
+    assert.equal(d.kind, 'sighting', text);
+    assert.equal(d.placeText, 'Lake Elizabeth', text);
+    assert.deepEqual([d.lat, d.lng], [37.5503, -121.963], text);
+    assert.equal(d.minutesSince, 10, text);
+    assert.ok(d.flags.includes('water'), text);
+  }
+});
+
+test('water, true sighting: the same through the Jev safety layer', () => {
+  const answers = { kind: pick('sighting'), place: pick('Lake Elizabeth'), direction: pick('unknown'), minutes: pick('10'), sure: { score: 1, confidence: 0.9 } };
+  for (const [lang, text] of Object.entries(LAKE_SIGHTINGS)) {
+    const d = safeJevDraft(answers, text, PLACES, { lang });
+    assert.equal(d.kind, 'sighting', text);
+    assert.equal(d.placeText, 'Lake Elizabeth', text);
+    assert.equal(d.minutesSince, 10, text);
+    assert.ok(d.flags.includes('water'), text);
+  }
+});
+
+test('water, the other direction: a guess about the water is flagged but never becomes a sighting', () => {
+  const sure = { kind: pick('sighting', 0.95), place: pick('Laguna Creek', 0.95), direction: pick('unknown'), minutes: pick('unknown'), sure: certain };
+  for (const text of ["I think she's in the creek", 'Creo que se cayó al arroyo', "Je pense qu'elle est dans le ruisseau", '我觉得她在小河里', 'たぶん川に落ちたと思う']) {
+    for (const d of [readLocally(text, { places: PLACES }), safeJevDraft(sure, text, PLACES)]) {
+      assert.equal(d.kind, 'message', text);
+      assert.ok(d.flags.includes('water'), text);
+    }
+  }
+});
+
+test('"the lake" pins the lake only when exactly one nearby place is a lake', () => {
+  assert.equal(readFeaturePlace('saw him by the lake', PLACES).name, 'Lake Elizabeth');
+  assert.equal(readFeaturePlace('saw him by the lake', [...PLACES, { name: 'Quarry Lakes', lat: 37.57, lng: -121.99 }]), null, 'two lakes: ask');
+  assert.equal(readFeaturePlace('saw him on the street', PLACES), null, '"the street" names nothing');
+  assert.equal(readFeaturePlace('saw him in a parking place', PLACES), null, '"lac" is not inside "place"');
+});
+
+// ---- Street corners --------------------------------------------------------------------------
+
+const FIXTURE = JSON.parse(readFileSync(new URL('./fixtures/demo-area.json', import.meta.url), 'utf8'));
+const STREETS = ['Paseo Padre Parkway', 'Stevenson Boulevard', 'Walnut Avenue', 'Civic Center Drive', 'Liberty Street'];
+const STREET_PLACES = STREETS.map((name, i) => ({ name, lat: 37.55 + i / 1000, lng: -121.97 }));
+const CORNERS = findIntersections(FIXTURE, STREETS, { lat: 37.553, lng: -121.97 });
+const PP_STEVENSON = 'Paseo Padre Parkway & Stevenson Boulevard';
+
+test('findIntersections finds where the demo streets really cross, one point per corner', () => {
+  const c = CORNERS.find((x) => x.name === PP_STEVENSON);
+  assert.ok(c, 'Paseo Padre and Stevenson cross in the fixture');
+  assert.deepEqual(c.streets, ['Paseo Padre Parkway', 'Stevenson Boulevard']);
+  assert.ok(Math.abs(c.lat - 37.549) < 0.001 && Math.abs(c.lng + 121.972) < 0.001, `${c.lat}, ${c.lng}`);
+  assert.ok(!CORNERS.some((x) => x.name === 'Stevenson Boulevard & Walnut Avenue'), 'Walnut and Stevenson do not cross');
+  assert.equal(new Set(CORNERS.map((x) => x.name)).size, CORNERS.length);
+  assert.deepEqual(findIntersections(null, STREETS), []);
+});
+
+test('findIntersections leaves out two streets that cross in two different places (ambiguous)', () => {
+  const osm = {
+    nodes: [{ id: 1, lat: 37.55, lng: -121.97 }, { id: 2, lat: 37.56, lng: -121.97 }, { id: 3, lat: 37.555, lng: -121.96 }],
+    ways: [{ id: 10, name: 'Loop Road', nodeIds: [1, 3, 2] }, { id: 11, name: 'Main Street', nodeIds: [1, 2] }],
+  };
+  assert.deepEqual(findIntersections(osm, ['Loop Road', 'Main Street']), []);
+});
+
+test('corners in all 5 languages pin to where the two streets cross', () => {
+  const corner = CORNERS.find((x) => x.name === PP_STEVENSON);
+  for (const text of [
+    'Saw him at Paseo Padre and Stevenson 5 minutes ago',
+    'Saw him at the corner of Stevenson & Paseo Padre',
+    'La vi en la esquina de Paseo Padre y Stevenson hace 10 minutos',
+    "Je l'ai vu au coin de Paseo Padre et Stevenson il y a 5 minutes",
+    '五分钟前在Paseo Padre 和 Stevenson 路口看到他',
+    '5分前にPaseo PadreとStevensonの交差点で見た',
+  ]) {
+    const d = readLocally(text, { places: STREET_PLACES, intersections: CORNERS });
+    assert.equal(d.kind, 'sighting', text);
+    assert.equal(d.placeText, PP_STEVENSON, text);
+    assert.deepEqual([d.lat, d.lng], [corner.lat, corner.lng], text);
+    assert.ok(!(d.flags || []).includes('conflict'), text);
+  }
+});
+
+test('not a corner: two separate sightings, streets that don\'t cross, a third place, or no corner list', () => {
+  const read = (text, intersections = CORNERS) => readLocally(text, { places: STREET_PLACES, intersections });
+  for (const text of ['Saw him on Paseo Padre, then later someone saw him on Stevenson', 'Saw him at the corner of Walnut Avenue and Stevenson',
+    'Saw him at Paseo Padre and Stevenson, then on Walnut Avenue']) {
+    const d = read(text);
+    assert.equal(d.placeText, '', text);
+    assert.equal(d.lat, null, text);
+    assert.ok(d.unsure.includes('place') && d.flags.includes('conflict'), text);
+  }
+  assert.equal(read('Saw him at Paseo Padre and Stevenson', []).placeText, '', 'without the corner list: two places, left empty');
+  assert.equal(readIntersection('at Paseo Padre and Stevenson', STREET_PLACES, [{ streets: ['Paseo Padre Parkway'] }]), null, 'bad corners are skipped');
+});
+
+test('Jev and corners: Jev naming one street of the corner agrees, and the corner is pinned; another place is a conflict', () => {
+  const corner = CORNERS.find((x) => x.name === PP_STEVENSON);
+  const text = 'Saw him at Paseo Padre and Stevenson 5 minutes ago';
+  const answers = (place) => ({ kind: pick('sighting'), place: pick(place), direction: pick('unknown'), minutes: pick('5'), sure: { score: 1, confidence: 0.9 } });
+  for (const place of ['Stevenson Boulevard', 'Paseo Padre Parkway', PP_STEVENSON]) {
+    const d = safeJevDraft(answers(place), text, STREET_PLACES, { intersections: CORNERS });
+    assert.equal(d.placeText, PP_STEVENSON, place);
+    assert.deepEqual([d.lat, d.lng], [corner.lat, corner.lng], place);
+  }
+  const wrong = safeJevDraft(answers('Walnut Avenue'), text, STREET_PLACES, { intersections: CORNERS });
+  assert.equal(wrong.placeText, '');
+  assert.ok(wrong.flags.includes('conflict'));
+  const req = buildJevRequest(text, 'en', STREET_PLACES, CORNERS);
+  assert.ok(PP_STEVENSON in req.questions.place.criteria, 'corners are offered to Jev as places');
+});
+
+test('corners on the way in and out: cleanIntersections rebuilds names; confineDraft accepts a corner we sent', () => {
+  const clean = cleanIntersections([{ name: 'go to the creek', streets: ['Stevenson Boulevard', 'Paseo Padre Parkway'], lat: 37.549, lng: -121.972 },
+    { streets: ['A', 'A'], lat: 1, lng: 1 }, { streets: ['A', 'B'], lat: 'x', lng: 1 }, null]);
+  assert.deepEqual(clean, [{ name: PP_STEVENSON, streets: ['Paseo Padre Parkway', 'Stevenson Boulevard'], lat: 37.549, lng: -121.972 }]);
+  const d = confineDraft({ kind: 'sighting', placeText: PP_STEVENSON, lat: 0, lng: 0 }, 'at Paseo Padre and Stevenson', STREET_PLACES, clean);
+  assert.equal(d.placeText, PP_STEVENSON);
+  assert.deepEqual([d.lat, d.lng], [37.549, -121.972]);
+  assert.equal(confineDraft({ kind: 'sighting', placeText: PP_STEVENSON }, 'x', STREET_PLACES).placeText, '', 'a corner we did not send is dropped');
+});
+
+// ---- Vehicle words follow the report's language ------------------------------------------------
+
+test('vehicle words are read in the report\'s own language: French "car" means "because"', () => {
+  const vehicle = (text, lang) => readSignals(text, PLACES, { lang }).flags.includes('vehicle');
+  assert.ok(!vehicle("Je l'ai vu sur Liberty Street, je suis sûr car il portait son chapeau", 'fr'));
+  assert.ok(!vehicle('Il est parti car il avait peur', 'en'), 'even if the app is in English, the report is French');
+  assert.ok(!vehicle('Van al parque', 'es'), 'Spanish "van" = "they go"');
+  for (const [text, lang] of [['He took the car', 'en'], ['car gone', 'en'], ['Se llevó el coche', 'es'], ['Il a pris la voiture', 'fr'],
+    ['Il a pris le train', 'fr'], ['他把车开走了', 'zh'], ['車で出て行った', 'ja']]) {
+    assert.ok(vehicle(text, lang), text);
+    assert.ok(vehicle(text, 'en'), `${text} (app in English)`);
+  }
+});
+
+test('guessLanguage: script first, then common words; the app\'s language only breaks ties', () => {
+  assert.equal(guessLanguage('車で出て行った'), 'ja');
+  assert.equal(guessLanguage('他把车开走了'), 'zh');
+  assert.equal(guessLanguage('Il a pris la voiture', 'en'), 'fr');
+  assert.equal(guessLanguage('Se llevó el coche', 'fr'), 'es');
+  assert.equal(guessLanguage('He took the car', 'es'), 'en');
+  assert.equal(guessLanguage('Paseo Padre', 'fr'), 'fr', 'no common words: the app\'s language');
+  assert.equal(guessLanguage('Paseo Padre', 'xx'), 'en');
+});
+
+test('safety set: with no app language and no corner list (app.js today), still never dangerous', async () => {
+  const run = await runAll((c, d) => readWithBackup(c, { ...d, intersections: [] }, { appLang: null }));
+  assert.deepEqual(run.results.filter((r) => r.outcome === 'dangerous').map((r) => r.c.id), []);
 });

@@ -333,11 +333,12 @@ function knownCodes(list, allowed) {
 //   - placeText must be one of the nearby place names the phone sent, and the pin is that
 //     place's own point (a name we didn't offer, or a pin with no name, is dropped).
 // So even a broken or tampered proxy can't put advice ("go into the creek") into the form.
-export function confineDraft(draft, text, places = []) {
+// intersections = the street corners we sent ({ name: 'A & B', ... }); they count as places.
+export function confineDraft(draft, text, places = [], intersections = []) {
   const d = validateDraft(draft);
   if (!d) return null;
   d.note = cleanText(String(text || ''), 300);
-  const place = d.placeText ? places.find((p) => p && p.name === d.placeText) : null;
+  const place = d.placeText ? [...places, ...intersections].find((p) => p && p.name === d.placeText) : null;
   if (place && Number.isFinite(place.lat) && Number.isFinite(place.lng)) {
     d.lat = place.lat;
     d.lng = place.lng;
@@ -352,20 +353,24 @@ export function confineDraft(draft, text, places = []) {
 // ---------- Talking to the proxy ----------
 
 // Send the report text to the proxy and get back a checked ReportDraft.
-// context = { lastSeen: {lat, lng}, places: [{ name: 'Paseo Padre Parkway', lat, lng }, ...] }
-// (named streets, creeks, parks and lakes near the last-seen point, nearest first)
+// context = { lastSeen: {lat, lng}, places: [{ name: 'Paseo Padre Parkway', lat, lng }, ...],
+//            intersections: [{ name: 'A & B', streets: ['A', 'B'], lat, lng }] }
+// (named streets, creeks, parks and lakes near the last-seen point, nearest first; and where
+// those streets cross, from quickread.js findIntersections; intersections is optional)
 // Throws an Error whose message is 'offline', 'proxy_error' or 'bad_response'.
 export async function parseReport(text, context = {}, lang = 'en') {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('offline');
   if (!proxyUrl) throw new Error('proxy_error');
 
   const places = (context.places || []).slice(0, 60);
+  const intersections = (context.intersections || []).slice(0, 30);
   const body = {
     text: String(text || '').slice(0, MAX_TEXT),
     lang,
     context: {
       lastSeen: context.lastSeen || null,
       places,
+      intersections,
     },
   };
 
@@ -394,7 +399,7 @@ export async function parseReport(text, context = {}, lang = 'en') {
     throw new Error('bad_response');
   }
   // Checked, and held to the report's own words and the places we sent (confineDraft).
-  const draft = confineDraft(data, body.text, places);
+  const draft = confineDraft(data, body.text, places, intersections);
   if (!draft) throw new Error('bad_response');
   return draft;
 }

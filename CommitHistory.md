@@ -57,9 +57,63 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
-- **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back; drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes; the contract for any future agent features is `docs/AGENT-CONTRACT.md` (a proposal until BenStew agrees).
+- **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
 
 ## Log
+
+### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **Water flag checked** (`quickread.js`):
+    - Before this commit, "I saw him by the lake 10 minutes ago" already stayed a sighting with the `water` warning in both readers. The backup reader didn't pin "the lake", though.
+    - New `readFeaturePlace`: with no place name in the report, a feature word in any of the 5 languages (lake / creek / lagoon / river / park) pins the one nearby place of that kind. Only if there is exactly one; plurals like "Quarry Lakes" count.
+    - `PLACE_WORDS` and a whole-word `hasWord` moved here from `proxy/jev.js` and are shared. Jev's place-evidence check is now whole-word, so "lac" is no longer found in "place".
+  - **Street corners** (`quickread.js`):
+    - `findIntersections(osm, streetNames, near)`: one point per corner, the middle of a divided road's nodes. A pair that crosses in two places is left out as ambiguous.
+    - `readIntersection`: two streets joined by "and / & / y / con / et / 和 / 与 / と", or a corner word in the report. The report must name no other place.
+    - Both readers pin the corner. A corner suppresses the two-places conflict.
+    - `proxy/jev.js`: `cleanIntersections`. Corners are offered to Jev as place options. Jev naming one street of the corner agrees, and the corner is pinned.
+    - `proxy/worker.js` and `report.js` (`parseReport`, `confineDraft`) carry `context.intersections`.
+  - **Vehicle words by language:** `VEHICLE` is now per language. `guessLanguage(text, appLang)` decides: kana → ja, Han → zh, else the most common en/es/fr words. The app's language only breaks ties.
+  - **`INTERFACES.md`:**
+    - §5 rewritten for `ReportDraft` v2 (`unsure`, `flags`, what stops a sighting and what doesn't), `Intersection`, and the corner rule;
+    - `assigned` events get an optional `toId`;
+    - the status line records Nathan's approval.
+  - **`docs/AGENT-CONTRACT.md`:**
+    - status "approved";
+    - safety-layer rules 8–10;
+    - new results;
+    - a "Screen work" section: the exact `app.js` / `index.html` / `style.css` / `i18n.js` changes, with drafted strings in all 5 languages.
+  - **`bench/safety-cases.json`** (v2, 74 cases): +6 true water sightings, +8 corner cases, +1 French "car", and the demo corner list.
+  - **`bench/safety-eval.js`:** two new danger rules: a flag that drops a true sighting, and `mustNotFlag`. The readers get corners and language.
+  - **`tests/safety.test.js`:** +13 tests. `sw.js` v29 → v30. `README.md` / `PLAN.md` notes.
+- **Why:** Nathan's follow-up:
+  - a flag may add a warning but must never drop a true sighting;
+  - resolve intersections to where the two streets the phone sent cross;
+  - French "car" means "because";
+  - he approved the contract, so `INTERFACES.md` may change.
+- **Decisions:**
+  - **Corner coordinates come from the phone's own map**, sent as a list, not from the single point per name in `places`. That point is just the name's nearest node to the last-seen point, so two of them can't locate a corner.
+  - **A corner needs a joiner or a corner word.** Otherwise "on Paseo Padre, then on Stevenson" would be pinned to a corner nobody mentioned.
+  - **"The lake" pins only a unique match.** Two lakes nearby → the person taps the map.
+  - **Language comes from the text first:** people don't always type in the app's language. "car" is not counted as a French word, so "car gone" stays English.
+  - Still not touched: `app.js`, `i18n.js` (another session is editing `app.js`), `engine/`, `data.js`, `tests/fixtures/` (only read, for corner tests).
+- **How it was verified:**
+  - `node --test`: 110 pass, 0 fail.
+  - `npm run safety-eval -- --local`: 68 right, 6 abstained, **0 dangerous** (of 74). With no app language and no corner list (what app.js sends today): 62 / 12 / **0**. The original `quickread.js` (`439e868`) on the same 74: 17 / 14 / **43**.
+  - `--hostile`: 1 dangerous (`es-typos`, as before). `--hostile-details`: 0.
+  - `npm run jev-eval -- --local`: 133/138 (96%), unchanged.
+  - A new test caught plural lake names ("Quarry Lakes") being missed, which would have pinned the wrong lake; fixed.
+- **Known issues / not done:**
+  - **The screen shows no flags, unsure highlights or corners yet:** see "Screen work" in the contract.
+  - **Bug found (predates this work):** `openSightingForm` puts `0` minutes when the time is unknown, so the form says "just now".
+  - The language guess is word counting; a two-word report in no clear language falls back to the app's language.
+  - Jev's own dangerous rate still needs the TypeSafe key.
+- **Next:** the `app.js` session applies "Screen work". With the key, `npm run safety-eval` through Jev.
+
+### Uncommitted
+- `bench/blind-cases.json`: 120 blind test reports (en 40, es 22, fr 18, zh 20, ja 20) for the report box, written without reading `quickread.js`, `report.js` or `proxy/`. Each has the expected kind, place, direction, minutes and reliability, other acceptable values, and how dangerous a wrong reading would be (high/medium/low) with the reason. No scorer uses it yet.
 
 ### Report box safety layer and agent contract
 - **Date:** 2026-11-22
