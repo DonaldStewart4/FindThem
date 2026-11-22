@@ -23,7 +23,10 @@
 <body>
   <!-- Emergency banner: a tap-to-call link. The number depends on the phone's region. -->
   <header id="banner">
+    <!-- Left: what you know (opens the steps). Right: the police hand-off sheet. -->
+    <button id="bar-case" class="bar-button bar-left" type="button" data-i18n="barCase"></button>
     <a id="call-link" href="tel:911"><span id="call-text">CALL 911 FIRST</span></a>
+    <button id="bar-handoff" class="bar-button bar-right" type="button" data-i18n="barHandoff"></button>
     <!-- Shown only when the phone has no signal. -->
     <p id="offline-banner" role="status" hidden data-i18n="offlineBanner"></p>
   </header>
@@ -85,17 +88,6 @@
           <li data-i18n="script_lastSeen"></li>
           <li data-i18n="script_medical"></li>
           <li data-i18n="script_phone"></li>
-        </ul>
-        <h3 data-i18n="houseTitle"></h3>
-        <p class="help" data-i18n="houseHint"></p>
-        <ul class="checklist">
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_closets"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_beds"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_bathrooms"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_garage"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_cars"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_yard"></span></label></li>
-          <li><label class="choice"><input type="checkbox"> <span data-i18n="check_neighbors"></span></label></li>
         </ul>
       </details>
 

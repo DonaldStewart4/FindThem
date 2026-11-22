@@ -38,7 +38,7 @@ body {
 }
 #call-link {
   display: block;
-  padding: 12px 16px;
+  padding: 12px 30%;               /* room for the two buttons on the sides */
   color: #fff;
   font-weight: 800;
   font-size: 20px;
@@ -788,8 +788,8 @@ button.small {
 }
 
 /* ---- "What you know": numbered steps that fold up after Find ---- */
-/* "First steps" already has 1 (call 911) and 2 (check the house), so these go on from 3. */
-#case-inputs { counter-reset: step 2; padding-bottom: 12px; }
+/* "First steps" has 1 (call 911), so these go on from 2. */
+#case-inputs { counter-reset: step 1; padding-bottom: 12px; }
 #case-inputs .step::before { counter-increment: step; content: counter(step) ". "; } /* 3. 4. 5. ... */
 #case-inputs[open] .recap { display: none; }  /* the short summary only shows while folded */
 .recap { display: block; margin-top: 4px; font-weight: 400; font-size: 16px; color: #444; }
@@ -825,3 +825,48 @@ button.found { border-color: #2e7d32; color: #1b5e20; }
 .leader { margin: 8px 0; padding: 10px 12px; border: 2px solid var(--line); border-radius: 10px; }
 .leader-line { margin: 4px 0 0; font-size: 18px; }
 .leader-warnings p { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: #000; font-weight: 700; }
+
+/* ---- Buttons on the red 911 bar: "What you know" (left) and the police sheet (right) ---- */
+#banner { position: relative; }
+.bar-button {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 28%;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.15;
+  cursor: pointer;
+  z-index: 2;
+}
+.bar-button[hidden] { display: none; }
+.bar-left { left: 8px; }
+.bar-right { right: 8px; }
+@media (max-width: 480px) { .bar-button { font-size: 12px; padding: 3px 6px; } #call-link { font-size: 17px; } }
+
+/* ---- Map toggles: their likely paths / routes to search ---- */
+.map-toggles { display: flex; flex-direction: column; gap: 6px; }
+.map-toggles button {
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 2px solid #3f1d8a;
+  border-radius: 8px;
+  background: #fff;
+  color: #3f1d8a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.map-toggles button.routes { border-color: #0b57d0; color: #0b57d0; }
+.map-toggles button[aria-pressed="true"] { background: #3f1d8a; color: #fff; }
+.map-toggles button.routes[aria-pressed="true"] { background: #0b57d0; color: #fff; }

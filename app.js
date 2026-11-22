@@ -198,6 +198,8 @@ const els = {
   messageText: $('message-text'),
   messageSend: $('message-send'),
   handoff: $('handoff'),
+  barCase: $('bar-case'),         // "What you know" on the red 911 bar
+  barHandoff: $('bar-handoff'),   // police sheet on the red 911 bar
   handoffDialog: $('handoff-dialog'),
   handoffText: $('handoff-text'),
   handoffCopy: $('handoff-copy'),
@@ -360,8 +362,10 @@ function renderDirection() {
 
 function drawDirectionArrow() {
   if (dirMarker) { dirMarker.remove(); dirMarker = null; }
-  // No arrow before there's a last-seen point, or while one is being placed.
+  // No arrow before there's a last-seen point, or while one is being placed. Once the map
+  // is made, the arrow is only shown while "What you know" is open (it crowded the map).
   if (!state.lastSeen || state.mode === 'lastSeen') return;
+  if (state.prediction && !els.caseInputs.open) return;
 
   const dir = els.direction.value;
   dirMarker = L.marker(state.lastSeen, {
@@ -983,6 +987,8 @@ function recordEvent(event) {
 // Redraws everything that depends on the prediction (also used when language/units change).
 function drawResults() {
   if (!state.prediction) return;
+  if (els.mapToggles) els.mapToggles.hidden = false;
+  drawDirectionArrow(); // the arrow goes away once the map is made (see drawDirectionArrow)
   const area = areaCache.area;
   drawUsedStreets(area, state.prediction);
   drawHeat(area, state.prediction);
@@ -1084,7 +1090,7 @@ function drawUsedStreets(area, prediction) {
     const a = nodes[edges[e].a];
     const b = nodes[edges[e].b];
     L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
-      color: STREET_COLORS[step], weight: 2 + step, opacity: 0.9, interactive: false, lineCap: 'round',
+      color: STREET_COLORS[step], weight: 1.5 + step * 0.5, opacity: 0.75, interactive: false, lineCap: 'round',
     }).addTo(layers.used);
   }
 }
@@ -2153,6 +2159,34 @@ const SEARCH_ICON = '<svg class="icon-search" viewBox="0 0 24 24" width="24" hei
   + '<circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/>'
   + '<line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 
+// ---- Map toggles: "Their likely paths" (purple) and "Routes to search" (blue) ----------------
+// The purple streets start hidden: zoomed out they filled the whole map.
+const MapToggles = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd() {
+    const box = L.DomUtil.create('div', 'map-toggles');
+    const make = (key, cls, on, layerList) => {
+      const button = L.DomUtil.create('button', cls, box);
+      button.type = 'button';
+      button.dataset.i18n = key;
+      button.textContent = t(key);
+      const apply = (show) => {
+        button.setAttribute('aria-pressed', String(show));
+        for (const layer of layerList) { if (show) map.addLayer(layer); else map.removeLayer(layer); }
+      };
+      apply(on);
+      L.DomEvent.on(button, 'click', () => apply(button.getAttribute('aria-pressed') !== 'true'));
+      return button;
+    };
+    make('togglePaths', 'paths', false, [layers.used]);
+    make('toggleRoutes', 'routes', true, [layers.route, layers.areas]);
+    L.DomEvent.disableClickPropagation(box); // a tap on a toggle isn't a tap on the map
+    box.hidden = true; // shown once there's a map
+    els.mapToggles = box;
+    return box;
+  },
+});
+
 const SearchControl = L.Control.extend({
   options: { position: 'topleft' },
   onAdd() {
@@ -2861,6 +2895,7 @@ function start() {
   registerServiceWorker();
   new LocateControl().addTo(map);
   new SearchControl().addTo(map);
+  new MapToggles().addTo(map);
   const region = i18n.detectRegion();
   state.emergencyNumber = i18n.emergencyNumber(region);
   els.callLink.href = 'tel:' + state.emergencyNumber;
@@ -2957,6 +2992,14 @@ function start() {
   els.messageSend.addEventListener('click', sendMessage);
   els.messageText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
   els.handoff.addEventListener('click', openHandoff);
+  els.barHandoff.addEventListener('click', openHandoff);
+  els.barCase.addEventListener('click', () => {
+    // Show "What you know": open the panel if it's hidden, open the steps, scroll to them.
+    if (els.panel.classList.contains('collapsed')) els.panelToggle.click();
+    els.caseInputs.open = true;
+    els.caseInputs.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  els.caseInputs.addEventListener('toggle', drawDirectionArrow); // arrow only while it's open
   els.handoffCopy.addEventListener('click', copyHandoff);
   els.handoffPrint.addEventListener('click', () => window.print());
   els.handoffClose.addEventListener('click', () => els.handoffDialog.close());

@@ -81,6 +81,19 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Calmer map: house check removed, arrow hides, thinner paths with toggles, 911-bar buttons
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI list, items 1, 3, 5–7, 9, 10, 12, 13)
+- **What changed:**
+  - `index.html`: "2. Check the house and yard" and its checklist removed from First steps (item 1); the "What you know" steps now number from 2 (`style.css` counter). Two buttons on the red 911 bar: **What you know** (left: opens the panel and the steps and scrolls to them) and **Police sheet** (right: opens the hand-off sheet) (items 9, 10).
+  - `app.js`: the direction arrow is hidden once the map is made, and shown again only while "What you know" is open (items 5, 7). The purple "likely paths" lines are thinner (weight 1.5–3.5 instead of 2–6, 75% opacity) (item 3). New `MapToggles` control (bottom-left of the map, shown once there's a map): **Their likely paths** (purple, off by default, since zoomed out it covered the whole map) and **Routes to search** (blue routes and area squares, on) (items 6, 12, 13).
+  - `i18n.js`: `barCase`, `barHandoff`, `togglePaths`, `toggleRoutes` in 5 languages. `style.css`: bar buttons, toggles. `sw.js` `v35` → `v36`.
+- **Why:** BenStew's 13-point list from looking at the live app on Sunday morning. Done first because they're quick and low-risk with the noon deadline.
+- **Decisions:** "Paths being taken right now" = the purple streets the person likely took; "paths that need to be taken" = the blue routes to search. The purple layer starts off to calm the zoomed-out view. Not done yet: tap-a-spot focus (2), mic button and one-question sighting popup (4), voice for messages (8), Google-Maps-style routes (11).
+- **How it was verified:** Browser pane at 375×812, Demo: no house checklist; no arrow after the map; toggles shown (paths off, routes on), paths toggle turns the purple on; "What you know" opens the steps and brings the arrow back, closing hides it; "Police sheet" opens the hand-off sheet. `node --test` 230 pass, 0 fail.
+- **Known issues / not done:** Not pushed.
+- **Next:** Tap a spot to focus one area.
+
 ### Audit fixes, push 2: report-box word rules, sync, share, map data and planner findings; speed limits in the tests on request
 - **Date:** 2026-11-22
 - **Stage:** Release fixes (branch `audit`, Nathan with Claude Code; merged into `main`). Finding numbers are from `docs/AUDIT.md`.
