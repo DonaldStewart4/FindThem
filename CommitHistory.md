@@ -81,6 +81,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Outlined mic icon instead of the emoji
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI feedback)
+- **What changed:** `app.js` `MIC_ICON` (an inline SVG: outlined capsule, holder, stem and base) on the map's mic button; the same SVG in `index.html` on the message box's mic. `style.css`: the map mic is a white rounded square (56 px) with a black icon, like the other map buttons; both turn red with a white icon while listening; the message mic is a 52 px square between the text box and Send (it had stretched to the full width). `sw.js` `v45` → `v47`.
+- **Why:** BenStew sent a picture of the mic style he wanted instead of the 🎤 emoji.
+- **Decisions:** A drawn icon rather than an emoji, so it looks the same on every phone.
+- **How it was verified:** Browser pane at 375×812, Demo: the map mic shows the outlined icon on white; the message mic is 52×56 px next to Send.
+- **Known issues / not done:** Not pushed.
+- **Next:** Push.
+
 ### Phones: "Show panel" opens the panel full screen
 - **Date:** 2026-11-22
 - **Stage:** Finishing (BenStew's UI feedback)

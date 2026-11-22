@@ -440,6 +440,7 @@ h3 {
   font: inherit;
 }
 .message-row #message-send { flex: 0 0 96px; }
+.message-row #message-voice { flex: 0 0 52px; width: 52px; } /* the mic: a small square */
 
 #handoff-dialog {
   width: min(94vw, 720px);
@@ -874,21 +875,25 @@ button.found { border-color: #2e7d32; color: #1b5e20; }
 /* The "Check these first" place being searched right now. */
 #spots button.focused { outline: 3px solid #c5221f; outline-offset: 2px; background: #fdecea; }
 
-/* The always-there 🎤 on the map, and the one next to the message box. */
+/* The always-there mic on the map, and the one next to the message box. */
 .map-mic {
   width: 56px;
   height: 56px;
   margin-bottom: 8px;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  background: #c5221f;
-  font-size: 26px;
-  line-height: 1;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 14px;              /* a rounded square, like the other map buttons */
+  background: #fff;
+  color: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
-.mic-button { flex: none; width: 52px; padding: 0; font-size: 22px; }
-.mic-button[aria-pressed="true"], .map-mic[aria-pressed="true"] { background: #fdecea; }
+.map-mic svg { width: 30px; height: 30px; }
+.mic-button { flex: none; width: 52px; padding: 0; display: flex; align-items: center; justify-content: center; color: #111; }
+/* Listening: red with a white mic. */
+.mic-button[aria-pressed="true"], .map-mic[aria-pressed="true"] { background: #c5221f; border-color: #c5221f; color: #fff; }
 
 /* One question at a time in the sighting form. */
 .step-progress { margin: 4px 0 8px; font-weight: 700; color: #444; }

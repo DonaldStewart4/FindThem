@@ -2312,7 +2312,9 @@ const SEARCH_ICON = '<svg class="icon-search" viewBox="0 0 24 24" width="24" hei
   + '<circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/>'
   + '<line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 
-// ---- The 🎤 on the map: always there, speak a report from anywhere ----------------------
+// ---- The mic on the map: always there, speak a report from anywhere ----------------------
+// An outlined microphone (a drawing, not an emoji, so it looks the same on every phone).
+const MIC_ICON = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10.5a7 7 0 0 0 14 0"/><line x1="12" y1="17.5" x2="12" y2="21.5"/><line x1="8" y1="21.5" x2="16" y2="21.5"/></svg>';
 // Opens the report box and starts listening (same as its Speak button). The report is still
 // turned into a form the person checks; nothing is added until they confirm.
 const MapMic = L.Control.extend({
@@ -2320,7 +2322,7 @@ const MapMic = L.Control.extend({
   onAdd() {
     const button = L.DomUtil.create('button', 'map-mic');
     button.type = 'button';
-    button.textContent = '🎤';
+    button.innerHTML = MIC_ICON;
     button.dataset.i18nAria = 'mapMic';
     button.setAttribute('aria-label', t('mapMic'));
     button.title = t('mapMic');
