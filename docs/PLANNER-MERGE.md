@@ -1,24 +1,25 @@
 # Search planner: merge plan
 
-How to bring branch `planner` into the app. Written Nov 22 by the planner session for Nathan and BenStew. Line numbers are for `app.js` as it stands on `planner` (which already contains `prior-v2` stage 3, commit `4b2392a`).
+How to bring branch `planner` into the app. Written Nov 22 by the planner session for Nathan and BenStew. Line numbers were read from `app.js` at `prior-v2` stage 3 (`4b2392a`); stage 4 may have moved them by a few lines, so search for the function names given.
 
 ## Where things stand
 
-- `planner` = `prior-v2` at `4b2392a` + the planner's own commits. The planner's files are all new; nothing of the prior session's was edited.
+- `planner` = `prior-v2` at `172a409` + the planner's own commits. The planner's files are all new; nothing of the prior session's was edited.
 - The app still runs the old flow (`nextSectors` → `routeFor` → `searched`). The planner is built and tested but not wired to the screen.
 - `node --test` passes on `planner`.
 
 ## Step 1. Merge the branches (5 minutes)
 
-After the prior session commits its stage 4 on `prior-v2`:
+`planner` already contains `prior-v2` up to `172a409` (stage 4 and the real-world check), merged and tested on Nov 22 at 9:30 am: 140 tests pass, and the benchmark report was re-run on that engine. So:
 
 ```bash
 git checkout prior-v2
 git merge planner
 ```
 
-- Expected conflict: `CommitHistory.md` only (both sides add entries at the top of the Log). Keep both sets of entries.
-- Then `node --test`. If the prior's stage 4 changed the map (it will), the planner tests still hold: none of them depends on particular map values. The benchmark numbers do depend on the map: re-run `npm run planner-eval` (about 5 minutes) and commit the new `bench/planner-report.md`.
+- If `prior-v2` has no commits after `172a409`, this is a fast-forward with no conflicts.
+- If it has, expect a conflict in `CommitHistory.md` only (both sides add entries at the top of the Log). Keep both sets of entries.
+- Then `node --test`. The planner tests do not depend on particular map values. The benchmark numbers do: if the engine's map changed again, re-run `npm run planner-eval` (about 3 minutes) and commit the new `bench/planner-report.md`.
 
 Files the merge adds: `engine/planner/` (10 files), `tests/planner.test.js`, `tests/planner-bench.test.js`, `tests/helpers/planner-worker-node.js`, `bench/planner-eval.js`, `bench/planner-report.md`, `bench/planner-results.json`, `docs/PLANNER.md`, `docs/PLANNER-MERGE.md`, `UPDATESBYNATE.md`, and one script line in `package.json`.
 

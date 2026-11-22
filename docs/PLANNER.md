@@ -224,31 +224,32 @@ All built; 27 tests, results in the test output's diagnostic lines.
 - **Variants:** hazard-first on and off; containment on and off.
 - **Reported:** found-by-time curves, expected time to find (capped at the run length), and 95% intervals from resampling **setups**, then cases inside them, so the interval reflects how few start points there are. Differences against each baseline are paired on the same people.
 
-### Benchmark results (run of Nov 22, 16 setups × 250 people = 4,000 cases; full tables in `bench/planner-report.md`)
+### Benchmark results (final run, Nov 22, on the calibrated prior v2 stage 4 map; 16 setups × 250 people = 4,000 cases; full tables in `bench/planner-report.md`)
 
 Everything is simulated; ranges are 95% intervals by setup.
 
 | Strategy | Found by 60 min | Found by 180 min | Minutes to find (capped at 180) |
 |---|---|---|---|
-| On their own, with memory | 14% (10–17) | 21% (18–25) | 153 |
+| On their own, with memory | 13% (10–17) | 20% (16–24) | 154 |
 | Ring sweep, cycling | 18% (15–22) | 24% (21–28) | 146 |
-| Greedy on the plain statistics map | 19% (16–22) | 24% (22–27) | 145 |
-| Old app (`nextSectors` + `routeFor`) | 17% (14–20) | 22% (19–24) | 149 |
-| **Planner** | 18% (15–20) | 24% (21–27) | 147 |
+| Greedy on the plain statistics map | 19% (16–22) | 25% (22–28) | 145 |
+| Old app (`nextSectors` + `routeFor`) | 17% (14–20) | 22% (19–25) | 148 |
+| **Planner** | 18% (16–21) | 25% (22–28) | 145 |
 | Planner on the plain statistics map | 19% (16–21) | 26% (23–29) | 145 |
 
 What it says, plainly:
 
-- **The planner is not better than a well-run ring sweep or the old greedy rule on a good statistics map.** Against the ring sweep: −1 point at 180 minutes (−3 to +1). Against greedy-on-statistics: −2 points at 30 and 60 minutes (the interval excludes 0: that baseline is ahead early), level later.
-- **It is a little better than the old app:** +2 points at 120 and 180 minutes (+0 to +4), level before that. And better than volunteers on their own: +2 to +4 points, 5 minutes sooner.
-- **Most people are out of reach of any strategy here.** Half are still walking away when the search starts and a fifth end up off the map; under 6% of those are found by anyone. Of people who had already stopped, the planner finds about 4 in 10.
-- **The map matters about as much as the method.** Given the statistics map instead of the app's, the planner finds 2 more points (1 to 4).
-- **The hazard-first rule is not supported.** For people in water or a drainage it changes nothing measurable (+0 points at 180 minutes, −3 to +4; no change in time to find). For everyone it costs about 1 point (−2 to +0) and 2 minutes. It was left ON, as specified; `HAZARD_FIRST: false` in `engine/planner/params.js` turns it off. **Recommendation: turn it off**, unless there is a reason outside this simulation (survival in water is not modeled, only whether and when someone is found).
-- **Containment did not earn its place:** off is 1 point better at 180 minutes (0 to 2). In this simulation people walk away and then stop, so a watcher near the last-seen point sees nobody pass. Left ON; `CONTAINMENT: false` turns it off. **Recommendation: off** until posts are placed where people are still moving.
-- **Door-knocking is worth about 1 point** at 2 to 3 hours (−0 to +2), and nothing before.
+- **The planner is level with a well-run ring sweep and with the old greedy rule on a good statistics map.** Against the ring sweep: +0 points at 180 minutes (−2 to +3). Against greedy-on-statistics: −0 (−2 to +1). This run cannot tell them apart.
+- **It is modestly better than the old app:** +1 point at 60 minutes (+0 to +3), +2 at 120 (+1 to +4), +3 at 180 (+1 to +4), and 3 minutes sooner (1 to 5). And clearly better than volunteers on their own: +5 points (+2 to +8), 8 minutes sooner.
+- **Most people are out of reach of any strategy here.** Half are still walking away when the search starts and a fifth end up off the map; about 5% of those are found by anyone. Of people who had already stopped, the planner finds 44% (39–49) and the old app 39% (35–45).
+- **Where the planner's gain comes from:** people in or at a structure, 15% found against the old app's 10%. On roads, paths and open ground the two are within 1 to 3 points.
+- **Door-knocking is worth 1 to 2 points** (+2 at 120 minutes, +0 to +3) and 2 minutes.
+- **The hazard-first rule made no measurable difference** in this run, in either direction: for people in water or a drainage, +1 point by 30 minutes (−1 to +5) and −1 by 180 (−4 to +2); for everyone, −0 (−2 to +1). On the earlier, uncalibrated stage 3 map it cost everyone about 1 point. It is left ON, as specified; `HAZARD_FIRST: false` in `engine/planner/params.js` turns it off. The simulation only counts whether and when someone is found; it does not model that a person in water has less time, which is the rule's real argument.
+- **Containment made no measurable difference** (+0, −1 to +0). In this simulation people walk away and then stop, so a watcher near the last-seen point sees nobody pass. Left ON; `CONTAINMENT: false` turns it off.
+- **The calibrated map is nearly as good as the statistics map** for the planner (1 point apart, −0 to +2). On the stage 3 map the gap was 2 points.
 - **Sharing the 25 m map out by find location instead of evenly made no measurable difference.**
 
-Why the planner does not pull ahead, as far as this run shows: the baselines spend 22–50% of their time walking between areas, and in the simulation a walking searcher still sees people on the street, so their travel is itself a wide, fast sweep. The planner travels 12% of the time and gives itself no credit for looking while it walks. Its tasks are also tighter around the last-seen point than where ISRID puts people.
+Why the planner does not pull ahead of a ring sweep, as far as this run shows: the baselines spend 22–50% of their time walking between areas, and in the simulation a walking searcher still sees people on the street, so their travel is itself a wide, fast sweep. The planner travels about 12% of the time and gives itself no credit for looking while it walks.
 
 Two bugs found by reading the setup-by-setup table, both fixed before these numbers: a searcher snapped onto a cut-off scrap of footpath could reach no task (now searchers are placed on the main street network only; 1,953 of 49,379 walkable street points in the fixture are on such scraps), and the old-style baselines were given zero-minute turns in areas with almost no street.
 
