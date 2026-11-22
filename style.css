@@ -870,3 +870,6 @@ button.found { border-color: #2e7d32; color: #1b5e20; }
 .map-toggles button.routes { border-color: #0b57d0; color: #0b57d0; }
 .map-toggles button[aria-pressed="true"] { background: #3f1d8a; color: #fff; }
 .map-toggles button.routes[aria-pressed="true"] { background: #0b57d0; color: #fff; }
+
+/* The "Check these first" place being searched right now. */
+#spots button.focused { outline: 3px solid #c5221f; outline-offset: 2px; background: #fdecea; }

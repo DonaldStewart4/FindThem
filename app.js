@@ -102,6 +102,7 @@ const state = {
   lastPosSent: null,       // { lat, lng, at } the position we last shared
   minutesAt: null,         // the time (ms) at which "minutes since last seen" had the typed value
   fromDemo: false,         // the inputs hold the Demo's details (cleared when a real search starts)
+  focusSpot: null,         // { lat, lng } of the "Check these first" place being searched, or null
   // Search tasks (the planner), Found, corrections
   plan: null,              // the planner's latest answer: up to three routes per searcher
   planFromLastSeen: false, // my routes start at the last-seen point (no usable GPS position)
@@ -273,6 +274,7 @@ const layers = {
   areas: L.layerGroup().addTo(map),     // blue squares for the next areas to search
   route: L.layerGroup().addTo(map),     // the walking route of the selected area
   spots: L.layerGroup().addTo(map),     // numbered "check these first" markers
+  focus: L.layerGroup().addTo(map),     // the one place being searched: circle + walking line
   sightings: L.layerGroup().addTo(map), // reported sightings
   found: L.layerGroup().addTo(map),     // the pin where the person was found
   pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft, home
@@ -823,6 +825,9 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     await nextFrame();
     state.showAllSpots = false;
     state.selectedArea = null;
+    state.focusSpot = null;       // a new map: back to the full view
+    layers.focus.clearLayers();
+    showRouteLayers(true);
     await recompute();
     els.firstSteps.open = false; // first steps are done once a search is running
     els.caseInputs.open = false; // fold "What you know" so the results are right there
@@ -1282,18 +1287,112 @@ function renderSpots() {
     }
 
     button.append(num, text);
-    button.addEventListener('click', () => map.flyTo([spot.lat, spot.lng], 18));
+    const focused = state.focusSpot && state.focusSpot.lat === spot.lat && state.focusSpot.lng === spot.lng;
+    button.classList.toggle('focused', Boolean(focused));
+    button.setAttribute('aria-pressed', String(Boolean(focused)));
+    button.addEventListener('click', () => focusSpot(spot, i + 1)); // tap again to go back
     li.append(button);
     els.spots.append(li);
 
-    L.marker([spot.lat, spot.lng], { icon: labelIcon(i + 1, 'map-num') })
+    L.marker([spot.lat, spot.lng], { icon: labelIcon(i + 1, 'map-num'), opacity: state.focusSpot && !focused ? 0.35 : 1 })
       .bindTooltip(asText(spotTitle(spot)))
+      .on('click', () => focusSpot(spot, i + 1))
       .addTo(layers.spots);
   });
 
   const hiddenCount = spots.length - SPOTS_SHOWN_FIRST;
   els.moreSpots.hidden = hiddenCount <= 0;
   els.moreSpots.textContent = state.showAllSpots ? t('showLess') : t('showMore', { n: hiddenCount });
+}
+
+// ---- Focus on one place: tap a "Check these first" place --------------------------------
+// The map shows just that place: a circle to search inside, the other places faded, and a blue
+// walking line along the streets from you (or the last-seen point) to it, like a map app.
+// Tap the same place again to go back to the full view.
+const FOCUS_RADIUS_M = 75;        // the circle: about how far a searcher can look around (= SPOT_RADIUS_M)
+const WALK_SPEED_MPS = 1.3;       // a searcher's walking pace, for "about N min"
+
+function focusSpot(spot, number) {
+  layers.focus.clearLayers();
+  const same = state.focusSpot && state.focusSpot.lat === spot.lat && state.focusSpot.lng === spot.lng;
+  if (same) { state.focusSpot = null; renderSpots(); hideStatus(); showRouteLayers(true); return; }
+  state.focusSpot = { lat: spot.lat, lng: spot.lng };
+  renderSpots(); // fades the other places
+  showRouteLayers(false); // only this one walking line, not the other search routes
+
+  L.circle([spot.lat, spot.lng], { radius: FOCUS_RADIUS_M, color: '#c5221f', weight: 3, fillColor: '#c5221f', fillOpacity: 0.12, interactive: false }).addTo(layers.focus);
+  const from = state.myPos || state.lastSeen;
+  const path = from && areaCache.area ? walkingPath(areaCache.area, from, spot) : null;
+  const bounds = L.latLngBounds([[spot.lat, spot.lng]]).pad(0.002);
+  if (path) {
+    // Like a map app: a wide white edge under a strong blue line.
+    L.polyline(path.points, { color: '#fff', weight: 10, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layers.focus);
+    L.polyline(path.points, { color: '#1a73e8', weight: 6, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layers.focus);
+    path.points.forEach((p) => bounds.extend(p));
+    showStatus(t('focusWalk', {
+      n: number,
+      dist: i18n.formatDistance(path.meters, state.units),
+      min: Math.max(1, Math.round(path.meters / WALK_SPEED_MPS / 60)),
+      radius: i18n.formatDistance(FOCUS_RADIUS_M, state.units),
+    }), { sticky: true });
+  } else {
+    showStatus(t('focusNoPath', { n: number, radius: i18n.formatDistance(FOCUS_RADIUS_M, state.units) }), { sticky: true });
+  }
+  map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+}
+
+// Shows or hides the blue search routes and area squares. Showing respects the
+// "Routes to search" toggle (if it's off, they stay hidden).
+function showRouteLayers(show) {
+  const toggle = els.mapToggles && els.mapToggles.querySelector('.routes');
+  const wanted = show && (!toggle || toggle.getAttribute('aria-pressed') === 'true');
+  for (const layer of [layers.route, layers.areas]) { if (wanted) map.addLayer(layer); else map.removeLayer(layer); }
+}
+
+// The shortest walk along the streets from `from` to `to` (Dijkstra on street lengths).
+// Returns { points: [[lat, lng], ...], meters } or null.
+function walkingPath(area, from, to) {
+  const { nodes, edges } = area.graph;
+  const nearest = (p) => {
+    const cosLat = Math.cos((p.lat * Math.PI) / 180);
+    let best = -1;
+    let bestD = Infinity;
+    nodes.forEach((n, i) => {
+      if (!n.edges.length) return;
+      const d = (n.lat - p.lat) ** 2 + ((n.lng - p.lng) * cosLat) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  };
+  const start = nearest(from);
+  const goal = nearest(to);
+  if (start < 0 || goal < 0) return null;
+  const dist = new Map([[start, 0]]);
+  const via = new Map();
+  const heap = [[0, start]];
+  const push = (item) => { heap.push(item); let i = heap.length - 1; while (i > 0) { const up = (i - 1) >> 1; if (heap[up][0] <= heap[i][0]) break; [heap[up], heap[i]] = [heap[i], heap[up]]; i = up; } };
+  const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1; const r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  while (heap.length) {
+    const [d, n] = pop();
+    if (n === goal) break;
+    if (d > dist.get(n)) continue;
+    for (const e of nodes[n].edges) {
+      const other = edges[e].a === n ? edges[e].b : edges[e].a;
+      const nd = d + (edges[e].length || 1);
+      if (nd < (dist.has(other) ? dist.get(other) : Infinity)) { dist.set(other, nd); via.set(other, e); push([nd, other]); }
+    }
+  }
+  if (!dist.has(goal)) return null;
+  const points = [[to.lat, to.lng]];
+  for (let n = goal; ; ) {
+    points.push([nodes[n].lat, nodes[n].lng]);
+    if (n === start) break;
+    const e = via.get(n);
+    n = edges[e].a === n ? edges[e].b : edges[e].a;
+  }
+  points.push([from.lat, from.lng]);
+  points.reverse();
+  return { points, meters: dist.get(goal) };
 }
 
 // ---- Your next task (the search planner) ------------------------------------------------

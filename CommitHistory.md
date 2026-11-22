@@ -81,6 +81,16 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Tap a place to search just that one, with a map-app walking line
+- **Date:** 2026-11-22
+- **Stage:** Finishing (BenStew's UI list, items 2 and 11)
+- **What changed:** `app.js`: tapping a "Check these first" place (in the list or its number on the map) focuses on it: a red circle of 75 m (`FOCUS_RADIUS_M`, the spot radius) to search inside, the other places faded, the blue search routes and area squares hidden, and a map-app style walking line (white edge, blue `#1a73e8`) along the streets from your GPS position, or the last-seen point if location is off, to the place (`walkingPath()`, Dijkstra on street lengths), with a sticky line "Walk the blue line to place 2: 0.3 mi, about 7 min. Search inside the red circle (250 ft around)." (walking pace `WALK_SPEED_MPS` 1.3 m/s). Tapping the same place again goes back to the full view; a new map also resets it. New layer `layers.focus`, state `focusSpot`, helper `showRouteLayers()` (respects the "Routes to search" toggle). `i18n.js`: `focusWalk`, `focusNoPath` in 5 languages. `style.css`: the focused place's card gets a red outline. `sw.js` `v36` → `v38`.
+- **Why:** BenStew: "if i click one of the 1,2,3 things it highlights, and just helps the person search ONE area" and "look at google maps, i need routes to show where you need to go".
+- **Decisions:** The route is the shortest walk on the downloaded streets, computed on the phone (no routing service, works offline). Hiding the other blue routes while focused, because two kinds of blue line were confusing.
+- **How it was verified:** Browser pane, Demo: tapping place 2 drew one blue walking line from the last-seen point along the streets into the red circle, faded places 1 and 3, hid the search routes, and showed "0.3 mi, about 7 min"; the tap took 12 ms. `node --test` 230 pass, 0 fail.
+- **Known issues / not done:** With GPS on, the line starts at the phone's position (not tried on a real phone). Not pushed.
+- **Next:** Mic button and one-question sighting popup (4), voice for messages (8).
+
 ### Calmer map: house check removed, arrow hides, thinner paths with toggles, 911-bar buttons
 - **Date:** 2026-11-22
 - **Stage:** Finishing (BenStew's UI list, items 1, 3, 5–7, 9, 10, 12, 13)
