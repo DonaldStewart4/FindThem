@@ -60,6 +60,24 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Planner, stage 1: design note
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, worktree `findthem-planner`, Nathan), stage 1 of 3
+- **What changed:** New `docs/PLANNER.md`: what is wrong with `nextSectors` / `routeFor` (read from the code at `c04d311`), and the design of their replacement. Real search segments (hasty wedges, street-bounded blocks, parks, creek and pond stretches, containment points, drive loops) sized for 30–45 minutes; detection per 10 m square from the track walked, by visibility class and day or night; orienteering and rural-postman routes; assignment events (`assigned` / `released` / `completed`) with per-square accounting of work in progress; three options per searcher ranked by POS gain per minute including travel, with danger as a separate number; a hazard-first rule; safety rules; cumulative POS, remaining probability and a rest-of-world "expand" signal; the test list; the benchmark design; every constant labeled.
+- **Why:** Nathan asked for the sector list to be replaced by a planner that assigns volunteers the way a search team leader would, built in committed stages on its own branch and worktree while another session finishes the prior on `prior-v2`.
+- **Decisions:**
+  - All new code goes in `engine/planner/`. `app.js`, `grid.js`, `sim.js` and `surface.js` are not edited on this branch. One file, `engine/planner/adapter.js`, is the only one that imports the engine, so merging is one file.
+  - Pile-ups are handled per 10 m square (misses multiply), not by task id, so a second searcher on the same ground only gains what the first would miss.
+  - The team score is each searcher's share of the joint detection divided by their minutes; solved greedily, then improved by single moves. Brute force in the tests will say how close that gets.
+  - Probability and danger stay separate. Hazards are scheduled early by an explicit rule (labeled ASSUMPTION), not by changing their score; the benchmark runs with and without it.
+  - Yard and building squares are only credited through the ask-permission task type. Rejected: crediting street walking for everything, which would overstate detection (26% of the measured probability is inside buildings).
+  - Until `grid.js` reads `completed` events, the planner applies its own Bayes update on top of the engine's map. Rejected: turning tasks into sector `searched` events, which would throw away what the route actually covered.
+  - Car searchers get drive loops and containment posts only.
+  - **Touches an earlier decision:** "Project context" lists GPS-trail coverage under "do not build". Nathan's brief for the planner asks that coverage come from the route walked "or from GPS trails when they exist". The planner will be able to score a trail if a `completed` event carries one; recording trails on the phone is not built and stays on the roadmap. "Project context" is updated when the code lands, if BenStew agrees.
+- **How it was verified:** No planner code yet. The note's numbers were measured on the Fremont fixture with throwaway scripts (not committed): share of probability by visibility class (street 50.5%, building 26.0%, back yards 18.2%, open 3.0%, water or brush 1.5%) for the Demo start at 60 minutes; 503 built-up blocks of 2,000 m² or more, median 1.9 ha, 26 buildings and about 870 m of frontage at the median, half of them over 45 minutes to canvass; 38 segments holding 71% of the probability; a shortest-path run over a 2 km reach in 0.9 ms (6.6 ms for the whole graph). The ISRID, Toots and Koester et al. 2004 figures are the ones the prior session checked today.
+- **Known issues / not done:** No urban, night, vehicle or canvass detection figure has been found, so those constants are assumptions; a source check is running and stage 2 updates the table. Containment's value rests on three assumptions. The contract changes (new events, the `Plan` shape) need BenStew's OK before any merge. `CommitHistory.md` will conflict with `prior-v2` at the top of the Log when both merge; keep both entries.
+- **Next:** Stage 2: `engine/planner/` and `tests/planner.test.js`.
+
 ### Prior v2, stage 2: ground map, walkers as particles, time-aware map
 - **Date:** 2026-11-22
 - **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 2 of 4
