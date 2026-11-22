@@ -1,6 +1,6 @@
 # Search planner: design note
 
-Branch `planner` (worktree `findthem-planner`). Owner: Nathan. Written Nov 22 before any planner code. It replaces `nextSectors` and `routeFor`. All new code goes in `engine/planner/`, with its own tests and benchmark. `app.js`, `grid.js`, `sim.js` and `surface.js` are not edited on this branch.
+Branch `planner` (worktree `findthem-planner`). Owner: Nathan. Written Nov 22 before any planner code, and **revised the same day once the code and tests existed** (changes are marked "As built"). It replaces `nextSectors` and `routeFor`. All new code goes in `engine/planner/`, with its own tests and benchmark. `app.js`, `grid.js`, `sim.js` and `surface.js` are not edited on this branch.
 
 ## What is wrong with `nextSectors` and `routeFor`
 
@@ -75,7 +75,7 @@ Sizing:
 
 Every square has a visibility class. Detection is worked out per square from the track walked.
 
-- One pass at distance `d` from a square spots a person there with probability `e^(−2d / W)`. `W` is the sweep width of that square's class; the area under this curve is exactly `W`, which is the definition of sweep width (Koopman).
+- One pass at distance `d` from a square spots a person there with probability `0.9 · e^(−1.8 d / W)`. `W` is the sweep width of that square's class; the area under this curve is exactly `W`, which is the definition of sweep width (Koopman), and a test integrates it to check. The 0.9 (`P0`, ASSUMPTION) means even a person right on the track is missed 1 time in 10.
 - A track's coverage of a square uses its closest approach, counted once. Walking a street there and back is not two looks.
 - Looks by different searchers, or on different tasks, are independent: misses multiply.
 - A park sweep uses Koopman's random-search formula over the segment, POD = `1 − e^(−coverage)`, the formula the engine already uses.
@@ -92,13 +92,23 @@ Every square has a visibility class. Detection is worked out per square from the
 - The only measured sweep widths we have are 16–142 m for an adult-sized target in forest and wildland (Koester, Cooper, Frost & Robe 2004, DTIC ADA511593, checked Nov 22). No urban figure was found. The values above sit at the low end because houses, fences and cars block more than trees. The benchmark runs the search with "true" widths drawn ±50% around these.
 - Pace changes `W`: hasty walking ×0.7, driving ×0.5 (ASSUMPTION).
 - **Canvass.** A `yards` task knocks at each building. That gives the building's squares and the yards behind it a POD of their own: `POD_CANVASS_BUILDING = 0.4`, `POD_CANVASS_YARD = 0.5` (ASSUMPTION: about half of residents answer, and most who answer would check and find). Without the ask-permission task these squares get only what the street view gives.
+- **As built: a block's doors count once.** A second person knocking on the same doors gets the same answers, so those looks are not independent. Within `CANVASS_REPEAT_MIN = 120` minutes (ASSUMPTION) only the first canvass of a block is credited; anyone else sent there is offered a walk past (no doors, no permission needed, shorter) and credited only for what they see from the street. This was found when the first working planner sent three searchers to canvass the same block.
 - **Night** comes from the case clock and the sun's height at the last-seen point (standard solar-position formula; night = sun more than 6° below the horizon).
 
 ## 4. Routes
 
 Routes are sequences of street-graph edges, plus the pattern to follow. They are rebuilt and re-scored on the current map every re-plan.
 
-- **Orienteering, for `hasty` and `drive`.** Within the time budget, the route collecting the most probability. Each street piece's prize is the probability its look would find now. Built by cheapest insertion (prize gained per minute added), improved by 2-opt (reverse a stretch if that shortens the walk), then filled again with the time saved. The final score is recomputed from the squares the whole route actually passes, so overlapping prizes are not counted twice.
+- **Orienteering, for `hasty` and `drive`.** Within the time budget, the route collecting the most probability. Each street piece's prize is the probability its look would find now. As built:
+  1. start at the piece with the best prize per meter, counting the real travel to it;
+  2. choose more pieces, each the best prize per meter of straight-line distance (× 1.3 for streets) from the last, until the budget is used;
+  3. 2-opt: reverse stretches of that order while it shortens the straight-line path;
+  4. walk it on the real streets by shortest paths; pieces passed on the way count too;
+  5. if time is left, choose again from where the walk ended.
+
+  The final score is recomputed from the squares the whole route actually passes, so overlapping prizes are not counted twice. A hasty walker may use any public street within 1.7 km of the last-seen point, but is credited only along the roads and paths of their wedge.
+  - Measured on 64 real Fremont wedge routes against a slow reference (true street distance at every step, best of 5 starts): the fast method collects a **median 97%, mean 97%, worst 77%** of the reference's prize.
+  - Measured against brute force on a 4 × 4 street grid (its worst case: every walk goes round corners): mean 76%, worst 48% of the best possible. An earlier version that ran a shortest-path search at every step was closer on the grid but took 100+ ms per re-plan.
 - **Full street coverage, for `yards` and `hazard_check`.** The shortest closed walk that covers every public street piece of the block (rural postman): join the pieces, pair up the odd corners by shortest path (exact for up to 10 odd corners, greedy with improvement above), walk the Euler circuit. The tour is cached per segment and rotated to start at the corner nearest the searcher.
 - **`park`.** Travel to the nearest entry, then sweep the segment in lines `W` apart. The route data is the entry point, the outline and the line spacing.
 - **`containment`.** Travel to the point and stay.
@@ -109,17 +119,21 @@ Routes are sequences of street-graph edges, plus the pattern to follow. They are
 Events (added to the shared search like any other; the engine ignores types it doesn't use):
 
 ```js
-{ id, type: 'assigned',  searcherId, taskId, at, expiresAt, track, partnerId? }
+{ id, type: 'assigned',  searcherId, taskId, at, expiresAt, track, searchMin, canvass?, partnerId? }
 { id, type: 'released',  searcherId, taskId, at, track? }          // gave it up; partial trail optional
-{ id, type: 'completed', searcherId, taskId, at, minutes, track? } // done; GPS trail optional
+{ id, type: 'completed', searcherId, taskId, at, track?, partnerId? } // done; GPS trail optional
 ```
 
 - A searcher's task is their latest `assigned` that is not released, completed or past `expiresAt`. Events are ordered by `at`, then `id`, as the engine does.
 - **Work in progress counts.** Every active assignment's route lowers the map the others are scored on, square by square, by `CLAIM_CREDIT = 0.8` × its detection (ASSUMPTION: not everyone follows the route). The credit fades when the searcher's last update is older than 10 minutes.
 - Because the accounting is per square, a second searcher on the same ground only gains what the first would miss. Shrinking returns are not a special rule; they are the arithmetic.
-- **Team score.** Each square's joint detection is shared among the searchers covering it, in proportion to their detection. A searcher's score is their share divided by their minutes, travel included. The team score is the sum. With equal times this is exactly the joint chance of finding the person.
-- **Solving it.** Greedy: fix the best (searcher, task) pair by marginal gain per minute, lower the map, repeat. Then improve: try moving each searcher to each other candidate, keep any move that raises the team score, stop when nothing improves (at most 3 passes). Ties break by id, so the same events give the same plan.
-- **Doubling up** on a task someone else holds must beat the searcher's best other option by `DOUBLE_UP_FACTOR = 1.25` (ASSUMPTION).
+- **What is maximized (as built).** Each searcher's *marginal* gain per minute, travel included: what their route would find that everyone else's routes would not. This is search theory's rule for dividing effort: put each bit of effort where the return on it is highest (Koopman; Stone, *Theory of Optimal Search*, 1975). When every task takes the same time it is exactly "maximize the joint chance of finding the person".
+  - The first design used a "team score" that split each square's detection among searchers in proportion. It was dropped: when a second searcher joined a task it took share away from the first, so the score fell even when the team's real chance rose, and plans came out unstable under their own re-plan.
+- **Solving it.** Greedy: fix the best (searcher, task) pair by marginal gain per minute, lower the map, repeat. Then each searcher in turn moves to their own best option given where everyone else now is, until nobody moves (at most 3 rounds). Ties break by id, so the same events give the same plan.
+  - Brute force on the tiny test town (every assignment listed, scored by a separate evaluator): the planner found the best assignment in **80 of 80** equal-time cases with 2 and 3 searchers. With unequal times and 2–4 searchers, **0 of 675** single-searcher moves would have done better.
+- **Doubling up** on a task someone else holds must beat the searcher's best other option by `DOUBLE_UP_FACTOR = 1.25` (ASSUMPTION). A second searcher on a block only walks past it (section 3). A containment point takes one watcher, never two.
+- **The POS gain shown for an assigned route** counts what teammates who *finish earlier* would not already have found (work in progress first, then routes by their minutes). Added up over the team these gains are exactly the chance that someone finds the person; the tests check that sum against the Bayes update after everything is completed. Alternatives are shown with the cautious figure: what they would add if every teammate finished first.
+- Searchers who hold a task are offered block, park and containment alternatives; hasty routes (the costly ones to build) are built for free searchers only.
 - **Pairs.** `hazard_check` needs two searchers who walk together and count as one look. A lone searcher is never assigned one; the task is listed as needing a partner.
 - **Hysteresis.** A searcher keeps their task unless another option's gain per minute beats the remaining gain per minute of the current one by `SWITCH_FACTOR = 1.5` (ASSUMPTION).
 
@@ -144,8 +158,10 @@ Option = {
 
 Water and drainage near the likely area become `hazard_check` tasks, and they are scheduled early by an explicit rule, not by changing their score:
 
-- At a re-plan, if a `hazard_check` task has `posGain ≥ HAZARD_MIN_POS = 0.005` (the engine's own hazard threshold), nobody holds it, and two searchers on foot are free, the best such task is assigned to the best pair **before** the ranked allocation.
-- At most one pair in four searchers is used this way at once.
+- At a re-plan, hazard stretches whose score on the engine's hazard layer is at least 0.005 (the engine's own threshold for "near the likely area") are taken in order of that score. If the bank check itself has `posGain ≥ HAZARD_MIN_POS = 0.005`, nobody holds it, it was not checked in the last 2 hours, and two searchers on foot are free, it is assigned to the two nearest **before** the ranked allocation.
+- At most one pair per four searchers is used this way at once (and at least one pair when the team has two or more). The first working version had no gain test and sent a second pair to a stretch worth 0.15%; the gain test stops that.
+- Other hazard stretches still compete on their numbers: a pair is sent when its two shares beat what the two would get apart.
+- A stretch with no public street or path beside it cannot be checked by volunteers. It is listed in `unfilled` with `no_public_view`; one that lacks a partner is listed with `needs_partner`. Either raises the `hazard_unchecked` signal.
 - The option carries `urgent: true` and the reason `hazard_first`. Its `posGain` and `ratePerMin` stay what they are.
 
 Why: a person in a channel or at the water's edge cannot be seen from the street and may not be able to get out. Rowe et al. 2011: deaths "most commonly occurred in unpopulated areas due to exposure and drowning". ISRID urban finds: water 6%, drainage 4%. This is our judgment about urgency, not a published rule, so **the benchmark runs the planner with and without it** and reports both: time to find overall, and time to find for people who are in water or a drainage.
@@ -160,7 +176,9 @@ Why: a person in a channel or at the water's edge cannot be seen from the street
 - **Pairs** for every `hazard_check`.
 - **Cars** use drivable road types only, and get `drive` and `containment` tasks only.
 
-Danger level: 0 none; 1 night, or a secondary-road crossing; 2 a primary-road crossing, a rail crossing, or water within 30 m; 3 a `hazard_check` task.
+Danger level (as built): 0 none; 1 night, a secondary-road crossing, walking along a main road, or 100 m or more of the route within 30 m of water; 2 a primary-road crossing or a rail crossing; 3 a `hazard_check` task. The first version flagged any route that came within 30 m of water at level 2, which in Fremont was nearly every route; a warning on everything warns of nothing.
+
+A street piece belongs to a block when at least two of its squares touch the block's side (a street that only meets the block at a corner belongs to the next block).
 
 ## 8. Measures
 
@@ -172,11 +190,15 @@ Danger level: 0 none; 1 night, or a secondary-road crossing; 2 a primary-road cr
 
 ## 9. Phone budget
 
-- Re-plan with 10 searchers: under 300 ms on a phone. Target on the laptop in Node: under 60 ms, leaving a factor of 5. Both the laptop number and the factor will be reported; the phone itself is on Nathan's test list.
-- The one-off segment build is separate and reported.
+- Re-plan with 10 searchers: under 300 ms on a phone. Target on the laptop in Node: under 60 ms, leaving a factor of 5.
+- **Measured on the laptop** (Node 22, Fremont fixture, median of 9 runs, while another session was using the machine): all 10 searchers free **31 ms**; all 10 holding a task **16 ms**; 1 free and 9 holding (the usual re-plan) **22 ms**. No phone has run it yet; that is on Nathan's test list.
+- One-off costs: building the world and segments about 0.4–0.6 s; the first plan of a case about 0.3–0.5 s (tours and footprints are built once and kept).
+- Where the time went, and what was done: a shortest-path search at every step of the hasty router (replaced), a team score recomputed from scratch for every trial move (replaced by marginal gains), and 13 MB of whole-map arrays allocated per re-plan (now reused).
 - `engine/planner/worker.js` wraps the planner for a Web Worker: one message with the static world, one per re-plan. No DOM, no `Date.now()`, no `Math.random()`.
 
 ## 10. Tests (`tests/planner.test.js`)
+
+All built; 27 tests, results in the test output's diagnostic lines.
 
 - **Brute force on tiny hand-made worlds:** every possible assignment is listed, and each is scored by a separate evaluator written in the test (it adds up, square by square, the chance at least one searcher detects, by listing detection outcomes). The planner's choice is compared with the best. On random tiny worlds the worst ratio seen is reported, not assumed.
 - **No pile-up:** N searchers, at least N worthwhile tasks, random maps: N different tasks unless the doubling rule's threshold is met; a second searcher's gain on a held task is strictly lower.
@@ -203,6 +225,10 @@ Danger level: 0 none; 1 night, or a secondary-road crossing; 2 a primary-road cr
 |---|---|---|
 | POD = 1 − e^(−coverage) | | DATA: Koopman; Koester et al. 2004 (checked) |
 | Sweep widths (section 3) | | ASSUMPTION, anchored to Koester et al. 2004's 16–142 m |
+| `P0` (chance of spotting someone right on the track) | 0.9 | ASSUMPTION |
+| `CANVASS_REPEAT_MIN` | 120 | ASSUMPTION |
+| `HAZARD_RECHECK_MIN` | 120 | ASSUMPTION |
+| `WATER_NEAR_MIN_M` | 100 | ASSUMPTION |
 | `SEARCH_SPEED_MPS` | 0.8 | ASSUMPTION (the engine's value) |
 | `HASTY_SPEED_MPS` | 1.2 | ASSUMPTION |
 | `TRAVEL_SPEED_MPS` | 1.3 | ASSUMPTION until Bohannon 1997 is re-read |
@@ -212,12 +238,12 @@ Danger level: 0 none; 1 night, or a secondary-road crossing; 2 a primary-road cr
 | `HASTY_RADIUS_M` | 1,500 | ASSUMPTION (ISRID urban median is 1.1 km) |
 | `FRONT_DEPTH_M` | 15 | ASSUMPTION (ISRID track offset median is 15 m) |
 | `CLAIM_CREDIT`, `DOUBLE_UP_FACTOR`, `SWITCH_FACTOR` | 0.8, 1.25, 1.5 | ASSUMPTION |
-| `HAZARD_MIN_POS` | 0.005 | ASSUMPTION (same as the engine's `HAZARD_MIN_CHANCE`) |
+| `HAZARD_MIN_POS` | 0.005 | ASSUMPTION (same value as the engine's `HAZARD_MIN_CHANCE`) |
 | Containment: `PASS_SHARE`, `CATCH_M`, `POD_POST` | 0.25, 300, 0.9 | ASSUMPTION |
 | Mobility over time | 0 / 0.25 / 3.8 / 18 h | DATA: ISRID temperate, n = 42 (checked) |
 | `ROW_EXPAND`, `MIN_USEFUL_RATE` | 0.5, 0.0002 /min | ASSUMPTION |
 
-A background check of the remaining sources (night sweep widths, urban or vehicle detection, canvass effectiveness, walking speed, the standard definitions of hasty search and containment) is running; stage 2 updates this table with what it confirms.
+**Not checked.** A background check of the remaining sources (night sweep widths, urban or vehicle detection, canvass effectiveness, walking speed, the standard definitions of hasty search and containment) was started and was cut off by a usage limit before it returned anything. Nothing in this table was upgraded from ASSUMPTION because of it. All tunable numbers live in `engine/planner/params.js` with these labels.
 
 ## 13. What merging will need
 

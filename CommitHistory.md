@@ -60,6 +60,47 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Planner, stage 2: the planner and its tests
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, worktree `findthem-planner`, Nathan), stage 2 of 3
+- **What changed:** New folder `engine/planner/` (nothing outside it was edited except `docs/PLANNER.md` and this file; `app.js`, `grid.js`, `sim.js`, `surface.js` and `engine/index.js` are untouched, so the app still uses `nextSectors` / `routeFor`):
+  - `params.js`: every tunable number with its label (DATA / EXPERT / ASSUMPTION) and source.
+  - `world.js`: the ground map and street graph as flat arrays; visibility class per 10 m square; marks on each street piece (walkable, drivable, private driveway, crosses rail, bridge); shortest paths; the squares a track passes and everything within 40 m of it.
+  - `detect.js`: day or night from the sun's height; sweep widths by visibility class and pace; coverage of a walked track, of door-knocking, of a park sweep and of a containment post.
+  - `segments.js`: cuts the map into tasks: street-bounded blocks (`yards`), parks, hazard stretches, containment points (bridges, bus stops, junctions of main roads), 8 hasty wedges, 4 drive quadrants. Blocks over 45 minutes are cut in two across their longer side.
+  - `routes.js`: the rural-postman tour for "search this block", and the orienteering route for hasty and drive tasks.
+  - `plan.js`: reads `assigned` / `released` / `completed` events, applies Bayes for completed tasks, lowers the map by work in progress, builds candidates per searcher, assigns (hazard pairs, greedy, then each searcher moves to their own best until nobody moves), keeps held tasks unless something is 1.5× better, and returns up to three options each plus the measures.
+  - `adapter.js`: the only file that imports the engine. Builds the planner's world from `area` + the case, splits today's 25 m map onto 10 m squares, reads or works out the hazard layer, and exposes `planSearch(area, caseInput, prediction, { searchers, events, nowMs })`.
+  - `index.js`: the exports.
+  - `tests/planner.test.js`: 27 tests.
+  - `docs/PLANNER.md`: revised where the build differed from the first note (each place marked "As built").
+- **Why:** Stage 2 of Nathan's brief: a working planner with brute-force, no-pile-up, safety, stability, determinism and sum tests.
+- **Decisions:**
+  - **A block's door-knocking counts once per two hours.** The first working version sent three searchers to canvass the same block, each credited as an independent chance. A second knock on the same door gets the same answer. Now only the first canvass is credited; anyone else sent to that block gets a shorter walk-past option with no doors.
+  - **Marginal gain per minute replaced the "team score".** The share-based score from the stage 1 note fell when a second searcher joined a task even if the team's real chance rose, and plans were unstable under their own re-plan. Each searcher now moves to their own best marginal option until nobody moves (the standard rule for dividing search effort).
+  - **The hazard-first rule needs the bank check itself to be worth 0.5%.** Without that test a second pair was sent to a stretch worth 0.15% while blocks worth 6% waited.
+  - **One watcher per containment point**, and danger level 2 is kept for primary-road and rail crossings: flagging every route within 30 m of water at level 2 put a warning on nearly every route in Fremont.
+  - **The hasty router was rewritten twice for speed.** A shortest-path search at every step took 100+ ms per re-plan. The kept version chooses and orders targets on straight lines, then walks them on real streets.
+  - The POS gain shown for an assigned route credits earlier finishers first, so the team's gains add up exactly to the joint chance.
+  - Rail: a street that crosses a rail line is allowed and flagged `rail_crossing`; the data cannot tell a bridge from a level crossing. Nothing off-street touches rail.
+- **How it was verified:** `node --test`: **113 tests pass** (27 new, 86 existing). From the planner tests' own output:
+  - brute force, equal times: the planner found the best assignment in 80 of 80 cases (2 and 3 searchers, every assignment listed, scored by a separate evaluator in the test);
+  - brute force, unequal times: 675 single-searcher moves checked, 0 would have done better;
+  - rural postman equals brute force on four small street shapes;
+  - orienteering against brute force on a 4 × 4 grid: mean 0.758, worst 0.478 of the best prize (its worst case); against a slow reference on 64 real Fremont wedge routes (a throwaway script, not committed): median 0.974, worst 0.774;
+  - safety: 172 routes on the real map, every route square a road, path or public service way; 8 hazard pairs, 63 routes with a high-traffic crossing flagged, 5 with a rail crossing flagged;
+  - no pile-up: 57 assignments over 6 plans, 3 share a task (a walk past a canvassed block, or the same hasty wedge by another route);
+  - sums: map + rest of world = 1 after every completed task; the team's gains equal the cumulative POS to 1e-6;
+  - speed, median of 9 runs on the laptop while another session was using it: 10 free searchers 31 ms, 10 holding 16 ms, 1 free + 9 holding 22 ms.
+- **Known issues / not done:**
+  - **No phone has run it.** The 300 ms budget is met on the laptop with a factor of about 10 to spare, not measured on a phone.
+  - **The source check did not happen.** The background check of night, urban, vehicle and canvass detection figures was cut off by a usage limit and returned nothing. Those constants are still ASSUMPTION.
+  - On a 25 m map split evenly onto 10 m squares, 26% of the probability lands inside buildings. That is the adapter's stopgap until the engine gives a 10 m map.
+  - The first plan of a case takes 0.3–0.5 s on the laptop and building the world 0.4–0.6 s (one-off costs, not in the 300 ms budget).
+  - One searcher gets hasty alternatives only while free.
+  - Nothing touches the screen yet, so `UPDATESBYNATE.md` has no entry.
+- **Next:** Stage 3: `bench/planner-eval.js`, `bench/planner-report.md`, and the merge plan for `engine/index.js` and the screen.
+
 ### Planner, stage 1: design note
 - **Date:** 2026-11-22
 - **Stage:** Search planner (branch `planner`, worktree `findthem-planner`, Nathan), stage 1 of 3
