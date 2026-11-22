@@ -60,6 +60,21 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Prior v2, stage 1: design note
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 1 of 4
+- **What changed:** New `docs/PRIOR-V2.md`: what is wrong with the current prior (from Nathan's audit of `main`), the design of its replacement (10 m ground map, walkers stored as per-minute particles with their own speed / time moving / behavior, a map for "t minutes since last seen" with "still missing" evidence, a blend with an ISRID statistics map, an explicit "rest of world" share, a separate hazard layer, calibration and evaluation), the published numbers it uses, and the contract changes it will need.
+- **Why:** Nathan asked for the prior to be replaced with one as close to a real search team's method as the data allows, built in four committed stages on a branch, starting with a short design note.
+- **Decisions:**
+  - Urban ISRID dementia row for Fremont, temperate as the alternative.
+  - **Elevation is skipped**: the urban row has no elevation statistic, the test area is flat, and terrain tiles would add a download to the first minutes of a search.
+  - The grid will be anchored to the case (its last-seen point, rounded), not to each phone's download.
+  - `grid.p` will sum to `1 − restOfWorld` rather than 1. This and the new optional fields change `INTERFACES.md`, so they need BenStew's OK before any merge.
+  - Every tunable constant is labeled DATA, EXPERT or ASSUMPTION with its source.
+- **How it was verified:** Each ISRID number was read from Koester's dementia chapter (the PDF's text, extracted on the laptop): all matched, and the urban find-location row also lists linear 9, woods 3 and brush 1, which makes it sum to 100. Rowe 2011 was read in full: 53% of walkers within 1 mile is right, but "those found dead were mostly within 0.5 mile" is really **50%**. The gait-speed figure (0.62 ± 0.23 m/s, n = 309) is Toots et al. 2019. Sava et al.'s R formula and the 0.78 for rings were confirmed from the authors' preprint and the published abstract.
+- **Known issues / not done:** No engine code changed yet. No urban sweep width was found in the literature, so the search-coverage constants remain assumptions.
+- **Next:** Stage 2: the ground map, the new walkers, and time conditioning.
+
 ### PLAN.md: tonight's test pass noted
 - **Date:** 2026-11-21
 - **Stage:** Finishing (testing)
