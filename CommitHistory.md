@@ -59,6 +59,14 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
 - **Do not build** a chatbot persona, camera integration, trackers, drill mode, accounts or photos, or anything else on the roadmap.
 - **GPS-trail coverage is in scope (decision by Nathan, 2026-11-22 night; it was on the "do not build" list before).** The search planner scores a `completed` event from the trail the searcher actually walked when the event carries one. Recording is specified, not yet built on the screen: during an active task only, a point every 10 s, attached to the `completed` event (see `docs/PLANNER-MERGE.md`).
+- **Report box safety layer (2026-11-22, branch `agent-contract`, not merged):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
+- **Event integrity (2026-11-22, branch `integrity`, not merged):** no event can corrupt the shared map.
+  - Firebase refuses any event that isn't exactly a known shape, refuses edits and deletes, and accepts the case once.
+  - Every phone re-checks what it receives with the same rules (no clock involved), drops and counts bad events, and counts copies once.
+  - The case carries `engineVersion`, so a phone on another engine version can warn.
+  - The rules, `sync.js` and the mock are checked against one shared test table.
+  - Corrections after sharing are `caseUpdate` events (the latest `at` per field wins). The person being found is a `found` event.
+  - The table also passes against the real Firebase emulator. `INTERFACES.md` §6 is the reference (approved by Nathan).
 
 ## Log
 
@@ -354,6 +362,173 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - The full benchmark (`npm run bench`) was not re-run; its numbers in the README are for the old engine.
   - Not tried in a browser or on a phone.
 - **Next:** Stage 3: ISRID statistics map and blend, rest of world, hazard layer, remaining audit fixes, tests.
+
+### Integrity: caseUpdate and found events, INTERFACES §6, Firebase emulator check
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - **`caseUpdate { type, field, value?, by, at }`** in `firebase-rules.json`, `sync.js` and `tools/mock-firebase.py`.
+    - Allowed fields: `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`. `value` is checked like the case field it replaces.
+    - Leaving `value` out clears `direction`, `familiarPlaces` or `description`. The other fields need a value.
+  - **`found { type, lat, lng, by?, at, note? ≤ 300 }`** in the same three places.
+  - Case gets two optional fields: `travel` (`walking | car | bus | unknown`) and `description` (≤ 300 characters).
+  - `sync.js`:
+    - `applyCaseUpdates`: the latest `at` per field wins, ties go to the larger push id by code point (`compareIds`), and any update beats the case's first value.
+    - `readMirror` / `subscribe` / `loadSearch` return the updated `caseDoc` plus `baseCase`, and `info.caseUpdates`.
+    - `withoutNulls` also drops `[]` and `{}`, like Firebase. All sorting uses `compareIds`.
+  - `tests/sync.test.js`:
+    - The table grew from 75 to 118 rows (36 caseUpdate, 7 found).
+    - The write checks are now one scenario list, run against the rules evaluator (twice: checking the levels above the written path, and not), the mock, and the Firebase emulator when `FIREBASE_EMULATOR` is set.
+    - The evaluator now runs `.validate` on the levels above the written path, as the emulator showed real Firebase does.
+    - New tests for case-update merging, `compareIds`, and sending `caseUpdate` / `found`.
+  - `INTERFACES.md` §6 rewritten: Firebase shape, every event type's fields and ranges, caseUpdate merge rule, what phones do with what they receive. Plus one "known limits" line: lies aren't stopped.
+  - `docs/INTEGRITY-REPORT.md` (new): the full report. `UPDATESBYNATE.md`: the screen work for caseUpdate and found.
+- **Why:** Nathan's request. `docs/INTAKE-SPEC.md` open issue 1: the case is written once, so corrections after sharing need an append-only `caseUpdate`. A `found` event ends the search.
+- **Decisions:**
+  - **Any caseUpdate beats the first value, even with an older `at`.** Rejected: comparing with `createdAt`, which would silently drop a correction from a phone whose clock is behind.
+  - **`travel` and `description` shapes are assumptions** taken from INTAKE-SPEC's chips; noted in the report.
+  - **The rules generator stayed a scratch script.** `firebase-rules.json` is the source, checked by the tests.
+- **How it was verified:**
+  - `node --test`: 127 tests, 126 pass, 0 fail, 1 skipped (the emulator test, which is off unless `FIREBASE_EMULATOR` is set).
+  - **Firebase emulator** (firebase-tools 15.37.0, database emulator v4.11.2, Java 24), rules loaded into `demo-findthem-default-rtdb`: `node --test tests/sync.test.js` gives 25 tests, 25 pass, 0 fail, 0 skipped. Every scenario step matched; **0 differences.**
+  - Mutation A (rules accepting reliability 0.5): the emulator accepted it, so it really runs our file.
+  - Mutation B (case completeness removed from `.write`): the emulator still refused lone `case/minutes` and `case/lastSeen/lat` writes. So Firebase validates the levels above the written path; the evaluator was weaker and is fixed.
+- **Known issues / not done:**
+  - Not tested on the real database.
+  - `sync.js` itself was run only against the mock: its URLs have no `?ns=`.
+  - Screen work in `UPDATESBYNATE.md`: send `caseUpdate` on corrections, rebuild the case from `caseDoc`, a Found button, plus the earlier items.
+- **Next:** deploy the rules with `sync.js` to the real database and test with two phones; the screen session applies `UPDATESBYNATE.md`.
+
+### Event integrity: strict Firebase rules, checked events on every phone, engineVersion
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - `firebase-rules.json`:
+    - Every event type is checked for its exact shape: `searched`, `sighting`, `message`, plus the planner's `assigned`, `released` and `completed`. `assigned` accepts the planner shape and the INTERFACES shape, with an optional `toId`.
+    - Ranges: `searched` and `completed` minutes are numbers from 1 to 600, lat ±90, lng ±180, reliability is 0.3, 0.6 or 0.9, `at` ≥ 2020 and ≤ server time + 1 h.
+    - Text caps: name 40, note and message 300, ids by regex. A `track` is at most 2000 whole numbers.
+    - Unknown types and extra fields are refused.
+    - Completeness checks sit in `.write`, so writing one field at a time can't build a half event or half case.
+    - Events are append-only and need a 20-character push id. The case is written once, whole, and must carry `engineVersion`.
+    - Searcher positions can still be overwritten and removed, but their shape is checked now.
+  - `sync.js`:
+    - `checkEvent`, `checkCase` and `checkSearcher` apply the same rules (without the clock).
+    - `cleanEvents` / `readMirror` drop and count bad events and de-duplicate by content. `subscribe` passes an `info` 4th argument (dropped, duplicates, caseProblem, versionMismatch) and ignores stream messages it can't parse.
+    - `applyChange` handles multi-path patches and ignores `__proto__` paths.
+    - `addEvent` and `createSearch` refuse invalid data locally with `error: 'invalid'`.
+    - Events are sent with PUT at a client-made push id (`newPushId`). If a send is refused, sync.js reads that id back and treats an identical stored copy as success, so a retry is never stored twice.
+    - `createSearch` stamps `engineVersion` (`ENGINE_VERSION = '2026-11-22.1'`, or `setEngineVersion`). `loadSearch` returns `info` and fills in `direction: null` and `familiarPlaces: []`.
+  - `tools/mock-firebase.py`:
+    - Enforces the same rules by checking each touched slot (case, event or searcher) whole after a write.
+    - Adds PATCH (all-or-nothing) and DELETE, a 400 for bodies that aren't JSON, 401 "Permission denied", Firebase-style push ids, `--port 0`, and `patch` stream events.
+  - `tests/sync.test.js`:
+    - A 75-row table of good and bad events (malformed, oversized, wrong-type, extra-field, future-dated, emoji length) is checked against sync.js, against `firebase-rules.json` through a small rules evaluator, and against the mock over HTTP.
+    - Separate tests cover append-only, write-once case, partial-write and PATCH, duplicate and replay, lost-answer retry, prototype pollution, and junk on the stream.
+  - `UPDATESBYNATE.md` (new): what the screen must do.
+- **Why:** Anyone with a search link can write to the database. Before this, a malformed event (minutes as text, lat 500, a 1 MB note, an unknown field), an edit, or a duplicate could poison the map on every phone or crash `replay`.
+- **Decisions:**
+  - **Rejected: a server-side `cids/` index for replay protection.** `cid` is `local-<ms>-<n>`, which an attacker could guess and claim first. Retries are made safe by client-chosen push ids instead, and replays (same content under a new id) are counted once on every phone.
+  - **Case `minutes` and `minutesSince` allow up to 1440**, not 600: the form allows 1440, and `app.js` caps the growing minutes at 1440. Only event minutes are 1–600.
+  - **Phones don't apply the "not in the future" check.** Phone clocks differ, and every phone must drop the same events.
+  - `minutes` may be fractional (`markSearched` takes `Number(input)`).
+- **How it was verified:**
+  - `node --test`: 125 tests, 125 pass (110 before this change; the new ones are in `tests/sync.test.js`).
+  - Mutation check: loosening one rule (reliability 0.5) and one mock check (text 400) each made the table test fail. Both files were then restored.
+  - The rules were *not* deployed to real Firebase or run in the Firebase emulator. The evaluator in the test models Firebase's documented semantics (cascading `.write`, `.validate` at and below the write, `$` wildcards, `%`, `.matches`). The real server could differ in edge cases.
+- **Known issues / not done:**
+  - Screen work is listed in `UPDATESBYNATE.md`: show the version warning (i18n in 5 languages), handle `invalid` in `recordEvent`, clamp minutes, `sw.js` cache bump, `INTERFACES.md` §6 update.
+  - A malicious but well-formed event (a fake sighting) is still accepted; there are no accounts, so that is out of scope.
+- **Next:** deploy the rules with `sync.js` and test two phones against real Firebase; the screen session applies the `UPDATESBYNATE.md` items.
+
+### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **Water flag checked** (`quickread.js`):
+    - Before this commit, "I saw him by the lake 10 minutes ago" already stayed a sighting with the `water` warning in both readers. The backup reader didn't pin "the lake", though.
+    - New `readFeaturePlace`: with no place name in the report, a feature word in any of the 5 languages (lake / creek / lagoon / river / park) pins the one nearby place of that kind. Only if there is exactly one; plurals like "Quarry Lakes" count.
+    - `PLACE_WORDS` and a whole-word `hasWord` moved here from `proxy/jev.js` and are shared. Jev's place-evidence check is now whole-word, so "lac" is no longer found in "place".
+  - **Street corners** (`quickread.js`):
+    - `findIntersections(osm, streetNames, near)`: one point per corner, the middle of a divided road's nodes. A pair that crosses in two places is left out as ambiguous.
+    - `readIntersection`: two streets joined by "and / & / y / con / et / 和 / 与 / と", or a corner word in the report. The report must name no other place.
+    - Both readers pin the corner. A corner suppresses the two-places conflict.
+    - `proxy/jev.js`: `cleanIntersections`. Corners are offered to Jev as place options. Jev naming one street of the corner agrees, and the corner is pinned.
+    - `proxy/worker.js` and `report.js` (`parseReport`, `confineDraft`) carry `context.intersections`.
+  - **Vehicle words by language:** `VEHICLE` is now per language. `guessLanguage(text, appLang)` decides: kana → ja, Han → zh, else the most common en/es/fr words. The app's language only breaks ties.
+  - **`INTERFACES.md`:**
+    - §5 rewritten for `ReportDraft` v2 (`unsure`, `flags`, what stops a sighting and what doesn't), `Intersection`, and the corner rule;
+    - `assigned` events get an optional `toId`;
+    - the status line records Nathan's approval.
+  - **`docs/AGENT-CONTRACT.md`:**
+    - status "approved";
+    - safety-layer rules 8–10;
+    - new results;
+    - a "Screen work" section: the exact `app.js` / `index.html` / `style.css` / `i18n.js` changes, with drafted strings in all 5 languages.
+  - **`bench/safety-cases.json`** (v2, 74 cases): +6 true water sightings, +8 corner cases, +1 French "car", and the demo corner list.
+  - **`bench/safety-eval.js`:** two new danger rules: a flag that drops a true sighting, and `mustNotFlag`. The readers get corners and language.
+  - **`tests/safety.test.js`:** +13 tests. `sw.js` v29 → v30. `README.md` / `PLAN.md` notes.
+- **Why:** Nathan's follow-up:
+  - a flag may add a warning but must never drop a true sighting;
+  - resolve intersections to where the two streets the phone sent cross;
+  - French "car" means "because";
+  - he approved the contract, so `INTERFACES.md` may change.
+- **Decisions:**
+  - **Corner coordinates come from the phone's own map**, sent as a list, not from the single point per name in `places`. That point is just the name's nearest node to the last-seen point, so two of them can't locate a corner.
+  - **A corner needs a joiner or a corner word.** Otherwise "on Paseo Padre, then on Stevenson" would be pinned to a corner nobody mentioned.
+  - **"The lake" pins only a unique match.** Two lakes nearby → the person taps the map.
+  - **Language comes from the text first:** people don't always type in the app's language. "car" is not counted as a French word, so "car gone" stays English.
+  - Still not touched: `app.js`, `i18n.js` (another session is editing `app.js`), `engine/`, `data.js`, `tests/fixtures/` (only read, for corner tests).
+- **How it was verified:**
+  - `node --test`: 110 pass, 0 fail.
+  - `npm run safety-eval -- --local`: 68 right, 6 abstained, **0 dangerous** (of 74). With no app language and no corner list (what app.js sends today): 62 / 12 / **0**. The original `quickread.js` (`439e868`) on the same 74: 17 / 14 / **43**.
+  - `--hostile`: 1 dangerous (`es-typos`, as before). `--hostile-details`: 0.
+  - `npm run jev-eval -- --local`: 133/138 (96%), unchanged.
+  - A new test caught plural lake names ("Quarry Lakes") being missed, which would have pinned the wrong lake; fixed.
+- **Known issues / not done:**
+  - **The screen shows no flags, unsure highlights or corners yet:** see "Screen work" in the contract.
+  - **Bug found (predates this work):** `openSightingForm` puts `0` minutes when the time is unknown, so the form says "just now".
+  - The language guess is word counting; a two-word report in no clear language falls back to the app's language.
+  - Jev's own dangerous rate still needs the TypeSafe key.
+- **Next:** the `app.js` session applies "Screen work". With the key, `npm run safety-eval` through Jev.
+
+### Uncommitted
+- `bench/blind-cases.json`: 120 blind test reports (en 40, es 22, fr 18, zh 20, ja 20) for the report box, written without reading `quickread.js`, `report.js` or `proxy/`. Each has the expected kind, place, direction, minutes and reliability, other acceptable values, and how dangerous a wrong reading would be (high/medium/low) with the reason. No scorer uses it yet.
+
+### Report box safety layer and agent contract
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan), worked on in its own worktree while `prior-v2` rewrites the engine
+- **What changed:**
+  - `docs/AGENT-CONTRACT.md` (new): the contract between an AI agent and the intelligence layer. Principle: the agent reads and proposes; only a confirmed, schema-valid event changes the map. Versioned schemas (`CaseInput` 1, `CaseDraft` 1, `ReportDraft` 2, `Event` 1, `AgentReply` 1); the functions `caseGaps` (ranked by how much each answer would change the map: mean total-variation distance over the possible answers, with fixed question codes), `validateCase`, `validateClue`, `proposeClue` (a preview, nothing written), `myAssignment`, `explain` (reason codes only); the exact sentences the agent says when it abstains; and what is built vs. proposed.
+  - `report.js`: `ReportDraft` v2. `validateDraft` keeps the optional `unsure` (fields the reader wasn't sure about) and `flags` (`emergency`, `water`, `vehicle`, `conflict`, `guess`, `other_person`, `joke`) lists, known codes only, left out when empty; a place / direction / time marked unsure is always emptied. New `confineDraft`, used by `parseReport`: the note is always the person's own words, and the place must be one of the names the phone sent, pinned at that place's own point, so a proxy answer can't carry any text of its own.
+  - `quickread.js` (the backup reader): `readSignals` finds water, vehicle, emergency, someone else, joke and guess words in all 5 languages, plus conflicts (two places, two directions, two times, "definitely" + "not sure"). `readLocally` leaves conflicting fields empty and lists them in `unsure`, turns jokes and sightings of someone else into messages, and adds `flags`. Also: "I see him", "definitely him", "lo veo", "je le vois" count as sightings; "je ne le trouve nulle part" no longer reads as "found".
+  - `proxy/jev.js`: `safeJevDraft`, now used by `proxy/worker.js`. An answer that isn't one of the options counts as no answer; a close call between Jev's top two options (`MIN_MARGIN` 0.15) or a soft disagreement with the word rules costs `CONFLICT_PENALTY` (0.25) of confidence; two answers in the report, or the two readers disagreeing about a place / direction / time (or sighting vs searched), leave the field empty; Jev's place, direction and time need words of that kind in the report ("interpret, don't invent"), and "certain" needs certain words; a joke, someone else, or (with no "saw" words) a guess, "he took the car" or "I can't find him" is never a sighting. The `kind` question's wording now says guesses, jokes and other people are messages. `jevToDraft` (Jev alone) now lists its below-`MIN_CONFIDENCE` fields in `unsure`.
+  - `bench/safety-cases.json` (new): 59 adversarial reports (20 en, 11 es, 10 fr, 9 zh, 9 ja) with expected outcomes. `bench/safety-eval.js` (new, `npm run safety-eval`): scores each as right / abstained / dangerous; `--local`, `--hostile`, `--hostile-details`, or Jev through the proxy. Exits 1 if anything is dangerous.
+  - `tests/safety.test.js` (new, 24 tests). `sw.js` cache v28 → v29. Notes in `PLAN.md`, `NATHAN.md`, `README.md`, `proxy/README.md`.
+- **Why:** Nathan's request: the AI agent is an intermediary assumed to be unreliable; it never sets probabilities or gives search advice; accuracy beats latency because wrong advice can cost a life.
+- **Decisions:**
+  - **No new Jev questions.** The safety checks are deterministic word rules shared by both readers, so they never depend on the AI being right. (Adding Jev questions for water / vehicle would also have changed the question list that `tests/jev.test.js` checks.) Only the wording of the `kind` options changed.
+  - **Disagreement empties a field instead of picking a winner.** For reliability the lower one wins.
+  - **"message" from the word rules isn't a vote,** because it's what they say when they find nothing.
+  - **Flags are codes, shown by the screen** (sentences proposed in the contract). The flags only add caution and never change the map.
+  - Not changed: `INTERFACES.md`, which needs BenStew's OK (the contract lists what to add), and `app.js` / `i18n.js`, which are BenStew's and would need the flag sentences in all 5 languages.
+  - `engine/`, `data.js` and `tests/fixtures/` were not touched (prior v2 is being rewritten on another branch).
+- **How it was verified:**
+  - `node --test`: 97 pass, 0 fail (the 73 existing tests unchanged, plus 24 new).
+  - `npm run safety-eval -- --local`: 55 right, 4 abstained, **0 dangerous**. The same scorer on `quickread.js` as it was at `439e868`: 16 right, 8 abstained, **35 dangerous**.
+  - `--hostile` (a fake Jev that is confidently wrong on everything): 1 dangerous, `es-typos`. Every word is misspelled, so nothing contradicts Jev's "searched".
+  - `--hostile-details` (right kind, invented details): 0 dangerous.
+  - A perfect Jev answer set on `bench/jev-cases.json` keeps 137/138 fields through the layer (tested ≥ 95%).
+  - `npm run jev-eval -- --local`: 96%, up from 95%, with wrong answers down from 3 to 2. One place is now left empty: "on Paseo Padre … toward the BART station" names two places.
+- **Known issues / not done:**
+  - **Jev's own dangerous rate is not measured yet:** the TypeSafe key is still missing.
+  - The screen doesn't show `flags` or highlight `unsure` fields yet.
+  - The word rules over-flag a little:
+    - French "car" ("because") reads as a vehicle;
+    - any "lake" or "creek" in a report gets the water flag;
+    - an intersection ("Walnut and Paseo Padre") counts as two places and is left empty.
+  - The test set was written alongside the rules, so it is not a held-out test. Reports written by someone else are needed.
+  - `caseGaps`, `validateCase`, `proposeClue`, `myAssignment` and `explain` are specified, not built.
+- **Next:** with the key in, `npm run safety-eval` through Jev, recording its dangerous count. BenStew: show the flags in the form (`i18n.js`, 5 languages), then fold `ReportDraft` v2 into `INTERFACES.md`.
 
 ### Prior v2, stage 1: design note
 - **Date:** 2026-11-22

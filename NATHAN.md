@@ -39,6 +39,11 @@ Without it, the report box shows only the plain form, and Jev can't fill in the 
 - [ ] Add your own real-sounding reports to `bench/jev-cases.json`, the way a panicking family member would type or say them. Jev's support for other languages isn't documented, so note what fails.
 - [ ] Adjust the question wording and `MIN_CONFIDENCE` (now 0.5) so wrong answers get left empty rather than guessed.
 - [ ] Keep `tests/jev.test.js` passing, and add a test for anything you change.
+- [ ] Run the safety scorer through Jev and record its **dangerous** count next to the backup reader's 0 (`docs/AGENT-CONTRACT.md`, "How it's measured"):
+  ```bash
+  npm run safety-eval -- --show
+  ```
+  Any dangerous case is a bug in `proxy/jev.js` `safeJevDraft` or the word rules in `quickread.js`: fix it, and keep `tests/safety.test.js` green.
 
 ## 3. Test on two real phones (one iPhone, one Android if possible)
 - [ ] **Sharing:** start a search on phone A, open the share link on phone B, and check that searched areas, sightings and messages show up on both.

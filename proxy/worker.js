@@ -6,7 +6,7 @@
 // It never sets probabilities; the person checks the draft and taps Confirm.
 //
 // Routes:
-//   POST /         { text, lang, context: { lastSeen, places: [{name,lat,lng}] } } → ReportDraft JSON
+//   POST /         { text, lang, context: { lastSeen, places: [{name,lat,lng}], intersections: [{streets,lat,lng}] } } → ReportDraft JSON
 //   GET  /voice    → { listen, speak }: which optional voice services have keys (proxy/voice.js)
 //   POST /listen?lang=en   body = a recording (audio/webm or audio/mp4) → { text } (Deepgram)
 //   POST /speak    { text, lang: 'en' } → MP3 audio (ElevenLabs; English only, others → 400)
@@ -15,7 +15,7 @@
 // Shared checker, so the browser and the proxy clean drafts the same way.
 // (wrangler bundles these imports into the worker when deploying.)
 import { validateDraft, MAX_TEXT } from '../report.js';
-import { JEV_URL, buildJevRequest, jevToDraft, cleanPlaces } from './jev.js';
+import { JEV_URL, buildJevRequest, safeJevDraft, cleanPlaces, cleanIntersections } from './jev.js';
 import {
   voiceCapabilities, buildDeepgramRequest, deepgramText, buildElevenLabsRequest,
   MAX_AUDIO_BYTES, MAX_SPEAK_CHARS, SPEAK_LANGS,
@@ -113,15 +113,17 @@ async function readReport(request, env) {
   if (!text) return reply(env, 400, { error: 'no_text' });
   const lang = typeof body.lang === 'string' ? body.lang.slice(0, 5) : 'en';
   const places = cleanPlaces(body.context && body.context.places);
+  const intersections = cleanIntersections(body.context && body.context.intersections);
 
   let jev;
   try {
-    jev = await askJev(env, buildJevRequest(text, lang, places));
+    jev = await askJev(env, buildJevRequest(text, lang, places, intersections));
   } catch (err) {
     return reply(env, 502, { error: 'upstream' });
   }
 
-  const draft = validateDraft(jevToDraft(jev && jev.answers, text, places));
+  // Jev's answers go through the safety layer (proxy/jev.js safeJevDraft) before anything is sent back.
+  const draft = validateDraft(safeJevDraft(jev && jev.answers, text, places, { intersections, lang }));
   if (!draft) return reply(env, 502, { error: 'bad_response' });
   return reply(env, 200, draft);
 }

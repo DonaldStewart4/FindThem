@@ -6,7 +6,7 @@ This is the contract between the two halves of FindThem:
 - **Engine** (`engine/`): BenStew, built with Claude Code.
 - **Tests and speed** (`tests/`, `bench/`): Nathan, with AI help allowed.
 
-If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: implemented. `engine/` and the screen both follow it, and the tests check it. **Updated Nov 22 on branch `prior-v2` (Nathan's engine rewrite): everything marked "new" below; BenStew has not reviewed these changes yet.*** ("Jev" is not a teammate; it's the AI model in the report box.)
+If every side follows this file, the halves plug together at integration. **Change it only when BenStew and Nathan agree**, and log the change in `CommitHistory.md`. *Status: implemented. `engine/` and the screen both follow it, and the tests check it. **Updated Nov 22 (Nathan's engine rewrite, "prior v2", and the planner): everything marked "new" below; BenStew has not reviewed these changes yet.** Section 5 (`ReportDraft` v2, street corners) and the `assigned` event's `toId` were approved by Nathan on 2026-11-22 with `docs/AGENT-CONTRACT.md`, the contract for anything an AI agent may read or propose.* ("Jev" is not a teammate; it's the AI model in the report box.)
 
 ## Ground rules
 
@@ -113,7 +113,8 @@ Event =
       minutesSince: 10,          // minutes from the sighting to when it was reported (fixed)
       reliability: 0.3 | 0.6 | 0.9,   // "maybe" / "probably" / "sure"
       note: 'blue coat', at }
-  | { id, type: 'assigned', sectorId, to: 'Ana', at }  // the engine ignores this one
+  | { id, type: 'assigned', sectorId, to: 'Ana', toId: '3f9a…', at }  // the engine ignores this one;
+                                 // toId = the searcher's id (optional, added 2026-11-22, for myAssignment)
   | { id, type: 'message', text: 'I have the park', by: 'Ana', at }  // the engine ignores this one
 ```
 
@@ -281,37 +282,108 @@ Every tunable number is a named constant with a comment giving its source and on
 
 ## 5. Report box (screen-only, here for reference)
 
-`report.js` sends the typed or spoken text, plus context (the last-seen point and up to 60 nearby named places as `{ name, lat, lng }`: streets, creeks, parks, lakes, nearest first), to the proxy. The proxy asks Jev five multiple-choice questions (`proxy/jev.js`) and returns **only** this JSON:
+`report.js` sends the typed or spoken text to the proxy, with context:
+
+- the last-seen point;
+- up to 60 nearby named places as `{ name, lat, lng }`: streets, creeks, parks, lakes, nearest first;
+- optional: up to 30 **street corners** (`Intersection` below), where those streets cross on the downloaded map (`quickread.js` `findIntersections`).
+
+The proxy asks Jev five multiple-choice questions (`proxy/jev.js`), runs the answers through the safety layer (`safeJevDraft`), and returns **only** this JSON (**version 2**; `report.js` `DRAFT_SCHEMA`):
 
 ```js
 ReportDraft = {
   kind: 'sighting' | 'searched' | 'message',
-  placeText: 'the lake by Paseo Padre',
-  lat, lng,                      // or null if the place couldn't be pinned; the user taps the map
+  placeText: 'Lake Elizabeth',   // only ever one of the place or corner names the phone sent, or ''
+  lat, lng,                      // that place's own point, or null: the user taps the map
   direction: 'E' | null,
   minutesSince: 10 | null,
   reliability: 0.3 | 0.6 | 0.9,  // from wording: "maybe" / "I think" / "definitely"
-  note: 'blue coat'
+  note: 'blue coat',             // only ever the person's own words
+  unsure: ['direction'],         // optional, version 2: fields the reader wasn't sure about
+  flags: ['water']               // optional, version 2: safety warnings, most urgent first
+}
+
+Intersection = {                 // a street corner
+  name: 'Paseo Padre Parkway & Stevenson Boulevard',   // the two streets, alphabetical, joined by ' & '
+  streets: ['Paseo Padre Parkway', 'Stevenson Boulevard'],
+  lat, lng                       // the middle of the crossing's map nodes (a divided road has up to 4)
 }
 ```
 
-If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
+- **`unsure`** ⊆ `kind, place, direction, minutesSince, reliability`.
+  - A `place`, `direction` or `minutesSince` in it is always empty.
+  - A `kind` or `reliability` in it holds a default the person must check.
+- **`flags`** ⊆ `emergency, water, vehicle, conflict, guess, other_person, joke`, in that order. They are codes; the screen turns them into words (`i18n.js`).
+  - A flag only adds a warning. It never changes the map.
+  - **`water` never stops a sighting:** "I saw him by the lake" is a sighting pinned at the lake, with the water warning.
+  - What does stop a sighting: `joke`, `other_person`, and, when the report has no "saw" words, `guess`, `vehicle`, or "I can't find him". Those come back as `message`.
+- Both lists are left out when empty, so a version-1 draft is a valid version-2 draft.
+- **Street corners:** a report that names two streets joined by "and / y / et / 和 / と", or with a corner word ("corner", "esquina", "coin", "路口", "交差点"), is pinned at their `Intersection`. If the streets don't cross, cross in two places, or no corner list was sent, the place stays empty (two places = `conflict`).
+- `report.js` `confineDraft` holds every proxy answer to these rules: the note is reset to the person's words, and a name the phone didn't send is dropped.
+
+If the proxy can't answer (no signal, no key, an error), the screen makes the same `ReportDraft` on the phone with simple word rules (`quickread.js` `readLocally(text, { places, intersections, lang })`) and says so. The screen shows the draft as a filled-in form. Only after the person taps **Confirm** does it become a normal `Event`. The engine never sees raw text, and never sees anything unconfirmed.
 
 **Optional voice bot** (same proxy, only if its keys are set; see `proxy/voice.js`):
 - `GET /voice` → `{ listen: bool, speak: bool }`. Both false → the app uses the phone's own speech recognition and doesn't speak (the behavior before the voice bot).
 - `POST /listen?lang=xx` with a recording (`audio/webm` or `audio/mp4`) → `{ text }` (Deepgram nova-3). The text then goes through `POST /` like typed text.
 - `POST /speak` `{ text, lang: 'en' }` → MP3 (ElevenLabs Flash v2.5). **English only**: other languages → `400 unsupported_language`, and the app never asks outside English. The app reads back what it filled in and what it wasn't sure about. Speech never changes the form; the person still checks it and taps the button.
 
-## 6. Firebase shape (screen-only, here for reference)
+## 6. Firebase shape and integrity rules (screen-only, here for reference)
+
+*Updated 2026-11-22 (branch `integrity`), approved by Nathan.* The rules live in three places that must agree: `firebase-rules.json` (what Firebase accepts), `sync.js` `checkEvent` / `checkCase` / `checkSearcher` (what every phone accepts), and `tools/mock-firebase.py` (the local test database). `tests/sync.test.js` checks all three, and the Firebase emulator, against one table of good and bad events.
 
 ```
-searches/<random 128-bit id>/
-  case:      CaseInput + { createdAt }
-  events/<push id>: Event
-  searchers/<16-hex id>: { lat, lng, at, name }   where each searcher is now
+searches/<random 128-bit id, 32 hex>/
+  case:      CaseInput + { createdAt, engineVersion, minutesAt?, area?, startedBy?, startedAt?, travel?, description? }
+  events/<push id, 20 chars>: Event
+  searchers/<16-hex id>: { lat, lng, at, name? }   where each searcher is now
 ```
 
-Every phone downloads `case` + `events` and calls `replay`. Only events are ever added; nothing is edited or deleted. `searchers` is the one exception: each phone overwrites its own position (every 30 s, or after moving 25 m). It's only drawn as dots on the map; the engine never sees it.
+- **The case is written once**, whole, and is never changed or deleted. Required: `lastSeen {lat, lng}`, `minutes` (1–1440), `mobility`, `seed` (whole number 0–4294967295), `createdAt`, `engineVersion`. Optional:
+  - `direction`
+  - `familiarPlaces`: 0–3 of `{lat, lng, label ≤ 100}`
+  - `minutesAt`, `startedAt` (ms)
+  - `area` (`demo` | `live`)
+  - `startedBy` (≤ 40)
+  - `travel` (`walking` | `car` | `bus` | `unknown`)
+  - `description` (≤ 300)
+
+  Nothing else is allowed.
+- **`engineVersion`** names the engine that drew the first map. A phone whose engine differs gets `info.versionMismatch` from `sync.subscribe` / `sync.loadSearch` and should warn: the same events may give it a different map.
+- **Events are append-only.** An event is written once, at a 20-character push id, and never edited or deleted. `sync.js` makes the push id itself and writes with `PUT`, so a retried send lands on the same id and can't be stored twice (`POST` of a valid event is also accepted).
+- **Every event has `type` and `at`** (ms; ≥ 2020-09; the database refuses more than 1 hour after its own clock). It may have `cid` (the sending phone's id, ≤ 64 of `[0-9A-Za-z_.:-]`) and `by` (≤ 40). Other fields by type; nothing else is allowed:
+
+| type | required | optional |
+|---|---|---|
+| `searched` | `sectorId` (`r<n>c<n>`), `minutes` (1–600) | |
+| `sighting` | `lat`, `lng`, `minutesSince` (0–1440), `reliability` (0.3, 0.6 or 0.9) | `direction`, `note` (≤ 300) |
+| `message` | `text` (1–300) | |
+| `assigned` | `taskId` or `sectorId`; `searcherId`, `toId` or `to` | `partnerId`, `expiresAt` (after `at`, ≤ 24 h), `searchMin` (0–600), `track` |
+| `released` | `searcherId`, `taskId` | `track`, `fraction` (0–1) |
+| `completed` | `searcherId`, `taskId`, `minutes` (1–600) | `track`, `partnerId` |
+| `caseUpdate` | `field` | `value` |
+| `found` | `lat`, `lng` | `note` (≤ 300) |
+
+- Field formats:
+  - Ids: `searcherId`, `partnerId` and `toId` are 16 hex characters; `taskId` is ≤ 64 of `[0-9A-Za-z:_-]`.
+  - `track` is a list of 1–2000 whole square numbers (0–999999).
+  - Text lengths are counted as JavaScript counts them (an emoji is 2).
+- **`caseUpdate`** changes one case field after the search was shared. `field` is one of `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`.
+  - `value` is checked exactly like that case field.
+  - Leaving `value` out clears the field. Only `direction` (→ unknown), `familiarPlaces` (→ none) and `description` can be cleared. Firebase can't store null or an empty list, so a cleared value is simply absent.
+  - For each field, the update with the latest `at` wins. With the same `at`, the larger push id wins, by Unicode code point (`sync.compareIds`). Any update beats the value the case was created with.
+  - `sync` hands the screen the case with every update applied (`caseDoc`) and the case as written (`baseCase`). The engine keeps reading only `CaseInput`.
+  - Changing `minutes` usually goes with a `minutesAt` update at the same `at`, so every phone counts from the same moment.
+- **`found`**: the person was found at `{lat, lng}`. The engine ignores it; the screen should end the search.
+- **What phones do with what they receive:**
+  - Every event is re-checked with the same rules (without the clock, so every phone gives the same answer). Bad ones are dropped and counted (`info.dropped`).
+  - Exact copies (same content under another id) are counted once (`info.duplicates`).
+  - Events are sorted by `at`, then id.
+  - A broken case gives `caseDoc: null` and `info.caseProblem`.
+- **`searchers`** is the one place that is overwritten: each phone overwrites or removes its own position (every 30 s, or after moving 25 m). The shape is checked: `lat`, `lng`, `at`, optional `name` ≤ 40. It's only drawn as dots on the map; the engine never sees it.
+- Reads are allowed only inside one search; nothing outside `searches/<id>/case|events|searchers` can be written.
+
+Every phone downloads `case` + `events` and calls `replay`.
 
 ## Known limits of this contract
 
@@ -319,3 +391,4 @@ Every phone downloads `case` + `events` and calls `replay`. Only events are ever
 - Two phones on one search agree on the grid always, and on the map wherever both hold the same map data. While one phone is still waiting for phase 2 of its download (buildings), its map is rougher than the other's until it arrives.
 - The sea is not handled: on a coast the water beyond the shoreline has no OSM polygon, so the engine sees it as plain ground.
 - There are no accounts: anyone with a search link can read and add events.
+- The rules stop malformed, oversized, edited, deleted and duplicated data, not lies: a well-formed but false event (a made-up sighting) is accepted like a true one.

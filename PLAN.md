@@ -23,6 +23,7 @@ EvoHacks II's theme is **social good**. **Deadline: Sun Nov 22, 2026, 12:00 pm**
 - the benchmark (FindThem 54% vs. 21% on their own at 1,500 searcher-minutes)
 - 72 tests
 - report box backup reader on the phone (`quickread.js`, 5 languages) for when Jev can't answer, and a 40-report scorer for Jev (`npm run jev-eval`)
+- report box safety layer (branch `agent-contract`, not merged yet): Jev's answers are cross-checked against the report's own words, conflicting fields are left empty, and drafts carry `unsure` / `flags` codes (water, vehicle, emergency...); 74 adversarial reports scored right / abstained / dangerous (`npm run safety-eval`), 0 dangerous for the backup reader; street corners pinned where the streets cross; `INTERFACES.md` §5 updated (ReportDraft v2). The screen doesn't show the flags yet: the exact list is in `docs/AGENT-CONTRACT.md`, "Screen work". Contract for future agent features: `docs/AGENT-CONTRACT.md`
 - the app asks for location on start; searchers see each other as green dots in a shared search (rules published and tested on the live database)
 - commit emails switched to the GitHub noreply address
 - "What you know" is five numbered steps that fold into a summary after Find; the map redraws every 5 minutes as time passes (all phones in step)
