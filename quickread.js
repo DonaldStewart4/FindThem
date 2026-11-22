@@ -71,24 +71,67 @@ const any = (patterns, text) => patterns.some((re) => re.test(text));
 // "We found him", "ya la encontramos", "找到了", "見つかりました": the search is over. A message
 // for everyone, never a sighting. (The "not found" words are taken out first: "没找到" has "找到".)
 const FOUND = [
-  /\b(we found (him|her|them)|found (him|her|them)|(he|she)('s| is) (ok|okay|safe|fine|home|back)|(he|she) (has|have) been found|(he|she) was found|is safe now|we have (him|her) now)\b/,
+  /\b(we found (him|her|them)|found (him|her|them)|(he|she)('s| is) (safe|home)|(he|she) (has|have) been found|(he|she) was found|is safe now|we have (him|her) now)\b/,
   /\b(ya (lo|la) (encontramos|encontraron|tenemos)|(lo|la) (encontramos|encontraron)|ya aparecio|aparecio sano|aparecio sana)\b/,
   /(on (l'a|les a) (re)?trouvee?s?|nous l'avons (re)?trouvee?|(il|elle) est (sain et sauf|saine et sauve|en securite)|(il|elle) a ete (re)?trouvee?)/,
   /(找到了|找到他了|找到她了|已经找到|平安无事|他没事|她没事)/,
   /(見つかりました|見つかった|見つけました|保護され|無事です|無事でした)/,
 ];
+// "She's fine", "he's back": found only when nobody says they SAW the person ("just saw her, she's
+// fine but she walked off" and "he's back by the lake" are sightings).
+const FOUND_WEAK = [/\b(he|she)('s| is) (ok|okay|fine|back)\b/];
+// "Haven't found him", "no lo encontramos", "それらしき人を見つけました" (spotted someone like him): NOT found.
+// Taken out before the FOUND words are looked for. (French "on ne l'a pas retrouvé" never matches FOUND.)
+const NOT_FOUND_YET = [
+  /(没找到|没有找到|找不到|找到不)/g,
+  /(\b(have|has|had|did|could|can|do|does)(n't| not)|\bcannot|\bnot|\bnever|\bno one|\bnobody)\s+((yet|even|been|have|has|ever|actually|really)\s+)*(found|find)\b(\s+(him|her|them))?/g,
+  /\b(no|nunca|ni|nadie)\s+(lo|la|los|las)\s+(encontramos|encontraron|tenemos)\b/g,
+  /(らしき人|似た人|っぽい人|ような人)を?(見つけました|見つけた)/g,
+];
+function foundWords(text) {
+  let p = plain(text);
+  for (const re of NOT_FOUND_YET) p = p.replace(re, ' ');
+  return { strong: any(FOUND, p), weak: any(FOUND_WEAK, p) };
+}
 export function readFound(text) {
-  const p = plain(text).replace(/(没找到|没有找到|找不到|找到不)/g, ' ');
-  return any(FOUND, p);
+  const f = foundWords(text);
+  if (f.strong) return true;
+  return f.weak && !(any(SAW, plain(text)) || any(SAW, lower(text)));
+}
+
+// "Saw nobody", "no vi a nadie": the see-verb belongs to the "nobody", it is not a sighting.
+const SAW_NOBODY = /\b(saw|seen|see|spotted|noticed|found|vi|vimos|visto|encontre|encontramos)\s+(a\s+)?(nobody|no one|noone|nothing|no sign|nadie|nada)\b/g;
+// true if the report has "saw" words left once its "not found" words are taken out
+// ("didn't see", "pas vu", "没看到" contain a see-verb of their own).
+// true for "nobody there", "didn't see him", and for "haven't found him" / "no lo encontramos".
+function notFoundWords(text) {
+  const p = plain(text);
+  return any(NOT_FOUND, p) || any(NOT_FOUND, lower(text)) || NOT_FOUND_YET.slice(0, 3).some((re) => new RegExp(re.source).test(p));
+}
+function sawBesidesNotFound(text) {
+  const strip = (t) => [...NOT_FOUND, ...NOT_FOUND_YET.slice(0, 3)].reduce((rest, re) => rest.replace(new RegExp(re.source, 'g'), ' '), t.replace(SAW_NOBODY, ' '));
+  return any(SAW, strip(plain(text))) || any(SAW, strip(lower(text)));
+}
+// true if the reporter says they saw the person BEFORE the question starts: "I saw him by the
+// lake, should I follow him?" (not "has anyone seen him?" or "did I see him?"). p = plain() text.
+function sawBeforeQuestion(p) {
+  let end = p.replace(/[?？\s]+$/, '').length;
+  for (const re of QUESTION) { const m = p.match(re); if (m && m.index < end) end = m.index; }
+  const cut = Math.max(...[',', '.', '!', ';', '，', '。', '！', '；', '、'].map((c) => p.lastIndexOf(c, end - 1)));
+  return cut > 0 && any(FIRST_PERSON_SEER, p.slice(0, cut));
 }
 
 export function readKind(text) {
   const p = plain(text);
   const l = lower(text);
   if (readFound(text)) return 'message';
-  // A question ("¿...?", "...?", "...？") is a message to the others, not a report.
-  if (any(QUESTION, p) || /[?？]\s*$/.test(l) || /^\s*¿/.test(l)) return 'message';
-  if (any(NOT_FOUND, p) || any(NOT_FOUND, l)) return 'searched';
+  // A question ("¿...?", "...?", "...？") is a message to the others, not a report. But "I saw him
+  // by the lake, should I follow him?" is a sighting with a question after it.
+  if ((any(QUESTION, p) || /[?？]\s*$/.test(l) || /^\s*¿/.test(l)) && !sawBeforeQuestion(p)) return 'message';
+  // "Saw him by the lake but he isn't there now", "didn't see where he went": seen AND not found.
+  // That is a sighting (readLocally marks the kind unsure), never "searched": marking the place
+  // he was seen as searched would be the dangerous swap.
+  if (notFoundWords(text)) return sawBesidesNotFound(text) ? 'sighting' : 'searched';
   if (any(SAW, p) || any(SAW, l)) return 'sighting';
   if (any(SEARCHED, p) || any(SEARCHED, l)) return 'searched';
   return 'message';
@@ -98,31 +141,70 @@ export function readKind(text) {
 
 const NUMBER_WORDS = {
   // en
-  one: 1, two: 2, three: 3, four: 4, five: 5, ten: 10, fifteen: 15, twenty: 20, 'twenty-five': 25, thirty: 30, 'forty-five': 45, forty: 40,
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15, twenty: 20, 'twenty-five': 25, thirty: 30, 'forty-five': 45, forty: 40,
   // es
-  uno: 1, dos: 2, tres: 3, cinco: 5, diez: 10, quince: 15, veinte: 20, veinticinco: 25, treinta: 30, cuarenta: 40,
+  uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, quince: 15, veinte: 20, veinticinco: 25, treinta: 30, cuarenta: 40,
   // fr
-  deux: 2, trois: 3, cinq: 5, dix: 10, quinze: 15, vingt: 20, trente: 30, quarante: 40,
+  deux: 2, trois: 3, quatre: 4, cinq: 5, sept: 7, huit: 8, neuf: 9, dix: 10, quinze: 15, vingt: 20, trente: 30, quarante: 40,
   // zh / ja (written with characters)
   '一': 1, '两': 2, '二': 2, '三': 3, '五': 5, '十': 10, '十五': 15, '二十': 20, '三十': 30, '四十': 40, '四十五': 45,
 };
 const MAX_MINUTES = 180; // a bigger number is probably not "minutes ago"
+const MAX_HOURS_MINUTES = 24 * 60; // the form's own limit (report.js validateDraft)
+const TENS_WORDS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, veinte: 20, treinta: 30, cuarenta: 40, cincuenta: 50, vingt: 20, trente: 30, quarante: 40, cinquante: 50 };
+const CJK_DIGITS = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+const NUMBER_RE = '(\\d{1,3}|[a-z-]+|[一两二三四五六七八九十]+)';
+const MINUTES_RE = `${NUMBER_RE}\\s*(?:minutes?|mins?\\b|minutos?|分钟|分鐘|分)`;
+// Hours: "2 hours", "dos horas", "两个小时", "2時間". French "à deux heures" is two o'clock, so
+// French hours only count after "il y a".
+const HOURS_RE = `(?:${NUMBER_RE}\\s*(?:hours?\\b|hrs?\\b|horas?\\b|个小时|個小時|小时|小時|時間)|il y a (?:environ |presque |plus de |a peu pres )?${NUMBER_RE}\\s*heures?\\b)`;
+
+// The number a matched word stands for, or null: digits, a number word, "forty five" /
+// "cuarenta y cinco" / "vingt-cinq" (the tens word is looked for just before), "四十五".
+// `before` is the text in front of the word. A number it can't read is null, never a wrong number.
+function wordNumber(word, before = '') {
+  if (/^\d+$/.test(word)) return Number(word);
+  if (/^[一两二三四五六七八九十]+$/.test(word)) {
+    const m = word.match(/^([一二两三四五六七八九])?(十)?([一二三四五六七八九])?$/);
+    if (!m || (m[1] && m[3] && !m[2])) return null;
+    return m[2] ? (m[1] ? CJK_DIGITS[m[1]] : 1) * 10 + (m[3] ? CJK_DIGITS[m[3]] : 0) : CJK_DIGITS[m[1] || m[3]] ?? null;
+  }
+  const known = (w) => (Object.prototype.hasOwnProperty.call(NUMBER_WORDS, w) ? NUMBER_WORDS[w] : null);
+  const tensOf = (w) => (Object.prototype.hasOwnProperty.call(TENS_WORDS, w) ? TENS_WORDS[w] : null);
+  let n = known(word);
+  if (n === null && word.includes('-')) { // "vingt-cinq", "thirty-five"
+    const [a, b, more] = word.split('-');
+    return !more && tensOf(a) !== null && known(b) !== null && known(b) < 10 ? tensOf(a) + known(b) : null;
+  }
+  if (n === null) return null;
+  const tens = before.match(/([a-z]+)(?:\s+(?:y|et|and)\s+|\s+)$/); // "forty five", "cuarenta y cinco"
+  if (tens && tensOf(tens[1]) !== null) return n < 10 ? tensOf(tens[1]) + n : null;
+  return n;
+}
 
 export function readMinutes(text) {
   const p = plain(text);
   // "just now", "ahora mismo", "à l'instant", "刚才", "さっき"
   if (/\b(just now|right now|a moment ago|just saw|ahora mismo|hace un momento|recien|a l'instant|tout de suite)\b/.test(p)
     || /(刚才|刚刚|さっき|たった今|今さっき)/.test(p)) return 0;
+  // an hour and a half
+  if (/\b(an hour and a half|hora y media|une heure et demie)\b/.test(p) || /(一个半小时|一個半小時|1个半小时|1時間半|一時間半)/.test(p)) return 90;
+  // a number of hours: "2 hours ago", "hace dos horas", "两个小时前", "2時間前"
+  const h = p.match(new RegExp(HOURS_RE));
+  if (h) {
+    const n = wordNumber(h[1] || h[2], p.slice(0, h.index));
+    if (n !== null && n > 1 && n * 60 <= MAX_HOURS_MINUTES) return n * 60;
+  }
   // a quarter of an hour
-  if (/\b(quarter of an hour|quarter hour|cuarto de hora|quart d'heure)\b/.test(p) || /(一刻钟|十五分|15分)/.test(p)) return 15;
+  if (/\b(quarter of an hour|quarter hour|cuarto de hora|quart d'heure)\b/.test(p) || /(一刻钟)/.test(p)) return 15;
   // half an hour
   if (/\b(half an hour|half hour|media hora|demi-heure|demi heure)\b/.test(p) || /(半小时|半个小时|半時間)/.test(p)) return 30;
   // an hour
   if (/\b(an hour|one hour|1 hour|una hora|1 hora|une heure|1 heure)\b/.test(p) || /(一个小时|一小时|1小时|1個小時|1時間|一時間)/.test(p)) return 60;
   // a number before a minutes word: "10 min", "diez minutos", "十分钟", "10分前"
-  const m = p.match(/(\d{1,3}|[a-z-]+|[一两二三四五十]+)\s*(?:minutes?|mins?\b|minutos?|分钟|分鐘|分)/);
+  const m = p.match(new RegExp(MINUTES_RE));
   if (m) {
-    const n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS[m[1]];
+    const n = wordNumber(m[1], p.slice(0, m.index));
     if (Number.isFinite(n) && n >= 0 && n <= MAX_MINUTES) return n;
   }
   // "a few minutes", "unos minutos", "quelques minutes", "几分钟", "数分"
@@ -145,10 +227,10 @@ const JA_DIR = { '北東': 'NE', '北西': 'NW', '南東': 'SE', '南西': 'SW',
 const DIR_RULES = [
   [/\b(?:head(?:ing|ed|s)?|go(?:ing|es)?|went|walk(?:ing|ed|s)?|mov(?:ing|ed)|runn?(?:ing)?|ran|toward|towards|wander(?:ing|ed)?|drift(?:ing|ed)?|limp(?:ing|ed)?|stroll(?:ing|ed)?|to the|in the direction of)\s+(?:the\s+|due\s+)?(north[- ]?east|north[- ]?west|south[- ]?east|south[- ]?west|north|south|east|west)\b/, EN_DIR, 'plain'],
   [/\b(north[- ]?east|north[- ]?west|south[- ]?east|south[- ]?west|north|south|east|west)(?:bound|ward|wards)\b/, EN_DIR, 'plain'],
-  [/\b(?:hacia el|hacia|rumbo al|rumbo a|en direccion al|en direccion a|direccion|camino al|para el|al)\s+(noreste|noroeste|sureste|sudeste|suroeste|sudoeste|norte|sur|este|oeste)\b/, ES_DIR, 'plain'],
-  [/\b(?:vers le|vers l'|vers|en direction du|en direction de l'|direction|au|a l')\s*(nord-est|nord-ouest|sud-est|sud-ouest|nord|sud|est|ouest)\b/, FR_DIR, 'plain'],
+  [/\b(?:hacia el|hacia|rumbo al|rumbo a|en direccion al|en direccion a|direccion|camino al|para el|al)\s+(noreste|noroeste|sureste|sudeste|suroeste|sudoeste|norte|sur|este|oeste)\b(?!\s+del?\b)/, ES_DIR, 'plain'],
+  [/\b(?:vers le|vers l'|vers|en direction du|en direction de l'|direction|au|a l')\s*(nord-est|nord-ouest|sud-est|sud-ouest|nord|sud|est|ouest)\b(?!\s+(?:du|de|des|d')\b)/, FR_DIR, 'plain'],
   [/(?:往|向|朝|向着|朝着)(东北|西北|东南|西南|北|南|东|西)/, ZH_DIR, 'lower'],
-  [/(北東|北西|南東|南西|北|南|東|西)(?:へ|に向|の方|方向|方面)/, JA_DIR, 'lower'],
+  [/(北東|北西|南東|南西|北|南|東|西)(?:へ|に向|の方(?:へ|に(?![いあ]))|方向|方面)/, JA_DIR, 'lower'],
 ];
 
 export function readDirection(text) {
@@ -223,9 +305,18 @@ export function readSecondHand(text) {
   return any(SECOND_HAND, p) || (any(THIRD_PERSON_SEER, p) && !any(FIRST_PERSON_SEER, p));
 }
 
+// "Can't say for sure", "no puedo estar seguro", "je ne peux pas être certain", "不能确定", "不一定",
+// "確実ではありません": a "certain" word with a "not" in front of it is "not sure".
+const NOT_CERTAIN = [
+  /(\bnot|n't|\bcannot|\bnever)\b[^.,;!?]{0,20}?\b(sure|certain|certainly|definitely|positive)\b/,
+  /\b(no|sin|nunca)\b[^.,;!?]{0,20}?\bsegur[oa]s?\b/,
+  /\b(pas|sans|jamais)\b[^.,;!?]{0,20}?\bcertaine?s?\b/, // "sûr" is checked with its accent, below
+  /(不|没|无|無)[^，。,.!?！？]{0,4}(确定|肯定|一定)/,
+  /(確実|絶対|確か|間違いない)(では|じゃ|とは)/,
+];
 export function readReliability(text) {
   const p = plain(text);
-  if (any(UNSURE, p)) return 0.3;
+  if (any(UNSURE, p) || any(NOT_CERTAIN, p) || /\b(pas|sans|jamais)\b[^.,;!?]{0,20}?\bsûre?s?\b/.test(lower(text))) return 0.3;
   if (any(FAIRLY, p)) return 0.6;
   // French "sûr" keeps its accent here: without it, "sur" just means "on".
   if (any(CERTAIN, p) || /\bsûre?\b/.test(lower(text))) return 0.9;
@@ -623,8 +714,12 @@ export function readAllMinutes(text) {
     if (re.test(p)) { out.add(minutes); p = p.replace(re, ' '); }
     re.lastIndex = 0;
   }
-  for (const m of p.matchAll(/(\d{1,3}|[a-z-]+|[一两二三四五十]+)\s*(?:minutes?|mins?\b|minutos?|分钟|分鐘|分)/g)) {
-    const n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS[m[1]];
+  for (const m of p.matchAll(new RegExp(HOURS_RE, 'g'))) {
+    const n = wordNumber(m[1] || m[2], p.slice(0, m.index));
+    if (n !== null && n > 1 && n * 60 <= MAX_HOURS_MINUTES) out.add(n * 60);
+  }
+  for (const m of p.matchAll(new RegExp(MINUTES_RE, 'g'))) {
+    const n = wordNumber(m[1], p.slice(0, m.index));
     if (Number.isFinite(n) && n >= 0 && n <= MAX_MINUTES) out.add(n);
   }
   return [...out];
@@ -676,8 +771,17 @@ const PRESENCE = [
   /((有个|有一个|一个)(老人|老太太|老爷爷|老奶奶|人)|(他|她)(正)?(站在|坐在|躺在)|就是(他|她)|是(他|她)没错)/,
   /((が|は)(立って|座って|歩いて|しゃがんで)|(母|父|祖母|祖父|彼|彼女|本人)(です|でした|だと思う|っぽい)|間違いなく)/,
 ];
+// "He's right in front of me", "he just walked past me", "lo estoy viendo", "il vient de passer",
+// "他就在我面前", "目の前にいます": the reporter is looking at them now.
+const RIGHT_HERE = [
+  /\b(in front of me|(walked|went|ran|came|going|walking) (right )?(past|by) (me|us)|passed (me|us)|i'?m (looking at|following|watching|with) (him|her)|i am (looking at|following|watching|with) (him|her))\b/,
+  /\b((lo|la) estoy viendo|(lo|la) tengo (enfrente|delante)|acaba de pasar|(frente|delante) (a|de) mi|paso (junto a|frente a|delante de) mi)\b/,
+  /\b(vient de passer|devant moi|est passee? (devant|a cote)|je (le|la) suis des yeux)/,
+  /(在我面前|在我前面|在我眼前|从我(身边|旁边|面前))/,
+  /(目の前|前を通り|通り過ぎ)/,
+];
 export function readPresence(text) {
-  return any(PRESENCE, plain(text));
+  return any(PRESENCE, plain(text)) || any(RIGHT_HERE, plain(text));
 }
 
 // ---- The whole draft --------------------------------------------------------------------------
@@ -694,15 +798,17 @@ const inOrder = (set, order) => order.filter((code) => set.has(code));
 // Safety first: a joke, or a sighting of someone else, is not a sighting; a field the report
 // gives two answers for is left empty and listed in `unsure`.
 export function readLocally(text, context = {}) {
-  const note = String(text || '').trim().slice(0, 300);
+  // The whole report is read (up to report.js MAX_TEXT); only the note kept in the draft is cut to 300.
+  const full = String(text || '').trim().slice(0, 1000);
+  const note = full.slice(0, 300);
   const places = context.places || [];
   const intersections = context.intersections || [];
-  const signals = readSignals(note, places, { intersections, lang: context.lang });
+  const signals = readSignals(full, places, { intersections, lang: context.lang });
   const flags = new Set(signals.flags);
   const conflicts = new Set(signals.conflicts);
   const unsure = new Set();
 
-  let kind = readKind(note);
+  let kind = readKind(full);
   const joke = flags.has('joke');
   const sawWords = kind === 'sighting';
   if (joke) { kind = 'message'; unsure.add('kind'); }
@@ -711,37 +817,39 @@ export function readLocally(text, context = {}) {
   else if (flags.has('vehicle') && !sawWords && !signals.found) kind = 'message';
   // A sighting told without a "saw" word: "he was sitting on a bench", "間違いなく母です".
   else if (kind === 'message' && !signals.found && !signals.notSeen && !flags.has('guess')
-    && !flags.has('other_person') && !flags.has('vehicle') && readPresence(note)) kind = 'sighting';
+    && !flags.has('other_person') && !flags.has('vehicle') && readPresence(full)) kind = 'sighting';
 
   // Where: a street corner, else a place by name, else the one place of a kind ("the lake").
   // A water word only adds the water flag: it never stops a sighting from being pinned.
   let place = null;
   if (!joke && conflicts.has('place')) unsure.add('place');
   else if (!joke) {
-    const corner = readIntersection(note, places, intersections);
-    const named = corner ? null : readPlace(note, places);
-    place = corner || (named && placeIsStrong(note, named) ? named : null) || (named ? null : readFeaturePlace(note, places));
+    const corner = readIntersection(full, places, intersections);
+    const named = corner ? null : readPlace(full, places);
+    place = corner || (named && placeIsStrong(full, named) ? named : null) || (named ? null : readFeaturePlace(full, places));
     if (named && !place) unsure.add('place'); // a weak name ("walnut" alone): the person pins it
   }
 
   // Caution: "searched" needs real evidence, a search verb or "not found" at a named place.
   // "She's gone, she's not here" is panic, not a search: a message.
-  if (kind === 'searched' && !hasSearchEvidence(note, places)) { kind = 'message'; unsure.add('kind'); }
+  if (kind === 'searched' && !hasSearchEvidence(full, places)) { kind = 'message'; unsure.add('kind'); }
   // Caution: a sighting told without a "saw" verb is marked unsure, for the person to check.
   if (kind === 'sighting' && !sawWords) unsure.add('kind');
+  // So is a sighting mixed with "not there now" / "didn't see where he went", or with "she's fine".
+  if (kind === 'sighting' && (notFoundWords(full) || foundWords(full).weak)) unsure.add('kind');
 
   let direction = null;
   let minutesSince = null;
   if (kind === 'sighting') {
     if (conflicts.has('direction')) unsure.add('direction');
-    else direction = readDirection(note);
+    else direction = readDirection(full);
     if (conflicts.has('minutesSince')) unsure.add('minutesSince');
-    else minutesSince = readMinutes(note);
+    else minutesSince = readMinutes(full);
   } else if (kind === 'searched' && !conflicts.has('minutesSince')) {
-    minutesSince = readMinutes(note); // for a searched report: how long they searched ("40分かけて")
+    minutesSince = readMinutes(full); // for a searched report: how long they searched ("40分かけて")
   }
   // Second-hand ("the mailman says he saw her") or far away is "maybe".
-  const reliability = conflicts.has('reliability') || signals.secondHand ? 0.3 : readReliability(note);
+  const reliability = conflicts.has('reliability') || signals.secondHand ? 0.3 : readReliability(full);
 
   const draft = {
     kind,

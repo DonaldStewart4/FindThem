@@ -140,6 +140,89 @@ test('"someone else SAW him" is a second-hand sighting in 5 languages, not "it w
   }
 });
 
+// ---- Audit fixes, Nov 22 (backup reader): each sentence was read wrong before ------------------
+const AUDIT_PLACES = [...PLACES, { name: 'Fremont Central Park', lat: 37.5488, lng: -121.9655 }];
+const audit = (text) => readLocally(text, { places: AUDIT_PLACES });
+
+test('a sighting with "not there now" / "didn\'t see where" is a sighting (kind unsure), never "searched"', () => {
+  for (const t of ["Saw him at Fremont Central Park 10 minutes ago but when I got there he wasn't there", "I saw him by the lake 5 minutes ago but didn't see where he went",
+    'Nobody was with him, I saw him on Walnut Avenue heading north', 'Lo vi cerca del lago, no está herido', 'La vi en Walnut Avenue pero ya no está',
+    '我在湖边看到他了，但他现在不在那里了', '湖のそばで見たけど、今はもういなかった']) {
+    const d = audit(t);
+    assert.equal(d.kind, 'sighting', t);
+    assert.ok(d.unsure.includes('kind'), t);
+    assert.ok(d.placeText, t);
+  }
+  // A real "searched, nobody" stays searched: the see-verb belongs to the "nobody".
+  for (const t of ['Searched all of Fremont Central Park, nobody there', 'I looked around the lake and saw nobody', "Checked Walnut Avenue, haven't seen him",
+    'Buscamos en el parque, no vi a nadie', "On a fouillé le parc, je n'ai vu personne", '公园找过了，没看到他', '公園を探したけど、見つからなかった']) assert.equal(audit(t).kind, 'searched', t);
+});
+
+test('negated "found" is not FOUND; "she\'s fine" inside a sighting is a sighting; real "found" is unchanged', () => {
+  for (const t of ["We haven't found him yet", 'not found yet', "We didn't find her", 'No lo encontramos', 'Todavía no lo encontramos', "On ne l'a pas encore retrouvé", 'pas encore retrouvé', '还没找到', 'まだ見つかっていません']) {
+    assert.equal(readSignals(t, AUDIT_PLACES).found, false, t);
+    assert.notEqual(audit(t).kind, 'sighting', t);
+  }
+  for (const t of ["Still haven't found him but a neighbor saw him on Walnut Avenue 10 minutes ago", "Just saw her at Fremont Central Park, she's fine but she walked off before I could get to her",
+    "Saw him again, he's back by Lake Elizabeth heading north", 'No lo encontramos en el parque, pero una señora lo vio en Walnut Avenue hace 10 minutos']) {
+    const d = audit(t);
+    assert.equal(d.kind, 'sighting', t);
+    assert.ok(d.unsure.includes('kind'), t);
+    assert.ok(d.placeText, t);
+  }
+  assert.equal(audit('湖の近くでそれらしき人を見つけました').kind, 'sighting', '"spotted someone like him" is a sighting');
+  for (const t of ['We found him', "She's safe", "He's ok", "she's back", 'we have him now', 'Ya lo encontramos', 'Lo encontramos en el parque', "On l'a retrouvé", '找到了', '見つかりました', 'I found him at the lake, he is with me']) {
+    assert.equal(readSignals(t, AUDIT_PLACES).found, true, t);
+    assert.equal(audit(t).kind, 'message', t);
+  }
+});
+
+test('minutes: hours in 5 languages, compound numbers read right or left empty, never a wrong number', () => {
+  const m = (t) => audit(t).minutesSince;
+  for (const t of ['I saw him 2 hours ago at Lake Elizabeth', 'saw him two hours ago', 'Lo vi hace dos horas en el lago', "Je l'ai vu il y a 2 heures", '两个小时前在湖边看到他', '2時間前に湖で見ました']) assert.equal(m(t), 120, t);
+  assert.equal(m('saw him an hour and a half ago'), 90);
+  assert.equal(m('saw him an hour ago'), 60);
+  assert.equal(m("Je l'ai vu à deux heures près du lac"), null, 'French "à deux heures" is two o\'clock');
+  assert.equal(m('saw him 30 hours ago'), null);
+  for (const [t, want] of [['saw him at the lake forty five minutes ago', 45], ['saw him twenty five minutes ago', 25], ['saw him forty-five minutes ago', 45], ['lo vi hace cuarenta y cinco minutos', 45],
+    ['lo vi hace veinticinco minutos', 25], ["je l'ai vu il y a vingt-cinq minutes", 25], ['四十五分钟前在湖边看到他', 45], ['二十五分前に湖で見ました', 25], ['十五分钟前看到他', 15], ['15分前に見ました', 15],
+    ['saw him 10 minutes ago', 10], ['saw him 90 minutes ago', 90], ['saw him half an hour ago', 30]]) assert.equal(m(t), want, t);
+});
+
+test('negated certainty is "maybe" (0.3), not "certain"', () => {
+  for (const t of ["I saw someone by the lake but I can't say for sure it was him", "Saw a man on Walnut Avenue, I can't be certain it was him", 'Lo vi cerca del lago pero no puedo estar seguro',
+    "J'ai vu quelqu'un près du lac, je ne peux pas être certain", "J'ai vu quelqu'un près du lac, je n'en suis pas tout à fait sûr", '我在湖边看到一个人，不能确定是不是他', '我在湖边看到一个人，不一定是他',
+    '湖のそばで人を見ましたが、彼かどうか確実ではありません']) assert.equal(audit(t).reliability, 0.3, t);
+  for (const t of ['I definitely saw him by the lake', "I'm sure it was him on Walnut Avenue", 'Lo vi, estoy seguro que era él', "Je l'ai vu sur Walnut Avenue, je suis sûr car il portait son chapeau", '我看到他了，肯定是他']) assert.equal(audit(t).reliability, 0.9, t);
+});
+
+test('a sighting followed by a question, or "he is right in front of me", is a sighting; a plain question is a message', () => {
+  for (const t of ['I saw him near the lake 10 minutes ago, should I follow him?', 'I think I see her at Fremont Central Park, what should I do?', 'I see him by the lake, is anyone nearby', 'Lo vi en el lago, ¿lo sigo?',
+    "He's right in front of me on Walnut Avenue", 'He just walked past me on Walnut Avenue heading north', 'Lo estoy viendo ahora mismo en Walnut Avenue', 'Il vient de passer sur Walnut Avenue',
+    '他就在我面前，在Walnut Avenue', '今、目の前にいます。Walnut Avenueです']) {
+    const d = audit(t);
+    assert.equal(d.kind, 'sighting', t);
+    assert.ok(d.placeText, t);
+  }
+  for (const t of ['Has anyone seen him?', 'Did you see him near the lake?', 'Was he seen at the lake?', '¿Alguien lo ha visto?', "Quelqu'un l'a vu ?", '有人看到他吗？', '誰か見ましたか？', 'Did I see him?']) assert.equal(audit(t).kind, 'message', t);
+});
+
+test('the whole report is read (up to 1000 characters); only the note is cut to 300', () => {
+  const long = 'Okay so I have been walking around for a while now, I started at the house and went down past the school and then around the back of the shopping center and I asked a couple of people at the bus stop and nobody knew anything, and then I walked over toward the library and asked the man at the front desk too, and then just now I saw him by Lake Elizabeth heading north, he fell and he is bleeding';
+  assert.ok(long.length > 300);
+  const d = audit(long);
+  assert.deepEqual([d.kind, d.placeText, d.direction, d.minutesSince], ['sighting', 'Lake Elizabeth', 'N', 0]);
+  assert.ok(d.flags.includes('emergency'));
+  assert.equal(d.note.length, 300);
+});
+
+test('"south OF the lake" is a position, not a heading (es / fr / ja)', () => {
+  for (const t of ['Lo vi al sur del lago', "Je l'ai vu au nord du lac", "Je l'ai vue à l'est du parc", '湖の北の方で見た']) assert.equal(audit(t).direction, null, t);
+  for (const [t, dir] of [['Lo vi, iba hacia el este', 'E'], ['Lo vi, iba al norte', 'N'], ["Je l'ai vue, elle allait vers l'ouest", 'W'], ["Je l'ai vu, il va au sud", 'S'], ['彼を見ました。北の方へ歩いて行った', 'N'], ['彼を見ました。北へ歩いていました', 'N']]) {
+    assert.equal(audit(t).direction, dir, t);
+  }
+});
+
 test('readSignals: two places, two directions, two times, "sure" + "not sure" are conflicts; "not sure" alone is not', () => {
   const c = (text) => readSignals(text, PLACES).conflicts;
   assert.deepEqual(c('Saw him by Lake Elizabeth heading north, someone else says Walnut Avenue going south'), ['place', 'direction']);

@@ -448,7 +448,9 @@ export function replay(area, caseInput, events, options = {}) {
         applySearchToBackground(comp, sector, minute, keep, now);
       }
       pastSearches.push({ sector, minute, keep });
-      searchedMinutes[ev.sectorId] = (searchedMinutes[ev.sectorId] || 0) + minutes;
+      // Filed under the sector's own id ("r015c016" names the same sector as "r15c16").
+      const sectorId = `r${sector.sr}c${sector.sc}`;
+      searchedMinutes[sectorId] = (searchedMinutes[sectorId] || 0) + minutes;
     } else {
       sightingNumber += 1;
       const r = Math.min(1, Math.max(0, Number(ev.reliability) || 0));

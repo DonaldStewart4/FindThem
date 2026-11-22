@@ -184,7 +184,9 @@ export function parseOverpass(json, center, radiusM = DEFAULT_RADIUS_M) {
     nodes: [...nodesById.values()], ways, features,
   };
   const layers = parseLayers(json, center);
-  if (layers) osm.layers = layers; // only when the answer had them (older answers don't)
+  // Only when the answer really had the ground layers (the streets answer can hold one stray
+  // land-use way, which must not be taken for "the buildings are in": it has no buildings).
+  if (layers && layers.buildings && layers.buildings.length) osm.layers = layers;
   return osm;
 }
 
@@ -359,12 +361,26 @@ export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { atte
         body,
         ...(stopper ? { signal: stopper.signal } : {}),
       });
-      if (res.ok) return await readJsonWithProgress(res, onProgress);
-      lastError = new Error(`Overpass ${res.status} from ${url}`);
+      if (res.ok) {
+        const json = await readJsonWithProgress(res, onProgress);
+        // Overpass reports its own time-outs and memory errors as a normal answer with a
+        // "remark" and (almost) nothing in it. That is "busy", not a map with no streets.
+        const remark = json && typeof json.remark === 'string' && /error|timed out|out of memory/i.test(json.remark) ? json.remark : null;
+        if (!remark) return json;
+        lastError = new Error(`Overpass: ${remark.slice(0, 120)} (${url})`);
+      } else {
+        lastError = new Error(`Overpass ${res.status} from ${url}`);
+      }
       reason = 'busy';
       connectionFailures = 0;
     } catch (err) {
-      if (timedOut) {
+      if (err instanceof SyntaxError && !timedOut) {
+        // An answer that isn't JSON (a "too busy" web page, or JSON cut short): the server's
+        // trouble, not the phone's connection.
+        lastError = new Error(`Overpass sent an answer that could not be read (${url})`);
+        reason = 'busy';
+        connectionFailures = 0;
+      } else if (timedOut) {
         // The server took too long: not a connection problem. Try the next server.
         lastError = new Error(`Overpass gave no answer within ${Math.round(timeoutMs / 1000)} s (${url})`);
         lastError.timeout = true;
@@ -628,7 +644,10 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgres
   try {
     let saved = await dbGet(key);
     if (!saved || !coversGrid(saved.osm, center) || saved.osm.radiusM < radiusM) saved = await findSavedAreaCovering(center);
-    if (saved && saved.osm && (saved.osm.radiusM >= radiusM || coversGrid(saved.osm, center))) {
+    // A saved copy counts only if it has streets in it, and is big enough: for a bigger-than-
+    // usual request ("save my home area") covering the search square is not enough.
+    const hasStreets = saved && saved.osm && Array.isArray(saved.osm.ways) && saved.osm.ways.length > 0;
+    if (hasStreets && (saved.osm.radiusM >= radiusM || (radiusM <= DEFAULT_RADIUS_M && coversGrid(saved.osm, center)))) {
       return {
         osm: saved.osm, fromCache: true, savedAt: saved.savedAt,
         more: saved.osm.layers ? null : fetchLayers(saved.osm),
@@ -647,6 +666,9 @@ export async function loadArea(lat, lng, { radiusM = DEFAULT_RADIUS_M, onProgres
     throw err; // err.offline is true when there was no connection
   }
   const osm = parseOverpass(json, center, radiusM);
+  // No streets at all is a bad answer, not a place: don't draw a map on it and never save it
+  // (a saved empty area was reused for every later search there).
+  if (!osm.ways.length) throw new Error('The map data had no streets in it');
   const savedAt = new Date().toISOString();
   try {
     await dbPut(key, { osm, savedAt });

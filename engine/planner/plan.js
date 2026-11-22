@@ -187,6 +187,9 @@ export function planSearch(world, segs, input, overrides) {
   const clock = input.clock;
   const nowMs = clock.nowMs;
   const sinceMin = Math.max(0, Number(clock.minutesSinceLastSeen) || 0);
+  // Containment coverage is kept per 5-minute step and worked out AT that step's own time, so
+  // a phone that has been planning for a while and one that just joined get the same numbers.
+  const bucketMin = Math.round(sinceMin / 5) * 5;
   const night = clock.night ?? isNight(nowMs, world.origin.lat, world.origin.lng, P);
   const nightKey = night ? 1 : 0;
   const state = readEvents(input.events, nowMs);
@@ -258,7 +261,7 @@ export function planSearch(world, segs, input, overrides) {
         const tour = postmanTour(world, task);
         track = tour ? trackOfEdges(world, tour.edges, tour.nodes[0]) : null;
       }
-      cov = coverageOfWork(world, { type, task, track: track || [], fraction: 1, canvass: knocks }, night, sinceMin, P);
+      cov = coverageOfWork(world, { type, task, track: track || [], fraction: 1, canvass: knocks }, night, type === 'containment' ? bucketMin : sinceMin, P);
       caches.eventCov.set(key, cov);
     }
     const s = byId.get(who);
@@ -328,7 +331,7 @@ export function planSearch(world, segs, input, overrides) {
     let cov = task.cov.get(key);
     if (cov) return cov;
     if (task.type === 'park') cov = sweepCoverage(task, parkSweep(task, night, P).coverage);
-    else if (task.type === 'containment') cov = postCoverage(world, task, night, sinceMin, P);
+    else if (task.type === 'containment') cov = postCoverage(world, task, night, bucketMin, P);
     else {
       const walked = trackCoverage(world, tourTrack(task, postmanTour(world, task)), 'search', night, P);
       cov = task.type === 'yards' ? mergeCoverage(world, [walked, canvassCoverage(world, task, night, P)]) : walked;
@@ -556,10 +559,11 @@ export function planSearch(world, segs, input, overrides) {
       .sort((a, b) => (a.travelMin - b.travelMin) || compareIds(a.s.id, b.s.id));
     if (made.length < 2) return null;
     // Both walk the lead's route; the partner's travel is to the lead's starting corner.
+    // The partner must be able to get there by street: the nearest one who can, or no pair.
     const lead = made[0];
-    const mate = made[1];
-    const toStart = mate.s.run.dist[lead.route.entry];
-    const mateTravel = toStart < Infinity ? (toStart + mate.s.offsetM) / mate.s.travelSpeed / 60 : mate.travelMin;
+    const mate = made.slice(1).find((m) => m.s.run.dist[lead.route.entry] < Infinity);
+    if (!mate) return null;
+    const mateTravel = (mate.s.run.dist[lead.route.entry] + mate.s.offsetM) / mate.s.travelSpeed / 60;
     return [lead, { ...lead, s: mate.s, travelMin: mateTravel, totalMin: mateTravel + lead.searchMin }];
   };
   // The partner a hazard holder is waiting for: this task first, with the holder. The look is
@@ -696,6 +700,15 @@ export function planSearch(world, segs, input, overrides) {
     task.bounds = [[sw.lat, sw.lng], [ne.lat, ne.lng]];
     return task.bounds;
   };
+  // How many of a task's squares are within WATER_NEAR_CELLS of water (counted once per task).
+  const waterCells = (task) => {
+    if (task.waterCells === undefined) {
+      let k = 0;
+      for (const c of task.cells) k += world.nearWater[c];
+      task.waterCells = k;
+    }
+    return task.waterCells;
+  };
   const mainLevel = (e) => (g.etype[e] === HW.primary ? 2 : g.etype[e] === HW.secondary ? 1 : 0);
   // How many of a task's squares are woods or brush (counted once per task, then remembered).
   const coverCells = (task) => {
@@ -729,6 +742,8 @@ export function planSearch(world, segs, input, overrides) {
       }
     }
     if (besideWater * world.cellM >= P.WATER_NEAR_MIN_M) raise('water_nearby', 1);
+    // A park is swept off the streets: count the squares of the park itself that are beside water.
+    if (o.task.type === 'park' && waterCells(o.task) * world.cellM >= P.WATER_NEAR_MIN_M) raise('water_nearby', 1);
     if (o.task.type === 'hazard_check') { raise('do_not_enter_water', 3); raise('stay_on_path', 3); }
     // A park task that takes in woods or brush: check that part from the path. (Woods and brush
     // are the engine's second hazard class; see grid.js WOODS_CODES. A warning only: the level
@@ -738,7 +753,9 @@ export function planSearch(world, segs, input, overrides) {
     return { level, warnings: [...warnings].sort() };
   };
   const describe = (o, s, flags = {}) => {
-    const travel = o.route.travel || pathTo(world, s.run, o.route.entry) || { edges: [], nodes: [o.route.entry] };
+    // No street way from this searcher to the start: no option (never a straight line across the map).
+    const travel = o.route.travel || pathTo(world, s.run, o.route.entry);
+    if (!travel) return null;
     const search = o.route.kind === 'tour' ? o.route.open : o.route.kind === 'walk' ? { edges: o.route.edges, nodes: o.route.nodes } : { edges: [], nodes: [] };
     const edges = [...travel.edges, ...search.edges];
     const nodes = [...travel.nodes, ...search.nodes.slice(1)];
@@ -862,7 +879,7 @@ export function planSearch(world, segs, input, overrides) {
       .filter((x) => x.value > 0)
       .sort((a, b) => (b.value - a.value) || compareIds(a.o.task.id, b.o.task.id))
       .slice(0, Math.max(0, P.OPTIONS - (primary ? 1 : 0)))
-      .map((x) => describe(x.o, s));
+      .map((x) => describe(x.o, s)).filter(Boolean);
     if (mine) apply(res, mine.cov, mine.w);
     const options = primary ? [primary, ...others] : others;
     for (const o of options) if (o.ratePerMin > bestRate) bestRate = o.ratePerMin;

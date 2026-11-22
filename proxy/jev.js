@@ -280,7 +280,8 @@ export function placeSupported(name, text) {
   for (const word of norm(name).split(/[^\p{L}\p{N}]+/u)) {
     if (!word) continue;
     if (word.length >= 4 && !NAME_WORDS_SKIP.has(word) && hasWord(t, word)) return true;
-    if ((PLACE_WORDS[word] || []).some((w) => hasWord(t, w))) return true;
+    // hasOwn: a place word like "constructor" must not pick up something built into every object.
+    if ((Object.hasOwn(PLACE_WORDS, word) ? PLACE_WORDS[word] : []).some((w) => hasWord(t, w))) return true;
   }
   return false;
 }

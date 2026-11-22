@@ -29,4 +29,4 @@ export { planSearch, assignedEvent, trackFromLatLngs } from './planner/index.js'
 
 // Bump this whenever the engine gives a different map or plan for the same inputs.
 // Format: date, a dot, a counter (sync.js checks it).
-export const ENGINE_VERSION = '2026-11-22.3';
+export const ENGINE_VERSION = '2026-11-22.4';

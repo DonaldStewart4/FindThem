@@ -16,7 +16,7 @@ import { C } from '../engine/surface.js';
 import { makeRandom } from '../engine/sim.js';
 import * as planner from '../engine/planner/index.js';
 import { G, V, SPECIAL, DEFAULTS, withParams, mobileShare } from '../engine/planner/params.js';
-import { buildWorld, FOOT, CAR, PRIVATE, RAIL_X, shortestFrom, trackOfEdges, cellAtXY } from '../engine/planner/world.js';
+import { buildWorld, FOOT, CAR, PRIVATE, RAIL_X, shortestFrom, trackOfEdges, cellAtXY, toXY, toLatLng } from '../engine/planner/world.js';
 import { buildSegments } from '../engine/planner/segments.js';
 import { postmanTour, orienteer, localGraph, matchOdd } from '../engine/planner/routes.js';
 import {
@@ -589,6 +589,38 @@ test('adapter: the 25 m map is shared out by where people are found (ISRID), or 
   assert.ok(checked > 10);
 });
 
+// The line the screen draws (route.points): the first piece is the searcher getting to the
+// street; every piece after it must be a real street piece this searcher may use. A straight
+// line between two points that no street joins would be drawn through whatever lies between.
+const streetIndex = new WeakMap(); // world → { at: Map(1 cm box → street points), flags: Map('a-b' → marks) }
+function offStreetPieces(world, option, mode) {
+  const { g } = world;
+  if (!streetIndex.has(world)) {
+    const at = new Map(); const flags = new Map();
+    for (let i = 0; i < g.N; i++) { const key = `${Math.round(g.nx[i] * 100)},${Math.round(g.ny[i] * 100)}`; if (!at.has(key)) at.set(key, []); at.get(key).push(i); }
+    for (let e = 0; e < g.E; e++) { const key = `${Math.min(g.ea[e], g.eb[e])}-${Math.max(g.ea[e], g.eb[e])}`; flags.set(key, (flags.get(key) || 0) | g.eflags[e]); }
+    streetIndex.set(world, { at, flags });
+  }
+  const { at, flags } = streetIndex.get(world);
+  const nodesAt = (p) => {
+    const out = [];
+    const bx = Math.round(p.x * 100); const by = Math.round(p.y * 100);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) out.push(...(at.get(`${bx + dx},${by + dy}`) || []));
+    return out;
+  };
+  const bit = mode === 'car' ? CAR : FOOT;
+  const pts = option.route.points.map((p) => toXY(world, p.lat, p.lng));
+  const bad = [];
+  for (let i = 2; i < pts.length; i++) {
+    const meters = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (meters < 0.02) continue; // the same street point twice
+    const from = nodesAt(pts[i - 1]); const to = nodesAt(pts[i]);
+    const street = from.some((a) => to.some((b) => (flags.get(`${Math.min(a, b)}-${Math.max(a, b)}`) || 0) & bit));
+    if (!street) bad.push(`piece ${i} of ${option.taskId}: ${meters.toFixed(0)} m with no street`);
+  }
+  return bad;
+}
+
 test('safety rules on the real map: no water, yards, buildings, rail or driveways; pairs for hazards; cars on roads', (t) => {
   let routes = 0; let hazardPairs = 0; let railCrossings = 0; let crossings = 0;
   const seenTypes = new Set();
@@ -602,6 +634,7 @@ test('safety rules on the real map: no water, yards, buildings, rail or driveway
       for (const s of plan.searchers) {
         for (const option of s.options) {
           routes += 1; seenTypes.add(option.type);
+          assert.deepEqual(offStreetPieces(world, option, s.mode), [], 'the drawn line follows real street pieces');
           const task = segs.tasks.get(option.taskId);
           // Every square of the route is a road, path or public service way: never water, a yard,
           // a building or a fence.
@@ -785,6 +818,70 @@ test('a held task keeps the danger warnings it was offered with (water, rail, ni
   }
   t.diagnostic(`${held} held tasks checked: ${hazards} hazard checks, ${water} routes beside water, ${rail} crossing rail; ${withCodes} carry a warning besides 'night'`);
   assert.ok(held > 20 && hazards >= 2 && water > 0 && withCodes > 0);
+});
+
+test('a pair partner who cannot reach the lead\'s start by street is not sent there in a straight line', (t) => {
+  const { world, segs } = planner.plannerWorld(area, CASES[0]);
+  const { g } = world;
+  const here = (v) => toLatLng(world, g.nx[v], g.ny[v]);
+  let checked = 0; let stillPaired = 0;
+  for (const task of segs.hazards) {
+    const tour = postmanTour(world, task);
+    if (!tour) continue;
+    // The lead stands on the tour's first corner. The partner stands where another corner of
+    // the tour is within their 2 km street reach but the lead's corner is not.
+    const corners = [...new Set(tour.nodes)];
+    const lead = corners[0];
+    const fromLead = shortestFrom(world, lead, FOOT, DEFAULTS.MAX_TRAVEL_M);
+    let far = -1;
+    for (const corner of corners.slice(1)) {
+      const run = shortestFrom(world, corner, FOOT, DEFAULTS.MAX_TRAVEL_M);
+      for (let v = 0; v < g.N && far < 0; v++) {
+        if (run.dist[v] > 1500 && run.dist[v] < 1990 && fromLead.dist[v] === Infinity && (g.nodeModes[v] & FOOT) && Math.hypot(g.nx[v] - task.x, g.ny[v] - task.y) <= 1990) far = v;
+      }
+      if (far >= 0) break;
+    }
+    if (far < 0) continue;
+    const plan = planReal(0, [{ id: 'lead', mode: 'foot', at: NOON, ...here(lead) }, { id: 'mate', mode: 'foot', at: NOON, ...here(far) }]);
+    checked += 1;
+    for (const s of plan.searchers) {
+      for (const option of s.options) assert.deepEqual(offStreetPieces(world, option, s.mode), [], `${s.searcherId}: no straight line across the map`);
+      if (s.primary && s.primary.partnerId) stillPaired += 1;
+    }
+    if (checked >= 3) break;
+  }
+  t.diagnostic(`${checked} plans with a partner out of street reach of the lead's start; ${stillPaired / 2} pairs still formed (by a route the partner can walk)`);
+  assert.ok(checked >= 1, 'the map has such a place');
+});
+
+test('a park sweep beside water carries the water warning', (t) => {
+  let parks = 0; let beside = 0;
+  for (const k of [0, 1]) {
+    const { world, segs } = planner.plannerWorld(area, CASES[k]);
+    for (const seed of [5, 10, 15, 20, 25, 30]) {
+      for (const s of planReal(k, people(CASES[k], 8, seed + k, 0)).searchers) for (const option of s.options) {
+        if (option.type !== 'park') continue;
+        parks += 1;
+        const near = segs.tasks.get(option.taskId).cells.reduce((sum, c) => sum + world.nearWater[c], 0) * world.cellM;
+        if (near >= DEFAULTS.WATER_NEAR_MIN_M) { beside += 1; assert.ok(option.danger.warnings.includes('water_nearby') && option.danger.level >= 1, `${option.taskId}: ${near} m of park beside water`); }
+      }
+    }
+  }
+  t.diagnostic(`${parks} park options; ${beside} with ${DEFAULTS.WATER_NEAR_MIN_M} m or more of the park within 30 m of water, all warned`);
+  assert.ok(beside > 0, 'a park beside water was offered');
+});
+
+test('determinism: a phone that has been planning for a while and one that just joined give the same plan', () => {
+  // The case clock runs (minutesAt), so containment coverage changes with time. Phone A planned
+  // at 67.6 minutes since last seen; phone B (a separate world: params {}) first plans at 72.4.
+  const timed = { ...CASES[0], minutesAt: NOON };
+  const searchers = people(CASES[0], 7, 35, 1);
+  const ask = (params, minutes) => planner.planSearch(area, timed, predictions[0], { searchers, events: [], nowMs: NOON + minutes * 60000, params });
+  ask(undefined, 7.6);
+  const warm = JSON.parse(JSON.stringify(ask(undefined, 12.4)));
+  const fresh = JSON.parse(JSON.stringify(ask({}, 12.4)));
+  assert.ok(warm.searchers.some((s) => s.options.some((o) => o.type === 'containment')), 'a containment post is among the options');
+  assert.deepEqual(fresh, warm);
 });
 
 test('no pile-up on the real map: nobody knocks on the same doors or stands on the same post; sharing is rare', (t) => {

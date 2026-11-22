@@ -17,7 +17,7 @@ python3 -m http.server 8000
 Then open http://localhost:8000 and tap **Demo**.
 
 - Nothing to install and nothing to build: plain HTML, CSS and JavaScript. The Demo's Fremont streets ship with the app, so it works with no signal and no keys.
-- Tests: `node --test` (tested on Node 22; no `npm install`, there are no packages).
+- Tests: `node --test` (tested on Node 22; no `npm install`, there are no packages). The engine's speed limits are printed on every run and enforced only with `FINDTHEM_PERF=1 node --test`, because wall-clock limits fail on a busy computer.
 - Open the page through the server, not as a file: the offline part only works on `localhost` or HTTPS.
 
 ## What FindThem is

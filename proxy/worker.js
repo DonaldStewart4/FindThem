@@ -67,6 +67,9 @@ async function askJev(env, body) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.TYPESAFE_API_KEY}` },
       body: JSON.stringify(body),
+      // If Jev hangs, give up after 6 s so the phone's backup reader takes over quickly
+      // (the phone itself waits 15 s before giving up on this Worker).
+      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}),
     });
     if (res.ok) return res.json();
     if ((res.status === 429 || res.status === 529) && attempt < JEV_ATTEMPTS - 1) {
@@ -113,6 +116,8 @@ async function readReport(request, env) {
   } catch (err) {
     return reply(env, 400, { error: 'bad_json' });
   }
+  // JSON that isn't an object (null, a number, a list) is just as unusable as broken JSON.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return reply(env, 400, { error: 'bad_json' });
   const text = typeof body.text === 'string' ? body.text.slice(0, MAX_TEXT).trim() : '';
   if (!text) return reply(env, 400, { error: 'no_text' });
   const lang = typeof body.lang === 'string' ? body.lang.slice(0, 5) : 'en';
@@ -148,6 +153,8 @@ async function sayRoute(request, env) {
   } catch (err) {
     return reply(env, 400, { error: 'bad_json' });
   }
+  // JSON that isn't an object (null, a number, a list) is just as unusable as broken JSON.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return reply(env, 400, { error: 'bad_json' });
   const out = await say(env, body);
   return reply(env, out.status, out.body);
 }
@@ -181,6 +188,8 @@ async function speak(request, env) {
   } catch (err) {
     return reply(env, 400, { error: 'bad_json' });
   }
+  // JSON that isn't an object (null, a number, a list) is just as unusable as broken JSON.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return reply(env, 400, { error: 'bad_json' });
   const text = typeof body.text === 'string' ? body.text.slice(0, MAX_SPEAK_CHARS).trim() : '';
   if (!text) return reply(env, 400, { error: 'no_text' });
   const lang = typeof body.lang === 'string' ? body.lang.slice(0, 5) : '';

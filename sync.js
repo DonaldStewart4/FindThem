@@ -424,6 +424,7 @@ export function flushQueue() {
 
 async function flushOnce() {
   let queue = readQueue();
+  let refused = null; // the first event the database said no to, if any
   while (queue.length) {
     const item = queue[0];
     if (!item.id) { // queued by an older version of this file: give it an id now, and keep it
@@ -454,24 +455,40 @@ async function flushOnce() {
         return { queued: true, error: 'offline' };
       }
     }
+    // A passing trouble on the server's side (too busy, an error of its own): the event is
+    // fine, so KEEP it and try again later. Only a real "no" (bad request, not allowed) drops it.
+    if (!ok && (res.status === 408 || res.status === 429 || res.status >= 500)) {
+      return { queued: true, error: 'offline', status: res.status };
+    }
     // Remove what we just sent. Re-read first: new events may have been added meanwhile.
     queue = readQueue().filter((q) => q.id !== id);
     writeQueue(queue);
-    if (!ok) return { ok: false, error: 'rejected', status: res.status };
+    // Refused for good: remember it, and carry on with the events behind it (they used to
+    // wait until something else set the queue going again).
+    if (!ok && !refused) refused = { ok: false, error: 'rejected', status: res.status };
   }
-  return { ok: true };
+  return refused || { ok: true };
 }
 
 // ---- Offline queue -----------------------------------------------------------------------
 
+// If the phone's storage is blocked or full, the queue is kept in memory instead (it lasts
+// until the page is closed). Before, nothing was kept, and every event was reported as sent.
+let memoryQueue = null;
 function readQueue() {
+  if (memoryQueue) return memoryQueue.filter((x) => isObj(x) && isObj(x.event));
   try {
     const q = JSON.parse(localStorage.getItem(QUEUE_KEY));
     return Array.isArray(q) ? q.filter((x) => isObj(x) && isObj(x.event)) : [];
   } catch { return []; }
 }
 function writeQueue(queue) {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue)); } catch { /* storage blocked */ }
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    memoryQueue = null;
+  } catch {
+    memoryQueue = queue.slice(); // storage blocked or full
+  }
 }
 
 // How many events are waiting to be sent.
@@ -679,7 +696,9 @@ export function subscribe(searchId, onChange, onStatus = () => {}) {
     return () => {};
   }
   let mirror = {};
-  const source = new EventSource(url(`searches/${searchId}`));
+  let source = null;
+  let stopped = false;
+  let reopenTimer = null;
 
   const handle = (kind) => (message) => {
     let change;
@@ -700,15 +719,32 @@ export function subscribe(searchId, onChange, onStatus = () => {}) {
   // "x updates waiting" count goes away once they're sent.
   const flush = () => { flushQueue().then(() => onStatus(lastStatus)); };
 
-  source.addEventListener('put', handle('put'));
-  source.addEventListener('patch', handle('patch'));
-  source.addEventListener('open', () => { status('live'); flush(); });
-  source.addEventListener('error', () => status('reconnecting')); // the browser retries by itself
-  source.addEventListener('cancel', () => { status('denied'); source.close(); }); // rules said no
+  const open = () => {
+    if (stopped) return;
+    mirror = {}; // a new stream starts by sending everything again
+    const stream = new EventSource(url(`searches/${searchId}`));
+    source = stream;
+    stream.addEventListener('put', handle('put'));
+    stream.addEventListener('patch', handle('patch'));
+    stream.addEventListener('open', () => { status('live'); flush(); });
+    stream.addEventListener('error', () => {
+      status('reconnecting');
+      // The browser retries a dropped connection by itself. But when the server ANSWERS with
+      // an error (503, say), the browser closes the stream for good (readyState 2) and the
+      // phone would never hear another update. Then open a new stream a little later.
+      if (stream.readyState === 2 && !stopped && !reopenTimer) {
+        reopenTimer = setTimeout(() => { reopenTimer = null; open(); }, 5000);
+      }
+    });
+    stream.addEventListener('cancel', () => { status('denied'); stopped = true; stream.close(); }); // rules said no
+  };
+  open();
   window.addEventListener('online', flush);
 
   return () => {
-    source.close();
+    stopped = true;
+    clearTimeout(reopenTimer);
+    if (source) source.close();
     window.removeEventListener('online', flush);
   };
 }

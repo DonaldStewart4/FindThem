@@ -167,3 +167,75 @@ test('an update whose send failed is sent again 15 s later, with nobody posting 
     t.mock.timers.reset();
   }
 });
+
+// ---- Push 2 --------------------------------------------------------------------------------
+
+test('a server that is briefly too busy (503) does not delete the update; a real "no" does not block the ones behind it', async () => {
+  const realFetch = globalThis.fetch;
+  const id = 'e5'.repeat(16);
+  const tried = [];
+  let mode = 'busy';
+  globalThis.fetch = async (url, opts = {}) => {
+    const body = opts.body ? JSON.parse(opts.body) : null;
+    if (opts.method === 'PUT') tried.push(body.text);
+    if (mode === 'busy') return { ok: false, status: 503, json: async () => null };
+    if (body && body.text === 'refused') return { ok: false, status: 401, json: async () => null };
+    if (!body) return { ok: false, status: 404, json: async () => null }; // the "is it there already?" look
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  try {
+    sync.setDbUrl('https://db.example.test');
+    const at = Date.now();
+    const first = await sync.addEvent(id, { type: 'message', text: 'refused', at, cid: 'c-1' });
+    assert.equal(first.queued, true, '503: kept for later');
+    assert.equal(sync.queuedEvents(id).length, 1);
+    await sync.addEvent(id, { type: 'message', text: 'good one', at: at + 1, cid: 'c-2' });
+    assert.equal(sync.queuedEvents(id).length, 2);
+
+    mode = 'up';
+    tried.length = 0;
+    const result = await sync.flushQueue();
+    assert.deepEqual(tried, ['refused', 'good one'], 'the event behind the refused one is sent in the same go');
+    assert.equal(result.error, 'rejected');
+    assert.equal(sync.queuedEvents(id).length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+    sync.setDbUrl('');
+  }
+});
+
+test('an Overpass "runtime error" answer, or one that is not JSON, counts as busy, not as a map and not as no internet', async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ elements: [], remark: 'runtime error: Query timed out in "query" at line 3 after 91 seconds.' }), { status: 200 }); };
+    const reports = [];
+    await assert.rejects(
+      data.fetchOverpass(37.55, -121.97, 3200, { attempts: 3, firstDelayMs: 1, onProgress: (p) => reports.push(p) }),
+      (err) => !err.offline && /timed out/.test(err.message),
+    );
+    assert.equal(calls, 3, 'every try was used');
+    assert.ok(reports.filter((p) => p.stage === 'retry').every((p) => p.reason === 'busy'));
+
+    globalThis.fetch = async () => new Response('<html><body>too busy</body></html>', { status: 200 });
+    await assert.rejects(
+      data.fetchOverpass(37.55, -121.97, 3200, { attempts: 3, firstDelayMs: 1 }),
+      (err) => !err.offline,
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a search with a oddly written sector id ("r015c016") shows as searched on that sector', () => {
+  const area = engine.prepareArea(osm);
+  const now = 1795000000000;
+  const caseInput = { lastSeen: { lat: 37.5443, lng: -121.9766 }, minutes: 90, direction: null, mobility: 'normal', familiarPlaces: [], seed: 7, minutesAt: now };
+  const map = engine.replay(area, caseInput, [{ type: 'searched', sectorId: 'r015c016', minutes: 30, at: now, id: 'a' }]);
+  assert.equal(map.grid.sectors.find((s) => s.id === 'r15c16').searchedMinutes, 30);
+});
+
+test('the bundled Demo file counts as covering a pin only when it covers that pin\'s whole map', () => {
+  assert.equal(data.coversGrid(osm, { lat: 37.541, lng: -121.98 }), true, 'the Demo case itself');
+  assert.equal(data.coversGrid(osm, { lat: 37.570, lng: -121.970 }), false, 'a pin 1.9 km north of where the map opens');
+});

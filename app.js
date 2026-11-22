@@ -138,7 +138,8 @@ function newSeed() {
 let eventCounter = 0;
 function newEventId() {
   eventCounter += 1;
-  return `local-${Date.now()}-${eventCounter}`;
+  // My searcher id is part of it: two phones posting in the same millisecond must not make the same id.
+  return `${state.searcherId || 'local'}-${Date.now()}-${eventCounter}`;
 }
 
 // Small helpers for remembering settings (language, units) on this phone.
@@ -465,6 +466,8 @@ function placeAt(point, label = '') {
     state.events = [];        // ...and starts with no searches or sightings
     leaveSharedSearch();      // ...and is not the shared search any more
     resetTasks();             // ...and has no tasks taken, and nobody found
+    state.minutesAt = null;   // ...and its clock starts when it is run (not the last case's)
+    state.caseStartedAt = null;
     if (state.fromDemo) clearDemoDetails(); // the Demo's made-up details must not leak into a real search
     setMode(null);
   } else if (state.mode === 'familiar') {
@@ -769,6 +772,8 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
   }
   // In a shared search, what I changed in "What you know" is a correction for everyone.
   const corrected = sendCaseCorrections();
+  // The form and the shared database allow 1–1440 minutes; a bigger number typed in is cut to that.
+  if (Number(els.minutes.value) > MAX_MINUTES) els.minutes.value = MAX_MINUTES;
   if (keepClock || state.searchId) ageMinutes(); // catch up on time that already passed
   else state.minutesAt = Date.now();
   const caseInput = readCase();
@@ -821,7 +826,8 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     showProgress(100);
     await new Promise((resolve) => setTimeout(resolve, 300)); // let the full bar show for a moment
     hideProgress();
-    if (savedNotice) showStatus(savedNotice); // "Using streets saved on …"
+    // "Using streets saved on …", or "the map will sharpen": that one stays until it has.
+    if (savedNotice) showStatus(savedNotice, { sticky: savedNotice === t('mapRefining') });
     else if (corrected) showStatus(t('caseUpdated'));
   } finally {
     hideProgress();
@@ -891,7 +897,11 @@ async function recompute() {
 // arrived for the area we're showing. Swap them in and work the map out again.
 // `better` is { osm, savedAt }, or null if they couldn't be fetched (the map stays as it is).
 function refineArea(key, version, better) {
-  if (!better || areaCache.key !== key || areaCache.areaVersion !== version) return; // moved on to another area
+  if (!better || areaCache.key !== key || areaCache.areaVersion !== version) {
+    // Couldn't be fetched (or we moved on): take the "map will sharpen" note down.
+    if (els.status.textContent === t('mapRefining')) hideStatus();
+    return;
+  }
   areaCache = {
     ...areaCache,
     area: engine.withLayers(areaCache.area, better.osm.layers),
@@ -949,7 +959,11 @@ function recordEvent(event) {
     // The database refuses anything that isn't exactly a known event. sync.js runs the same
     // check, so ask it first: an event that would be refused must not sit on this phone's map.
     const problem = sync.checkEvent(ev);
-    if (problem) { console.warn('Event not recorded, it breaks the rules:', problem, ev); return false; }
+    if (problem) {
+      console.warn('Event not recorded, it breaks the rules:', problem, ev);
+      showStatus(t('eventRefused'), { error: true }); // say so: nothing was sent
+      return false;
+    }
     state.optimistic.push(ev);
     sync.addEvent(state.searchId, ev).then((result) => {
       renderLiveStatus();
@@ -2490,13 +2504,19 @@ function applyCase(c) {
   map.setView(state.lastSeen, 15);
 }
 
+let sharingNow = false; // true while the first Share is creating the shared search
 async function shareSearch() {
   if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
   saveName();
 
   // First share: create the shared search and move this phone's events into it.
   let offlineNote = false; // true when there was no signal, so the link isn't live yet
+  // A second tap while the first is still creating the search must not create another one
+  // (the phone then listened to the second while its earlier events went to the first).
+  if (sharingNow) return;
   if (!state.searchId && sync.isConfigured()) {
+    sharingNow = true;
+    setTimeout(() => { sharingNow = false; }, 20000); // never stuck, whatever happens below
     const id = sync.newSearchId();
     const caseDoc = { ...readCase(), minutesAt: state.minutesAt, area: state.areaSource, startedBy: state.myName, startedAt: state.caseStartedAt };
     const result = await sync.createSearch(id, caseDoc);
@@ -2518,6 +2538,7 @@ async function shareSearch() {
     }
   }
 
+  sharingNow = false;
   const link = shareLink();
   els.shareLink.hidden = true;
   if (offlineNote) showStatus(t('shareOffline'), { sticky: true }); // still visible after the share sheet
@@ -2643,7 +2664,8 @@ async function joinFromLink() {
   await runPrediction({ useDemoData: params.get('a') === 'demo', keepClock: true });
   // Couldn't reach the database: say so, because the map has none of the others' updates
   // yet (it fills in by itself when the connection comes back).
-  if (searchId && sync.isConfigured() && !reachedDatabase) showStatus(t('joinFailed'));
+  // Couldn't reach the database, or it holds no such search (a mistyped or made-up link): don't say "joined".
+  if (searchId && sync.isConfigured() && (!reachedDatabase || !fromDatabase)) showStatus(t('joinFailed'));
   else if (state.searchId) showStatus(t('joinedSearch'));
   return true;
 }
@@ -2708,7 +2730,14 @@ function sendMessage() {
 const coords = (p) => `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
 
 // The sheet as plain text, in one language.
+// The hand-off sheet in `lang`. Dates, times and percentages follow that language too (the
+// English copy used to take the screen language's formats).
 function handoffText(lang) {
+  const saved = i18n.getLanguage();
+  i18n.setLanguage(lang);
+  try { return handoffTextIn(lang); } finally { i18n.setLanguage(saved); }
+}
+function handoffTextIn(lang) {
   const tr = (key, vars) => i18n.tIn(lang, key, vars);
   const c = readCase();
   const started = state.caseStartedAt || Date.now();
@@ -2958,8 +2987,12 @@ function start() {
 // After a demo, re-running with a last-seen point still inside the demo area reuses the
 // bundled demo data instead of downloading again.
 function isNearDemo() {
-  if (!state.lastSeen) return false;
-  return map.distance(state.lastSeen, DEMO_LOCATION) < 2000;
+  if (!state.lastSeen || !areaCache.osm) return false;
+  // "Near" means the bundled file covers the whole map this pin needs (the map is a square
+  // around the pin, rounded to 3 decimals as the engine does). A fixed distance let pins
+  // through whose map ran off the edge of the file, with nothing saying so.
+  const center = { lat: Number(state.lastSeen.lat.toFixed(3)), lng: Number(state.lastSeen.lng.toFixed(3)) };
+  return data.coversGrid(areaCache.osm, center);
 }
 
 start();

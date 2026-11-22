@@ -16,7 +16,10 @@ The repro scripts are not in the repo (the audit was allowed to add only this fi
 
 ## Status: fixed in the first round (same day)
 
-Fixed on `main` right after this audit, with a test or a browser check for each (see `CommitHistory.md`, "Audit fixes, push 1"): the five criticals (1–5), 12 (emergency number), 13 (a finished task fades the map), 17 (a held task keeps its warnings), 21 (time limit on the street download) and 36 (a second share link in the same tab). Part of 15 (the share link's database read now gives up after 8 s) and of 23 (the queue is retried every 15 s). Everything else below is still open.
+Fixed on `main` right after this audit, with a test or a browser check for each (see `CommitHistory.md`, "Audit fixes, push 1"): the five criticals (1–5), 12 (emergency number), 13 (a finished task fades the map), 17 (a held task keeps its warnings), 21 (time limit on the street download) and 36 (a second share link in the same tab). Part of 15 (the share link's database read now gives up after 8 s) and of 23 (the queue is retried every 15 s). 
+**Second round (same day, "Audit fixes, push 2"):** the report-box word rules 6–11 and 45, and 14, 18 (the pair-partner part), 19, 20, 22, 23, 24, 26, 27, 28, 29, 30, 31, 33, 34, 37, 38, 39 (the banner), 40, 41, 42, 43, and improvements 3 and 4.
+
+**Still open:** 16 (Found can't be taken back), 18 (the first, dashed piece of a route), 25, 32, 35, 44, the rest of 15 and 39, and improvements 1, 2 and 5 (5 is partly done: the safety test now checks every piece after the first).
 
 ## Fix these first
 
