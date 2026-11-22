@@ -1,0 +1,464 @@
+{
+ "date": "2026-11-22T10:00:01.706Z",
+ "cases": 161,
+ "withDistance": 85,
+ "withMinutes": 73,
+ "withBoth": 41,
+ "strict": 147,
+ "settings": {
+  "urban": 24,
+  "suburban": 73,
+  "rural": 64
+ },
+ "bins": [
+  "within 0.3 km",
+  "0.3 to 1.1 km",
+  "1.1 to 3.2 km",
+  "beyond 3.2 km"
+ ],
+ "modelDistance": [
+  {
+   "label": "ISRID urban curve (what the statistics map uses)",
+   "bins": [
+    0.25,
+    0.25,
+    0.25,
+    0.25
+   ]
+  },
+  {
+   "label": "ISRID temperate curve (the alternative for open country)",
+   "bins": [
+    0.25,
+    0.2772,
+    0.2572,
+    0.2156
+   ]
+  },
+  {
+   "label": "Calibrated walkers, held-out Fremont starts",
+   "bins": [
+    0.264,
+    0.2347,
+    0.3066,
+    0.1948
+   ]
+  }
+ ],
+ "distance": [
+  {
+   "label": "All cases with a distance",
+   "n": 85,
+   "q25": 0.4,
+   "q50": 1.16,
+   "q75": 3.63,
+   "bins": [
+    0.1529,
+    0.3412,
+    0.2235,
+    0.2824
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Strict cases",
+   "n": 77,
+   "q25": 0.4,
+   "q50": 1.07,
+   "q75": 3.43,
+   "bins": [
+    0.1429,
+    0.3636,
+    0.2208,
+    0.2727
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Both points known to street level",
+   "n": 14,
+   "q25": 0.61,
+   "q50": 1.62,
+   "q75": 5.06,
+   "bins": [
+    0.0714,
+    0.3571,
+    0.1429,
+    0.4286
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Distance stated in the article",
+   "n": 41,
+   "q25": 0.4,
+   "q50": 0.8,
+   "q75": 1.74,
+   "bins": [
+    0.1951,
+    0.4634,
+    0.2195,
+    0.122
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Located to a neighborhood only (±1–2 km)",
+   "n": 30,
+   "q25": 0.6,
+   "q50": 2.5,
+   "q75": 5.62,
+   "bins": [
+    0.1333,
+    0.1667,
+    0.2667,
+    0.4333
+   ],
+   "coarseOnly": true
+  },
+  {
+   "label": "Setting: urban",
+   "n": 14,
+   "q25": 1.58,
+   "q50": 4.72,
+   "q75": 5.85,
+   "bins": [
+    0.0714,
+    0.1429,
+    0.2143,
+    0.5714
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Setting: suburban",
+   "n": 43,
+   "q25": 0.58,
+   "q50": 1.5,
+   "q75": 3.43,
+   "bins": [
+    0.1395,
+    0.3488,
+    0.2326,
+    0.2791
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Setting: rural",
+   "n": 28,
+   "q25": 0.4,
+   "q50": 0.61,
+   "q75": 2.01,
+   "bins": [
+    0.2143,
+    0.4286,
+    0.2143,
+    0.1429
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Found alive",
+   "n": 49,
+   "q25": 0.4,
+   "q50": 0.8,
+   "q75": 3.22,
+   "bins": [
+    0.1633,
+    0.4082,
+    0.1633,
+    0.2653
+   ],
+   "coarseOnly": false
+  },
+  {
+   "label": "Found deceased",
+   "n": 36,
+   "q25": 0.61,
+   "q50": 1.88,
+   "q75": 3.91,
+   "bins": [
+    0.1389,
+    0.25,
+    0.3056,
+    0.3056
+   ],
+   "coarseOnly": false
+  }
+ ],
+ "minutes": {
+  "n": 73,
+  "q25": 480,
+  "q50": 1250,
+  "q75": 3345
+ },
+ "byTime": [
+  {
+   "label": "up to 3 hours",
+   "n": 2,
+   "medianMinutes": 120,
+   "real": {
+    "n": 2,
+    "q25": 0.9,
+    "q50": 3.22,
+    "q75": 3.22
+   },
+   "curve": {
+    "q25": 0.3,
+    "q50": 0.87,
+    "q75": 1.65
+   },
+   "walkers": {
+    "q25": 0.25,
+    "q50": 0.82,
+    "q75": 1.48,
+    "atMinutes": 120
+   }
+  },
+  {
+   "label": "3 to 12 hours",
+   "n": 9,
+   "medianMinutes": 345,
+   "real": {
+    "n": 9,
+    "q25": 0.4,
+    "q50": 0.8,
+    "q75": 1.62
+   },
+   "curve": {
+    "q25": 0.3,
+    "q50": 1.1,
+    "q75": 2.8
+   },
+   "walkers": {
+    "q25": 0.38,
+    "q50": 1.65,
+    "q75": 3.13,
+    "atMinutes": 345
+   }
+  },
+  {
+   "label": "12 to 24 hours",
+   "n": 11,
+   "medianMinutes": 960,
+   "real": {
+    "n": 11,
+    "q25": 0.61,
+    "q50": 1.88,
+    "q75": 4.83
+   },
+   "curve": {
+    "q25": 0.3,
+    "q50": 1.1,
+    "q75": 3.2
+   },
+   "walkers": {
+    "q25": 0.43,
+    "q50": 2.16,
+    "q75": 4.5,
+    "atMinutes": 720
+   }
+  },
+  {
+   "label": "more than a day",
+   "n": 19,
+   "medianMinutes": 4935,
+   "real": {
+    "n": 19,
+    "q25": 1.74,
+    "q50": 3.06,
+    "q75": 8.27
+   },
+   "curve": {
+    "q25": 0.3,
+    "q50": 1.1,
+    "q75": 3.2
+   },
+   "walkers": {
+    "q25": 0.43,
+    "q50": 2.16,
+    "q75": 4.5,
+    "atMinutes": 720
+   }
+  }
+ ],
+ "findType": {
+  "model": [
+   {
+    "label": "ISRID urban (the calibration target)",
+    "n": 223,
+    "mix": {
+     "structure": 0.35,
+     "road": 0.36,
+     "linear": 0.09,
+     "field": 0.06,
+     "water": 0.06,
+     "drainage": 0.04,
+     "woods": 0.03,
+     "brush": 0.01
+    }
+   },
+   {
+    "label": "ISRID temperate",
+    "n": 207,
+    "mix": {
+     "structure": 0.2,
+     "road": 0.18,
+     "linear": 0.09,
+     "field": 0.14,
+     "water": 0.07,
+     "drainage": 0.09,
+     "woods": 0.17,
+     "brush": 0.06
+    }
+   },
+   {
+    "label": "Calibrated walkers, held-out Fremont starts",
+    "n": 14400,
+    "mix": {
+     "structure": 0.3834,
+     "road": 0.3765,
+     "linear": 0.0881,
+     "field": 0.0172,
+     "water": 0.0537,
+     "drainage": 0.081,
+     "woods": 0.0001,
+     "brush": 0
+    }
+   }
+  ],
+  "real": [
+   {
+    "label": "All real cases",
+    "n": 146,
+    "mix": {
+     "structure": 0.0959,
+     "road": 0.1507,
+     "linear": 0.0685,
+     "field": 0.0616,
+     "water": 0.2055,
+     "drainage": 0.0753,
+     "woods": 0.2671,
+     "brush": 0.0753
+    }
+   },
+   {
+    "label": "Found alive",
+    "n": 81,
+    "mix": {
+     "structure": 0.1235,
+     "road": 0.2222,
+     "linear": 0.0741,
+     "field": 0.0617,
+     "water": 0.0864,
+     "drainage": 0.0741,
+     "woods": 0.2469,
+     "brush": 0.1111
+    }
+   },
+   {
+    "label": "Found deceased",
+    "n": 65,
+    "mix": {
+     "structure": 0.0615,
+     "road": 0.0615,
+     "linear": 0.0615,
+     "field": 0.0615,
+     "water": 0.3538,
+     "drainage": 0.0769,
+     "woods": 0.2923,
+     "brush": 0.0308
+    }
+   },
+   {
+    "label": "Setting: urban",
+    "n": 17,
+    "mix": {
+     "structure": 0.4118,
+     "road": 0.3529,
+     "linear": 0,
+     "field": 0,
+     "water": 0.1765,
+     "drainage": 0,
+     "woods": 0.0588,
+     "brush": 0
+    }
+   },
+   {
+    "label": "Setting: suburban",
+    "n": 69,
+    "mix": {
+     "structure": 0.1014,
+     "road": 0.1449,
+     "linear": 0.058,
+     "field": 0.0435,
+     "water": 0.2464,
+     "drainage": 0.1014,
+     "woods": 0.2319,
+     "brush": 0.0725
+    }
+   },
+   {
+    "label": "Setting: rural",
+    "n": 60,
+    "mix": {
+     "structure": 0,
+     "road": 0.1,
+     "linear": 0.1,
+     "field": 0.1,
+     "water": 0.1667,
+     "drainage": 0.0667,
+     "woods": 0.3667,
+     "brush": 0.1
+    }
+   }
+  ]
+ },
+ "hazard": {
+  "deceased": 70,
+  "deceasedShareOfAll": 0.4348,
+  "typed": 65,
+  "mix": {
+   "structure": 0.0615,
+   "road": 0.0615,
+   "linear": 0.0615,
+   "field": 0.0615,
+   "water": 0.3538,
+   "drainage": 0.0769,
+   "woods": 0.2923,
+   "brush": 0.0308
+  },
+  "inHazardTypes": 0.4308,
+  "aliveInHazardTypes": 0.1605,
+  "notCovered": {
+   "structure": 0.0615,
+   "road": 0.0615,
+   "linear": 0.0615,
+   "field": 0.0615,
+   "woods": 0.2923,
+   "brush": 0.0308
+  },
+  "distance": {
+   "deceased": {
+    "n": 36,
+    "q25": 0.61,
+    "q50": 1.88,
+    "q75": 3.91
+   },
+   "alive": {
+    "n": 49,
+    "q25": 0.4,
+    "q50": 0.8,
+    "q75": 3.22
+   },
+   "deceasedWithin800m": 0.3056,
+   "aliveWithin800m": 0.5306
+  },
+  "waterFindsDeceased": 0.6829,
+  "otherFindsDeceased": 0.3524,
+  "reachM": 150,
+  "minChance": 0.005
+ },
+ "maps": null
+}

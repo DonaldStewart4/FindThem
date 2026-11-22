@@ -13,5 +13,11 @@ compatibility_date = "2024-11-01"
 # Only this website may call the proxy (no trailing slash). Use "*" to allow any site
 # while testing from your own computer.
 ALLOWED_ORIGIN = "https://donaldstewart4.github.io"
+# POST /say (proxy/say.js): the text LLM that words short replies. The key is a secret:
+#   npx wrangler secret put LLM_API_KEY
+# Without it, /say always answers with the fixed templates (replies.js), which is safe.
+LLM_PROVIDER = "anthropic"        # or "openai-compatible" (any /chat/completions API; then set LLM_MODEL and LLM_BASE_URL)
+LLM_MODEL = "claude-opus-5-5"
+# LLM_BASE_URL = "https://api.example.com/v1"
 # Optional: a different ElevenLabs voice (find ids in your ElevenLabs voice library).
 # ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"

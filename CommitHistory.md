@@ -47,7 +47,8 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - the prediction runs on the phone; tests use `node --test`
 - **Must-haves by the deadline:** engine + tests, map + inputs, shared searched areas, routes for searchers, sightings, messaging, the voice/text report box, share link, police hand-off sheet, offline PWA, all 5 languages (en/es/fr/zh/ja), Demo button.
 - **Report box rules:** never called a "chatbot" in the UI. Jev answers multiple-choice questions about the text (low-confidence answers left empty) to make a draft; the person confirms before it becomes an event; the LLM never sets probabilities; the manual form is the fallback and works offline.
-- **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes.
+- **The benchmark is done** (2026-11-21, `bench/benchmark.js`): found after 1,500 searcher-minutes, on their own 21%, ring sweep 29%, FindThem 54%, FindThem + sighting 77% (1,000 simulated cases). Re-run it if the engine changes. *(On branch `prior-v2`, 2026-11-22, where the "true" people come from a different walker model than the app's: 19% / 28% / 40% / 86%. The 54% had been helped by both sides sharing one model.)*
+- **Engine rewrite, "prior v2" (2026-11-22, Nathan; merged into `main` at release, see the "Release" entry):** the engine's prior was rewritten: a 10 m ground map, walkers stored minute by minute, an ISRID statistics map blended in (95% / 5% by evaluation), an explicit rest-of-world share, a hazard layer, a grid anchored to the case, calibration (`tools/calibrate.js`) and an evaluation on held-out start points (`bench/prior-report.md`). Nathan now owns `engine/`. `BEN.md` lists what changed in the screen files; `INTERFACES.md` has the new contract.
 - **Demo and tuning area: Fremont, CA**, around Central Park / Lake Elizabeth (~37.553, −121.970). It replaces Austin. Checked against Overpass: 3,408 walkable ways and 85 trap features within 1 mile. `waterway=pressurised` (underground pipes) must be skipped.
 - **Kept from the first planning round:**
   - **Units:** the phone's region decides (US, Liberia, Myanmar → miles/feet; elsewhere km/m), with a mi/km toggle. Rings are always 0.5/1/1.5 mi on the ground.
@@ -56,9 +57,752 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
   - **Deploy:** GitHub Pages, **live at https://donaldstewart4.github.io/FindThem/ since 2026-11-21**. The repo is public.
 - **Replaced:** "mark streets searched" and "copy summary for police" (the old stretch goals) became syncing sectors/routes and the hand-off sheet. The "no Claude in the repo" rule is dropped: AI tools are disclosed openly and `CLAUDE.md` is committed.
 - **Time-aware map (moved off the roadmap 2026-11-21 night, at BenStew's request):** every 5 minutes the screen adds 5 to "minutes since last seen" and re-runs `replay`. Shared searches count from `minutesAt` in the case, so every phone's map matches.
-- **Do not build** a chatbot persona, camera integration, trackers, GPS-trail coverage, drill mode, accounts or photos, or anything else on the roadmap.
+- **Do not build** a chatbot persona, camera integration, trackers, drill mode, accounts or photos, or anything else on the roadmap.
+- **GPS-trail coverage is in scope (decision by Nathan, 2026-11-22 night; it was on the "do not build" list before).** The search planner scores a `completed` event from the trail the searcher actually walked when the event carries one. Recording is specified, not yet built on the screen: during an active task only, a point every 10 s, attached to the `completed` event (see `docs/PLANNER-MERGE.md`).
+- **Search-leader replies (2026-11-22, branch `agent-contract`, Nathan's decision):** replies are **generated wording, but constrained**. This replaces INTAKE-SPEC principle 2, "fixed templates only".
+  - `POST /say { intent, data, lang }` runs a text LLM through the Worker (`LLM_API_KEY` secret; `LLM_PROVIDER` / `LLM_MODEL` in `wrangler.toml`, default Anthropic `claude-opus-5-5`).
+  - `replies.js` `checkReply` holds every number, place and direction to `data` and bans advice, promises, water/road/property talk and "where they are". It runs on the proxy and on the phone; any failure gives the fixed template (5 languages).
+  - `emergency` / `found` are always fixed.
+  - This is a third online service, behind the same Worker; CLAUDE.md's "Online parts" list needs a line from BenStew.
+- **Report box safety layer (2026-11-22, branch `agent-contract`; merged into `main` at release):** the AI is treated as unreliable. Jev's answers are cross-checked against the report's own words before a draft is sent back. Drafts are `ReportDraft` v2 with optional `unsure` / `flags` codes. **Approved by Nathan and written into `INTERFACES.md` §5 on 2026-11-22** (with street corners and `assigned.toId`). A flag warns but never drops a true sighting. The contract for future agent features is `docs/AGENT-CONTRACT.md`.
+- **Event integrity (2026-11-22, branch `integrity`; merged into `main` at release):** no event can corrupt the shared map.
+  - Firebase refuses any event that isn't exactly a known shape, refuses edits and deletes, and accepts the case once.
+  - Every phone re-checks what it receives with the same rules (no clock involved), drops and counts bad events, and counts copies once.
+  - The case carries `engineVersion`, so a phone on another engine version can warn.
+  - The rules, `sync.js` and the mock are checked against one shared test table.
+  - Corrections after sharing are `caseUpdate` events (the latest `at` per field wins). The person being found is a `found` event.
+  - The table also passes against the real Firebase emulator. `INTERFACES.md` §6 is the reference (approved by Nathan).
+- **Release (2026-11-22, Nathan's decisions):** one `main` with all four branches merged and the planner on the screen.
+  - The screen shows the search planner's routes ("Your next task") instead of the "Next areas" list. It sends `assigned` / `completed` / `released` / `found` / `caseUpdate` events and no longer sends `searched`.
+  - The search leader's lines are the fixed templates only: the app never calls `/say` (no LLM key).
+  - Woods and brush near the likely area are a hazard class ("check from the path").
+  - `docs/research/FREMONT.md` is committed as a public copy **without** the links to articles about real missing people; the copy with links stays private (git-ignored), like the case files.
+  - The 40% / 28% / 19% benchmark is the area-by-area rule (`npm run bench`); the route planner's own benchmark is 25% / 24% / 20% at 3 hours (`bench/planner-report.md`). The README states both.
 
 ## Log
+
+### Release: all four branches merged; planner routes, Found, corrections and report flags on the screen; woods hazard
+- **Date:** 2026-11-22
+- **Stage:** Release (branch `release`, Nathan with Claude Code; merged into `main`)
+- **What changed:**
+  - **Merges.** `release` was branched from `main` and `prior-v2`, `planner`, `integrity`, `agent-contract` were merged in that order (four merge commits before this one).
+    - Conflicts in `CommitHistory.md`, `UPDATESBYNATE.md` and `INTERFACES.md`: both sides kept. The duplicate "Do not build ... GPS-trail coverage" line from the older branches was dropped, because the planner branch had already moved GPS trails into scope.
+    - `package.json`: all scripts kept (`planner-eval`, `safety-eval`, `eval`). `.gitignore`: both sides kept. `sw.js`: the higher cache version.
+  - **Engine wiring.** `engine/index.js` exports `planSearch`, `assignedEvent`, `trackFromLatLngs`, `woodsSpots`, `ENGINE_VERSION`. `engine/host.js` keeps a copy of the last prediction and has `plan()`; `engine/worker.js` answers a `plan` message.
+  - **Screen (`app.js`, `index.html`, `style.css`, `i18n.js`, `sw.js`).**
+    - "Your next task": up to three ranked routes per volunteer with warnings; Take / Done / Stop send `assigned` / `completed` / `released`. The old "Next areas" list (`renderAreas`, `markSearched`) is removed.
+    - "They've been found": a `found` event, a banner and pin on every phone, tasks hidden, positions no longer shared.
+    - Corrections in a shared search are `caseUpdate` events, and a correction from another phone fills this phone's form and redraws the map.
+    - Report box: flags (`draft.flags`) and "Not sure: please check" marks (`draft.unsure`); street corners and the language are sent to the readers; an unknown time stays empty and must be typed (it used to become 0 minutes).
+    - Search leader line from the fixed templates in `replies.js`. Version-mismatch warning. The hand-off sheet lists finished tasks and "found".
+    - 64 new i18n keys in five languages. `sw.js` `v34`, with `replies.js` and `engine/planner/*.js` in `SHELL_FILES`.
+  - **Hazard layer.** `engine/grid.js`: woods and brush near the likely area are a second hazard class (`grid.woods`, `sector.woods`, `spot.woodsNearby`, `woodsSpots`). `engine/planner/plan.js`, `params.js`: park tasks through woods carry `stay_on_path`. New `tests/woods-hazard.test.js` (4 tests).
+  - **Rules.** `sync.js`, `firebase-rules.json`, `tools/mock-firebase.py`, `tests/sync.test.js`: `assigned` may carry `canvass` (true / false).
+  - **Tests and checks.** New `tests/host-plan.test.js` (2 tests). `tools/browser/twotab.mjs` rewritten for two volunteers; new `tools/browser/release-check.mjs`; `newarea.mjs` prints the routes.
+  - **Docs and data.** `README.md` rewritten (3-command setup, results, limits). `UPDATESBYNATE.md` is one list for BenStew. `CLAUDE.md`, `PLAN.md`, `ShortPlan.md`, `INTERFACES.md` updated. Added `docs/INTAKE-SPEC.md`, `docs/research/FREMONT.md` (public copy), `docs/research/hazards.geojson`, `bench/real-cases-maps.json` (the 18-case street-level result the README cites).
+- **Why:** Nathan's release list: one clean `main` a judge can clone and run in 3 commands, with the Demo working end to end.
+- **Decisions:**
+  - **With no usable GPS, routes start at the last-seen point** (location off, or more than 3 km away), and a note says so. Otherwise a judge trying the Demo from another city would get "too far from this map".
+  - **The foot / car switch and the GPS trail were left out.** `mode` on a searcher's position is refused by the database rules, and a trail needs privacy text; neither was on the release list. A finished task is credited from its planned route.
+  - **`/say` is not called at all** (`proxyUrl: ''`), so the lines are instant, work offline and can't differ between phones.
+  - **`canvass` was added to the rules** instead of being dropped from the event: without it a "walk past only" block would be counted as doors knocked.
+  - **FREMONT.md: public copy only.** Nathan asked for the file to be committed and also for no id-to-URL list to be committed; its case tables were exactly that (83 links to articles and alerts that name people). The links were replaced by the publisher's name. The original is kept as `docs/research/FREMONT-private.md` (git-ignored).
+  - **A database refusal is said out loud** (`eventRefused`), because until the new rules are published the live database refuses `completed`, `released`, `found` and `caseUpdate`.
+- **How it was verified:**
+  - `node --test`: 231 tests, 230 pass, 0 fail, 1 skipped (the Firebase emulator check, which needs Java).
+  - Headless Chrome on `localhost:8000` with the mock database:
+    - `release-check.mjs` (the Demo): results after about 1 s, three routes with warnings about 1.5 s later, Take, Done, a lake report (water flag, empty time marked and refused until typed), Found with its pin, hand-off lines.
+    - `twotab.mjs` (two volunteers): same top spots; a route taken by one is not the other's first choice and both end up on different ground; a correction (90 minutes, east) reached the other tab as three `caseUpdate` events and both maps matched again; "found" ended the search in both; a case made with another engine version showed the warning. No page errors apart from the proxy's CORS notice on `localhost`.
+    - `newarea.mjs` (a live download, central Fremont): first map and three routes 13.5 s after pressing Find, from the streets alone. The second download (buildings) did **not** arrive in this run: the public Overpass servers answered 502 / 504 for five minutes. The app kept the streets-only map, as designed. (The same check got the buildings after 66 s earlier in the day.)
+  - A fresh `git clone` of the branch into an empty folder: `node --test` gives the same 231 / 230 / 1, so nothing depends on untracked or git-ignored files.
+  - **Two bugs found by these checks and fixed before the merge:**
+    - A tap on a numbered marker did nothing while the app was asking "tap the map where they were found" (markers swallow map taps), and people are often found right at a numbered spot. While placing a sighting or "found", a tap on a marker now counts (`map.on('layeradd', ...)` in `app.js`).
+    - With two tabs in one browser, the second tab ignored the first tab's correction: the send queue lives in storage shared by all tabs, so the second tab took the first tab's waiting corrections for its own. `applySharedCase` now looks only at what this page itself sent.
+- **Known issues / not done:**
+  - **Not run on a real phone.** Jev could not be reached from `localhost` (the proxy only answers the live site), so the report box was checked with the backup reader only.
+  - **The live database still has the old rules until BenStew publishes `firebase-rules.json`**: in a shared search on the live site Done, Stop, Found and corrections are refused (the phone says so). The proxy also needs redeploying for the safety layer.
+  - The colored map does not fade where planner tasks were finished (`docs/PLANNER-MERGE.md` step 8).
+  - Two tabs in one browser share one searcher id (it is kept in `localStorage`), so they count as one volunteer; the browser check gives each tab its own.
+  - The route cards re-order when a new plan arrives (every few seconds while people move), which can shift a card just before a tap. The open card stays open.
+  - `bench/prior-report.md` still says woods are not flagged; `node bench/prior-report.js` was not re-run.
+  - New translations are AI-written and unreviewed.
+- **Next:** BenStew: publish the rules, redeploy the proxy, phone test (`UPDATESBYNATE.md`). Then the GPS trail and letting the map fade for finished tasks.
+
+### Planner: benchmark re-run on the calibrated prior (stage 4) map
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), stage 3 follow-up
+- **What changed:** `bench/planner-report.md` and `bench/planner-results.json` regenerated by `npm run planner-eval` (181 s) on the merged engine, which now has the prior's stage 4 calibration. `docs/PLANNER.md` "Benchmark results" rewritten with these numbers. No code changed.
+- **Why:** The report in "Planner, stage 3" was made on the stage 3 map. The map that will ship is the calibrated one.
+- **Decisions:** The hazard-first rule and containment stay ON, as specified. On this map neither makes a measurable difference in either direction, so the "turn it off" recommendation made on the stage 3 numbers is withdrawn: it is now "no evidence either way from this simulation". Both remain one parameter each.
+- **How it was verified:** The run's own output, 16 setups × 250 people = 4,000 cases, found by 180 minutes with 95% intervals by setup: on their own 20% (16–24), ring sweep 24% (21–28), greedy on the statistics map 25% (22–28), old app 22% (19–25), **planner 25% (22–28)**, planner on the statistics map 26% (23–29). Paired: planner minus old app +3 points at 180 minutes (+1 to +4), 3 minutes sooner (1 to 5); planner minus on-their-own +5 (+2 to +8); planner minus ring sweep +0 (−2 to +3); planner minus greedy-on-statistics −0 (−2 to +1). Door-knocking +1 to +2 points. Hazard-first on minus off: −0 for everyone (−2 to +1), −1 at 180 minutes for people in water or a drainage (−4 to +2). Containment +0 (−1 to +0). No setup shows a 0% for any strategy.
+- **Known issues / not done:** The planner is level with a ring sweep and with the old greedy rule on a statistics map; its measurable gain is over the old app (about 3 points at 3 hours) and over uncoordinated volunteers. Everything is simulated. Entries above this one quote the stage 3 map's numbers; these are the current ones.
+- **Next:** Nathan and BenStew: merge per `docs/PLANNER-MERGE.md` (now `git checkout prior-v2 && git merge planner` with no conflicts expected), or keep the old flow for the deadline.
+
+### Planner: merge prior-v2 stage 4 and the real-world check into the planner branch
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), integration
+- **What changed:** `git merge prior-v2` at `172a409` into `planner`, bringing in "Prior v2, stage 4: calibration, evaluation and the report" and "Real-world check: 161 real cases as a held-out test". Everything of the prior session's comes in unchanged. One conflict, in this file's Log; both sets of entries kept, planner entries first.
+- **Why:** So `planner` holds the engine that will ship, and the last merge (`git checkout prior-v2 && git merge planner`) is a fast-forward with no conflicts.
+- **Decisions:** Made inside the `findthem-planner` worktree only; the `FindThem` folder and the `prior-v2` branch were not changed; nothing was pushed.
+- **How it was verified:** `node --test` on the merged tree: 140 tests, 140 pass. The planner's worker test on this engine, laptop under load: re-plan 44–50 ms of work, 189–207 ms at 4× laptop slowdown (budget 300 ms); first plan of a case 2.3 s, 9.4 s at 4×.
+- **Known issues / not done:** `bench/planner-report.md` in the previous commit was made on the stage 3 map. The calibrated stage 4 map changes its numbers; the benchmark is re-run in the next commit.
+- **Next:** Re-run `npm run planner-eval` on this engine and commit the report.
+
+### Planner, stage 3: benchmark, report, merge plan, source check
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), stage 3 of 3
+- **What changed:**
+  - New `bench/planner-eval.js` (`npm run planner-eval`, about 3 minutes): calls the real planner and the real old pipeline on the Fremont map. People come from ISRID statistics (distance and kind of place), not the app's walkers, and may still be walking; searchers travel on the street graph, vary in pace, and skip one task in five; true sweep widths differ from the planner's by up to ±50% per setup. Ten strategies: four baselines, the planner, and five planner variants. Writes `bench/planner-report.md` and `bench/planner-results.json`.
+  - New `tests/planner-bench.test.js` (3 smoke tests) and the `planner-eval` script in `package.json`.
+  - New `docs/PLANNER-MERGE.md`: the exact merge plan for `engine/index.js`, the worker, the Firebase rules, `INTERFACES.md` and the screen, including the GPS-trail recording spec (active task only, every 10 s, attached to the `completed` event).
+  - New `UPDATESBYNATE.md`: nothing on the screen was touched; the table of what the screen will need.
+  - `engine/planner/world.js`: searchers are placed on the main street network only. `engine/planner/adapter.js` + `params.js`: the 25 m map is shared out over 10 m squares by ISRID find-location shares (`MAP_SPLIT`), with the even split kept as an option.
+  - `tests/planner.test.js`: 2 more tests (34 planner tests).
+  - `docs/PLANNER.md`: benchmark results, the source check, the review decisions.
+- **Why:** Stage 3 of Nathan's brief, and his decision 6 (re-run the source check).
+- **Decisions:**
+  - **The hazard-first rule and containment are left ON as specified, and the report recommends turning both off.** The benchmark does not support either (below). They are one parameter each in `engine/planner/params.js`. This is Nathan's call.
+  - Searchers on the main street network only: found when a benchmark searcher was snapped onto a cut-off scrap of footpath and could reach nothing. 1,953 of 49,379 walkable street points in the fixture are on such scraps, so this would have happened to real users.
+  - The first two full benchmark runs were thrown away: reading the setup-by-setup table showed 0% for some baselines, which was the harness (the stranded searcher above, and zero-minute turns for old-style areas with almost no street), not a result. Old-style baselines now give each area a 20 to 30 minute turn.
+  - The planner is given no GPS trails in the benchmark: it believes its routes were walked as planned, including by the searchers who did something else and pressed "done".
+- **How it was verified:** `node --test` passes (see the commit's run: planner 34, benchmark smoke 3, the rest unchanged). The benchmark's final run, 16 setups × 250 people = 4,000 cases, found by 180 minutes with 95% intervals by setup: on their own 21% (18–25), ring sweep 24% (21–28), greedy on the statistics map 24% (22–27), old app 22% (19–24), **planner 24% (21–27)**, planner on the statistics map 26% (23–29). Paired, planner minus old app: +2 points at 120 and 180 minutes (+0 to +4). Planner minus ring sweep: −1 (−3 to +1). Planner minus greedy-on-statistics: −2 at 30 and 60 minutes (interval excludes 0), level later. Hazard-first on minus off: +0 points for people in water or a drainage (−3 to +4), about −1 point for everyone. Containment on minus off: −1 point at 180 minutes (−2 to −0). Door-knocking: about +1 point.
+- **Source check:** CONFIRMED from PubMed abstracts: Koester et al. 2014 (W = 1.8 / 1.6 / 1.1 × detection range by visibility; nothing on night, vehicles or towns), Bohannon 1997 (comfortable walking 1.27–1.46 m/s; `TRAVEL_SPEED_MPS` is now DATA), Rowe et al. 2011 ("deaths most commonly occurred in unpopulated areas due to exposure and drowning"). NOT FOUND: any measured night sweep width, urban sweep width, detection from a vehicle, or door-knocking effectiveness; those constants stay ASSUMPTION. NOT CHECKED: definitions of hasty search and containment; the documents refused automated download (403) and were not fetched another way. Two PubMed ids first tried were wrong and returned unrelated papers; the right ones were found by title search.
+- **Known issues / not done:**
+  - **The planner does not beat a ring sweep or the old greedy rule on a good statistics map in this simulation.** It is slightly ahead of the old app and of uncoordinated volunteers. See `docs/PLANNER.md`, "Benchmark results", for why.
+  - Everything in the benchmark is simulated: one town, daylight, six searchers on foot, a detection model of the same shape as the planner's own.
+  - No phone has run the planner. Nothing is wired to the screen.
+  - This session was paused for about seven hours overnight (usage limit); the last benchmark run and this commit were made at about 9:30 am on Nov 22.
+- **Next:** Nathan and BenStew decide: merge per `docs/PLANNER-MERGE.md` or keep the old flow for the deadline; and whether to switch off hazard-first and containment.
+
+### Planner: merge prior-v2 stage 3 into the planner branch
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), integration
+- **What changed:** `git merge prior-v2` at `4b2392a` (Prior v2, stage 3) into `planner`. Everything the prior session committed comes in unchanged: the statistics-map blend, `restOfWorld`, the hazard layer, the two-phase map load, `engine/host.js` and `engine/worker.js`, and their screen changes. One conflict, in this file's Log (both branches added entries at the top): both sets of entries kept, planner entries first. One planner test changed: the GPS-trail test now asks for every option (`OPTIONS: 30`) instead of the top three, because on the new map a lone searcher's top three no longer include a hasty route.
+- **Why:** So the planner and its benchmark run on the app's real map: the real hazard layer (`grid.hazard`, which the adapter now reads instead of working out its own) and the real rest-of-world value. It also means the last merge only has to bring the planner's own files across.
+- **Decisions:** The merge was made inside the `findthem-planner` worktree only. Nothing in the `FindThem` folder or on the `prior-v2` branch was changed, and nothing was pushed. `app.js`, `grid.js`, `sim.js` and `surface.js` are exactly the prior session's versions.
+- **How it was verified:** `node --test` on the merged tree: 135 tests pass (32 planner, 103 others). The adapter's hazard path was exercised by the safety test (8 hazard pairs sent on the real map). Re-plan times were measured again but the laptop was under heavy load from the other session (load average 13): 36–46 ms of work per re-plan in the worker, 153–204 ms at 4×. The first plan of a case now includes the new engine's slower replay (about 0.5 s on the laptop): 1.8–2.1 s, 7–8.5 s at 4×.
+- **Known issues / not done:** The prior session's stage 4 (calibration, evaluation) is not committed yet and is not in this branch. At 60 minutes the Demo case's rest of world is effectively 0 on the merged engine, so the "expand" signal is only exercised by the tiny-town tests.
+- **Next:** The benchmark.
+
+### Planner, stage 2b: found event, buildings only through canvass, GPS-trail test, Web Worker
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, Nathan), stage 2 follow-up after Nathan's review
+- **What changed:**
+  - `engine/planner/plan.js`: a `found` event `{ type: 'found', lat, lng, by, at, note }` ends the search: the plan comes back with `over: true`, the `found` details, no assignment for anyone, and each searcher's held task listed under `released`. Searchers holding a task now get hasty alternatives too. Coverage cache keys now include what the event says, not only its id.
+  - `engine/planner/detect.js`: building squares are left out of a containment post's catchment. With sweep width 0 for buildings this makes the rule complete: probability inside a building is credited only by the door-knocking of the ask-permission (`yards`) task.
+  - New `engine/planner/host.js` and `engine/planner/worker.js`: the engine replay and the planner in one Web Worker. The world is built once per case and kept; the engine is replayed only when a `searched` or `sighting` event (or the case) changes.
+  - `tests/helpers/planner-worker-node.js`: runs that worker file in a real Node worker thread.
+  - `tests/planner.test.js`: 5 new tests (32 planner tests in all).
+  - `engine/planner/world.js`, `detect.js`: two sorts that did nothing useful removed.
+  - "Project context" above: GPS-trail coverage moved from "do not build" to in scope.
+- **Why:** Nathan's decisions on the stage 2 report: GPS trails yes; building probability only through canvass, and the rule must survive a 10 m map from the prior; a `found` event; hasty alternatives for searchers holding a task; world built once and everything in a Web Worker, with times at 4× laptop slowdown.
+- **Decisions:**
+  - The building rule is enforced in the detection code (sweep width 0, and no catchment credit), not in the adapter, so it does not depend on how the map arrives. The test feeds a 640 × 640 map with all probability inside one block's buildings: only the canvassing `yards` option gains anything (exactly `POD_CANVASS_BUILDING` = 0.4, ASSUMPTION), and a walk, a drive and a walk-past completed there leave cumulative POS at 0.
+  - `found` releases tasks in the plan's output rather than requiring `released` events: one event ends the search for every phone.
+  - Rejected: caching hasty routes between re-plans to save time. The plan would then depend on which re-plans a phone had run before, and two phones with the same events could disagree.
+- **How it was verified:** `node --test`: 118 tests pass (32 planner, 86 existing). From the worker test's output (laptop, Node 22, other work running on the machine): new area 139 ms; first plan of a case (engine replay + planner world + first plan) 1,126 ms of work; re-plan with 1 free + 9 busy searchers 22 ms; re-plan with 10 free 23 ms. **At 4× laptop slowdown: first plan 4.5 s, re-plan 93–98 ms** against the 300 ms budget. The worker's plan equals the in-page plan. The GPS-trail test passes a trail through `trackFromLatLngs` and the adapter: a third of the route walked scores less than the planned route and equals a direct calculation.
+- **Known issues / not done:** No phone has run it; "4×" is the laptop's time multiplied by 4. The first plan of a case is a one-off 4.5 s at that rate, off the page's thread. The source check for detection figures is still to be re-run. Nothing touches the screen yet.
+- **Next:** Merge `prior-v2` stage 3 into this branch so the planner is tested against the real hazard layer and rest-of-world value, then the benchmark.
+
+### Planner, stage 2: the planner and its tests
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, worktree `findthem-planner`, Nathan), stage 2 of 3
+- **What changed:** New folder `engine/planner/` (nothing outside it was edited except `docs/PLANNER.md` and this file; `app.js`, `grid.js`, `sim.js`, `surface.js` and `engine/index.js` are untouched, so the app still uses `nextSectors` / `routeFor`):
+  - `params.js`: every tunable number with its label (DATA / EXPERT / ASSUMPTION) and source.
+  - `world.js`: the ground map and street graph as flat arrays; visibility class per 10 m square; marks on each street piece (walkable, drivable, private driveway, crosses rail, bridge); shortest paths; the squares a track passes and everything within 40 m of it.
+  - `detect.js`: day or night from the sun's height; sweep widths by visibility class and pace; coverage of a walked track, of door-knocking, of a park sweep and of a containment post.
+  - `segments.js`: cuts the map into tasks: street-bounded blocks (`yards`), parks, hazard stretches, containment points (bridges, bus stops, junctions of main roads), 8 hasty wedges, 4 drive quadrants. Blocks over 45 minutes are cut in two across their longer side.
+  - `routes.js`: the rural-postman tour for "search this block", and the orienteering route for hasty and drive tasks.
+  - `plan.js`: reads `assigned` / `released` / `completed` events, applies Bayes for completed tasks, lowers the map by work in progress, builds candidates per searcher, assigns (hazard pairs, greedy, then each searcher moves to their own best until nobody moves), keeps held tasks unless something is 1.5× better, and returns up to three options each plus the measures.
+  - `adapter.js`: the only file that imports the engine. Builds the planner's world from `area` + the case, splits today's 25 m map onto 10 m squares, reads or works out the hazard layer, and exposes `planSearch(area, caseInput, prediction, { searchers, events, nowMs })`.
+  - `index.js`: the exports.
+  - `tests/planner.test.js`: 27 tests.
+  - `docs/PLANNER.md`: revised where the build differed from the first note (each place marked "As built").
+- **Why:** Stage 2 of Nathan's brief: a working planner with brute-force, no-pile-up, safety, stability, determinism and sum tests.
+- **Decisions:**
+  - **A block's door-knocking counts once per two hours.** The first working version sent three searchers to canvass the same block, each credited as an independent chance. A second knock on the same door gets the same answer. Now only the first canvass is credited; anyone else sent to that block gets a shorter walk-past option with no doors.
+  - **Marginal gain per minute replaced the "team score".** The share-based score from the stage 1 note fell when a second searcher joined a task even if the team's real chance rose, and plans were unstable under their own re-plan. Each searcher now moves to their own best marginal option until nobody moves (the standard rule for dividing search effort).
+  - **The hazard-first rule needs the bank check itself to be worth 0.5%.** Without that test a second pair was sent to a stretch worth 0.15% while blocks worth 6% waited.
+  - **One watcher per containment point**, and danger level 2 is kept for primary-road and rail crossings: flagging every route within 30 m of water at level 2 put a warning on nearly every route in Fremont.
+  - **The hasty router was rewritten twice for speed.** A shortest-path search at every step took 100+ ms per re-plan. The kept version chooses and orders targets on straight lines, then walks them on real streets.
+  - The POS gain shown for an assigned route credits earlier finishers first, so the team's gains add up exactly to the joint chance.
+  - Rail: a street that crosses a rail line is allowed and flagged `rail_crossing`; the data cannot tell a bridge from a level crossing. Nothing off-street touches rail.
+- **How it was verified:** `node --test`: **113 tests pass** (27 new, 86 existing). From the planner tests' own output:
+  - brute force, equal times: the planner found the best assignment in 80 of 80 cases (2 and 3 searchers, every assignment listed, scored by a separate evaluator in the test);
+  - brute force, unequal times: 675 single-searcher moves checked, 0 would have done better;
+  - rural postman equals brute force on four small street shapes;
+  - orienteering against brute force on a 4 × 4 grid: mean 0.758, worst 0.478 of the best prize (its worst case); against a slow reference on 64 real Fremont wedge routes (a throwaway script, not committed): median 0.974, worst 0.774;
+  - safety: 172 routes on the real map, every route square a road, path or public service way; 8 hazard pairs, 63 routes with a high-traffic crossing flagged, 5 with a rail crossing flagged;
+  - no pile-up: 57 assignments over 6 plans, 3 share a task (a walk past a canvassed block, or the same hasty wedge by another route);
+  - sums: map + rest of world = 1 after every completed task; the team's gains equal the cumulative POS to 1e-6;
+  - speed, median of 9 runs on the laptop while another session was using it: 10 free searchers 31 ms, 10 holding 16 ms, 1 free + 9 holding 22 ms.
+- **Known issues / not done:**
+  - **No phone has run it.** The 300 ms budget is met on the laptop with a factor of about 10 to spare, not measured on a phone.
+  - **The source check did not happen.** The background check of night, urban, vehicle and canvass detection figures was cut off by a usage limit and returned nothing. Those constants are still ASSUMPTION.
+  - On a 25 m map split evenly onto 10 m squares, 26% of the probability lands inside buildings. That is the adapter's stopgap until the engine gives a 10 m map.
+  - The first plan of a case takes 0.3–0.5 s on the laptop and building the world 0.4–0.6 s (one-off costs, not in the 300 ms budget).
+  - One searcher gets hasty alternatives only while free.
+  - Nothing touches the screen yet, so `UPDATESBYNATE.md` has no entry.
+- **Next:** Stage 3: `bench/planner-eval.js`, `bench/planner-report.md`, and the merge plan for `engine/index.js` and the screen.
+
+### Planner, stage 1: design note
+- **Date:** 2026-11-22
+- **Stage:** Search planner (branch `planner`, worktree `findthem-planner`, Nathan), stage 1 of 3
+- **What changed:** New `docs/PLANNER.md`: what is wrong with `nextSectors` / `routeFor` (read from the code at `c04d311`), and the design of their replacement. Real search segments (hasty wedges, street-bounded blocks, parks, creek and pond stretches, containment points, drive loops) sized for 30–45 minutes; detection per 10 m square from the track walked, by visibility class and day or night; orienteering and rural-postman routes; assignment events (`assigned` / `released` / `completed`) with per-square accounting of work in progress; three options per searcher ranked by POS gain per minute including travel, with danger as a separate number; a hazard-first rule; safety rules; cumulative POS, remaining probability and a rest-of-world "expand" signal; the test list; the benchmark design; every constant labeled.
+- **Why:** Nathan asked for the sector list to be replaced by a planner that assigns volunteers the way a search team leader would, built in committed stages on its own branch and worktree while another session finishes the prior on `prior-v2`.
+- **Decisions:**
+  - All new code goes in `engine/planner/`. `app.js`, `grid.js`, `sim.js` and `surface.js` are not edited on this branch. One file, `engine/planner/adapter.js`, is the only one that imports the engine, so merging is one file.
+  - Pile-ups are handled per 10 m square (misses multiply), not by task id, so a second searcher on the same ground only gains what the first would miss.
+  - The team score is each searcher's share of the joint detection divided by their minutes; solved greedily, then improved by single moves. Brute force in the tests will say how close that gets.
+  - Probability and danger stay separate. Hazards are scheduled early by an explicit rule (labeled ASSUMPTION), not by changing their score; the benchmark runs with and without it.
+  - Yard and building squares are only credited through the ask-permission task type. Rejected: crediting street walking for everything, which would overstate detection (26% of the measured probability is inside buildings).
+  - Until `grid.js` reads `completed` events, the planner applies its own Bayes update on top of the engine's map. Rejected: turning tasks into sector `searched` events, which would throw away what the route actually covered.
+  - Car searchers get drive loops and containment posts only.
+  - **Touches an earlier decision:** "Project context" lists GPS-trail coverage under "do not build". Nathan's brief for the planner asks that coverage come from the route walked "or from GPS trails when they exist". The planner will be able to score a trail if a `completed` event carries one; recording trails on the phone is not built and stays on the roadmap. "Project context" is updated when the code lands, if BenStew agrees.
+- **How it was verified:** No planner code yet. The note's numbers were measured on the Fremont fixture with throwaway scripts (not committed): share of probability by visibility class (street 50.5%, building 26.0%, back yards 18.2%, open 3.0%, water or brush 1.5%) for the Demo start at 60 minutes; 503 built-up blocks of 2,000 m² or more, median 1.9 ha, 26 buildings and about 870 m of frontage at the median, half of them over 45 minutes to canvass; 38 segments holding 71% of the probability; a shortest-path run over a 2 km reach in 0.9 ms (6.6 ms for the whole graph). The ISRID, Toots and Koester et al. 2004 figures are the ones the prior session checked today.
+- **Known issues / not done:** No urban, night, vehicle or canvass detection figure has been found, so those constants are assumptions; a source check is running and stage 2 updates the table. Containment's value rests on three assumptions. The contract changes (new events, the `Plan` shape) need BenStew's OK before any merge. `CommitHistory.md` will conflict with `prior-v2` at the top of the Log when both merge; keep both entries.
+- **Next:** Stage 2: `engine/planner/` and `tests/planner.test.js`.
+### Real-world check: 161 real cases as a held-out test (public copy only)
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), after stage 4
+- **What changed:**
+  - **Privacy first.** Nathan added real-case research data under `docs/research/` (161 news-reported cases of people with dementia who walked away and were found). Its source URLs often contain the person's name and this repo is public, so:
+    - `.gitignore` (in the stage 4 commit) ignores the files with URLs: `docs/research/cases.csv`, `cases2.csv`, `cases*.geojson`, and `sources-private.csv`.
+    - New `tools/make-public-cases.js` writes `docs/research/cases-public.csv`: the same rows, with `source_urls` replaced by `sources` = publisher + case month + a source id (`wfmj.com 2023-07 [S0042]`). The id → URL list goes to the git-ignored `sources-private.csv`. The tool refuses to write if the public file would contain anything that looks like a URL, a piece of a source URL, or a house number with a street.
+    - Committed: `cases-public.csv`, `REPORT.md` and `DATA_DICTIONARY.md` (neither has a URL or a name), and a new `docs/research/CASES-PUBLIC.md` explaining the public copy.
+  - **New `bench/real-cases.js`:** compares the model with the real cases, with no network: distance from the last-seen point in bins cut at the ISRID urban quartiles (all, strict, street-level, stated in the article, neighborhood-only with the near bins merged, by setting, by outcome); distance by time missing; find-type mix; where the deceased were found against what the hazard layer flags. Writes `bench/real-cases-results.json`.
+  - **New `bench/real-cases-maps.js`** (needs the internet): for the 18 cases with both points located to street level, downloads that town's streets and water (cached in the git-ignored `bench/.cache/`) and scores the prior on the real found place. **Not finished at the time of this commit**: the public map servers were answering one request in several minutes. If `bench/real-cases-maps.json` appears in a later commit, the report gains a section 5.
+  - `bench/prior-report.js`: a new section "Real-world check" with two charts, and a verdict line. `bench/prior-report.md` and `.html` regenerated.
+  - `README.md`: a paragraph on the real-world check, two limits, files and sources. `CLAUDE.md`: the privacy rule for the case data.
+- **Why:** Nathan asked for the real cases to be used only as a held-out check, never for calibration, with the biases stated, and for nothing with a source URL to reach the public repo.
+- **Decisions:**
+  - **Nothing in the model was changed because of this data.** `tools/calibrate.js` does not read it.
+  - The public file keeps everything except the URLs (town, month, age, place descriptions without house numbers, points rounded to about 110 m), as the research file's own privacy rules describe. Source ids are assigned in file order and are not stable across rebuilds.
+  - Bins at the ISRID urban quartile distances (0.3 / 1.1 / 3.2 km), so "25% in each" is what ISRID urban predicts and the neighborhood-precision cases can still be used with the two near bins merged.
+  - `docs/research/FREMONT.md`, `OUTREACH.md`, `hazards.geojson` and `docs/INTAKE-SPEC.md` were in the working folder too. They are not part of this request and were **left uncommitted**.
+- **How it was verified:** `node tools/make-public-cases.js`: 161 cases, 207 distinct sources; `grep -c http docs/research/cases-public.csv` gives 0; `git check-ignore` confirms the four private files are ignored. `node bench/real-cases.js` output:
+  - Distance (85 cases): 15% within 0.3 km, 34% from 0.3 to 1.1, 22% from 1.1 to 3.2, 28% beyond 3.2 km; ISRID urban says 25% each; the calibrated walkers 26 / 24 / 31 / 20%. Urban cases (n = 14): median 4.72 km, 57% beyond 3.2 km. Suburban (43): median 1.5 km. Rural (28): 0.61 km.
+  - Time: half the cases with a time were missing more than 21 hours; only 2 of the 41 with both a time and a distance are within three hours.
+  - Find type: real urban cases 41% structure and 35% road (n = 17; ISRID urban 35 and 36); suburban woods 23%, water 25%; rural woods 37%.
+  - Deceased (70; 65 with a find type): 43% in water or a drainage, 29% in woods. 68% of water and drainage finds were deaths, against 35% elsewhere. Median distance 1.88 km against 0.8 km for those found alive.
+  - `node --test`: 103 pass (no engine code changed).
+- **Known issues / not done:**
+  - The data cannot test the first hour, which is what the app is for.
+  - What it questions and nobody has acted on: a 3.2 km map in cities; the urban ISRID column used for suburbs and open country (the temperate column is already in `engine/prior.js`); a hazard layer with no woods or brush; the walkers' thin far tail.
+  - `bench/real-cases-maps.js` had scored 1 of 18 cases when this was committed.
+  - The research file's own caveats apply: `setting` is a judgment, distances are rounded by journalists, 38% of cases could not be geocoded.
+- **Next:** Let the map run finish and add its table; decide with Nathan whether to pick the ISRID column by setting and add woods to the hazard layer (both would need a re-run of calibration and evaluation).
+
+### Prior v2, stage 4: calibration, evaluation and the report
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 4 of 4
+- **What changed:**
+  - **New `tools/calibrate.js`:** fits 17 ASSUMPTION numbers of the walkers to the urban ISRID statistics. 24 Fremont start points on the wide map (60 others are held out); 300 walkers per start for 12 h with spotting on; a random search (140 settings) then an evolution strategy (260 small changes to the best so far), all on the same seeds; the best six re-tested with 1,000 walkers per start and new seeds. Then, in a fresh process, it chooses `BLEND_WALKERS` by evaluation: every blend from 0 to 1 scored on ISRID-drawn true locations at 30, 60, 120 minutes and the end state. Writes `engine/calibrated.json`, `engine/calibrated.js` and `tools/calibration.json`. About 5 minutes.
+  - **New `bench/eval-lib.js`:** what calibration and evaluation share: the wide map, start points (calibration and held-out sets never overlap), the statistics and their weights, `measure()`, `placeTruth()` (true locations from ISRID statistics only), the area and R scores.
+  - **New `bench/prior-eval.js`:** the evaluation. 60 held-out starts × 20 truths × 5 times (15 / 30 / 60 / 120 min and the end state) = 6,000 cases, scored for distance rings, the ISRID statistics map (upper bound), the old engine (raw, and blurred as its app drew it) and the new prior. Also: the 100-told-60 mismatch, stability across seeds, the calibration check on held-out starts, sensitivity (±50%, DATA ±20%), replay time. Writes `bench/prior-results.json`. About 4.5 minutes.
+  - **New `bench/prior-report.js`:** writes `bench/prior-report.md` and a self-contained `bench/prior-report.html` (seven charts drawn as SVG by a script in the page, hover values, light and dark, no outside files).
+  - **Engine changes made while calibrating:**
+    - `engine/sim.js`: a walker whose mobility runs out on a road or path **steps off it** (to a building's edge if one is beside it, else the nearest open ground within 20 m). So "found on a road" can only happen by being noticed, which ties `SPOT_RATE_PER_MIN` to ISRID's 36% road finds. The per-walker code moved into `walkOne()` and the walkers use step masks worked out on first visit: same output bit for bit (checked by checksum), about 20% faster and no longer twice as slow on the first run in a fresh page. New `goalBound` per walker.
+    - `engine/grid.js`: walkers heading for a familiar place get their own share of the map (`SHARE_GOAL`, 25%), outside the blend. Walkers are simulated in 15-minute blocks (was 30). `replay()` takes a fourth, tools-only argument `{ blend }`.
+    - `engine/prior.js`: a yard that backs onto a channel and touches a house counts as "structure", not "drainage".
+    - `engine/host.js` / `engine/worker.js`: `warmUp()` runs the engine once on a tiny made-up area when the worker starts. `app.js`: new `startWorker()`, called when the page opens.
+    - `engine/calibrated.js` / `.json`: the fitted values.
+  - `bench/benchmark.js` re-run; its limits text rewritten. `bench/results.md`, `bench/phone-budget.json` (from `tools/browser/budget.mjs`, which now also times cases 4 and 12 hours old).
+  - `tools/browser/`: scripts now close leftover tabs first; `newarea.mjs` starts from an empty saved-areas store unless `--keep`.
+  - Docs: `README.md` (how the prediction works, "How good is the map?", benchmark, who built what, files, limits, sources), `ShortPlan.md`, `PLAN.md`, `CLAUDE.md` (Nathan owns the engine on this branch; rules for calibrated values and the worker), `docs/PRIOR-V2.md` ("As built"), `INTERFACES.md`, `BEN.md`. `sw.js` `v30` → `v31`.
+- **Why:** Stage 4 of Nathan's brief: calibrate, evaluate, and write a report he can read in three minutes, verdict first.
+- **Decisions:**
+  - **Distance (urban, n = 336) is the primary target**, with 10 of the score's 16 weight points. **Mobility hours (n = 42) are not fitted** and the mismatch is reported: the model's median is 2.65 h against ISRID's 0.25 h. At 0.62 m/s nobody covers ISRID's median 1.1 km in 15 minutes, so the two samples cannot both hold.
+  - **The spotting rate is fitted jointly**: 0.0102 per minute on a main road gives 37.6% road finds on held-out starts (ISRID 36%) with 36.6% of walkers ending by being noticed, and the same rate leaves 54% of the weight on a walker who spent an hour on a main road (90% on a residential street).
+  - **`BLEND_WALKERS` = 0.05**, chosen by evaluation. The curve is flat from 0 to 0.1 and rises after. Not at its limit, but close: with no clues and ISRID-drawn truths the statistics map is hard to beat. Because of that, familiar places were given their own share (`SHARE_GOAL`), an assumption the evaluation cannot score; without it a familiar place would have moved 5% of a quarter of the map.
+  - **The old engine is shown two ways.** Its raw 25 m map puts half the truths on an even floor (median 4.10 km²); blurred as its app drew it, 2.54 km². The report leads with the blurred one as the fair comparison.
+  - **Two numbers ended at a limit:** `MOBILE_SIGMA` (low, 0.5) and `P_STRUCT_STAYER` (high, 1). Together with a fitted median mobility of 19 h they mean walkers almost never stop from tiredness; they stop by being noticed, at a structure, in terrain or water, or by leaving the map.
+  - The other project's name appears nowhere in the repo (Nathan's instruction); the comparison with its published numbers was given to Nathan directly, not written here.
+- **How it was verified:**
+  - `node --test`: 103 pass, 0 fail.
+  - **Calibration:** score 44.25 → 4.06 on the calibration starts; 3.90 on 24 held-out starts. Held out: 26.4 / 49.9 / 80.5% found within 0.3 / 1.1 / 3.2 km (ISRID 25 / 50 / 75); structure 38.3 (35), road 37.6 (36), path 8.8 (9), field 1.7 (6), water 5.4 (6), drainage 8.1 (4), woods 0.0 (3), brush 0.0 (1); track offset median 14 m (15), 75% 34 m (71); dispersion median 31° (23).
+  - **Evaluation (6,000 cases, 350 off the map):** median ground searched for the end state: new prior 0.989 km², rings 1.30, old engine 2.54 as drawn (4.10 raw), statistics map 1.03. At 60 minutes: 0.920 / 1.21 / 2.06 / 0.896. New prior against rings (end state): 458 wins, 190 ties, 244 losses; total ground 14% less. Told 60 when gone 100 minutes: 1.69 km² against 1.63 told correctly. Hot-zone overlap between two seeds: 97% at 60 minutes, 95% at the end (walkers alone: 55% and 34%).
+  - **Speed (Chrome, processor slowed 4×, clean browser):** cold replay 886 ms (Demo), 1,432 and 1,302 ms (75 minutes, 7 searches, 3 sightings), 1,197 ms (4 h), 1,775 ms (12 h). An earlier run with 27 leftover test tabs open read up to 2,182 ms.
+  - **Browser:** Demo on screen 0.76 s after the tap (1.33 s slowed 4×), no fallback from the worker. Two tabs on a shared search: same spots and areas before and after a search, which crossed in 102 ms; `minutesAt` in the link and the database case. A new area with a fresh live download (central Fremont) worked in two phases, but slowly: first map after 292 s, "Map sharpened with buildings and land use." at 596 s, because `overpass-api.de` answered 502, `overpass.private.coffee` was refused by the browser (no CORS header on its error answer) and only the third mirror delivered. My own evaluation downloads were using the same servers at that moment. The same check in stage 3 took 39 s and 66 s. With the area already saved, the map came up in 0.7 s.
+  - **Old benchmark re-run** (truths from the first engine's walkers): after 1,500 searcher-minutes, on their own 19%, ring sweep 28%, FindThem 40%, + sighting 86%.
+- **Known issues / not done:**
+  - No real cases anywhere: the evaluation's truths are drawn from the statistics the map is built from. "Close to the upper bound" is partly by construction.
+  - Field (1.7% against 6%), drainage (8.1% against 4%), woods and brush (0% against 3% and 1%) do not fit; Fremont has almost no woods or brush near the start points.
+  - ISRID's 95% distance (12.6 km) can't be tested on a 3.2 km map.
+  - Not run on a real phone or in Safari. Timings vary with what else the laptop is doing.
+  - A live download depends on the public Overpass servers; when they are busy the first map can take minutes (see the new-area check above). The second mirror in `data.js` (`overpass.private.coffee`) failed the browser's CORS check in that run.
+  - `hazardSpots` and `restOfWorld` are still not shown on screen.
+  - Direction, familiar places, sightings and searches are tested by unit tests but are not part of the evaluation.
+  - Not merged, not pushed. BenStew has not reviewed `BEN.md` or `INTERFACES.md`.
+- **Next:** Nathan reads `bench/prior-report.html`; BenStew reviews `BEN.md`; a real-phone test; then decide whether to merge before the 9:30 freeze.
+
+### Prior v2, stage 3: statistics map blend, rest of world, hazard layer, two-phase load, worker
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 3 of 4
+- **What changed:**
+  - **Engine**
+    - **New `engine/prior.js`:** the ISRID statistics map. Urban distance percentiles (0.3 / 1.1 / 3.2 / 12.6 km) limited by how far a person could have gone in t minutes (the smaller of "where they'd end up" and "pace × t"), times the urban find-location share of each kind of ground within every 50 m ring, times the dispersion angle when a direction is given. `findTypes()` gives each 10 m square one ISRID find type; `statsMap()` returns the 25 m map and the share beyond its edge.
+    - **`engine/grid.js`:** the prior is now `BLEND_WALKERS × walkers + (1 − BLEND_WALKERS) × statistics map` (0.5 until stage 4 sets it by evaluation). The even 2% floor is gone. **Rest of world** is real: walkers that left the map plus the statistics map's mass beyond it. Each "story" (the last-seen start, each sighting) has its own walkers and its own statistics layer; a search discounts the statistics layer only by the share of its chance that was already there at the time of the search. **Hazard layer:** `grid.hazard` (for each water / creek / wetland square, the chance that the person is within 150 m) and `grid.hazardType`; sectors get `hazard` and `hazardScore`; spots get `hazardNearby`; new export `hazardSpots()`. `spot.hazard` now comes from that layer.
+    - **`engine/sim.js`:** each walker-minute is 4 bytes: a 16-bit square of the 25 m map (`pos`) and a 16-bit running total of exposure to the public (`seen`), instead of a 32-bit 10 m square. "Still missing" is now `(1 − rate)^(exposure-minutes)` read straight from `seen`, so a clock tick no longer walks every path again. `trace: true` keeps the 10 m path for tests and tools. The familiar-place cost field covers only the box around the last-seen point and the place (plus 1 km).
+    - **New `engine/host.js` and `engine/worker.js`:** the engine behind a Web Worker. New `withLayers(area, layers)` in `engine/graph.js`.
+    - `engine/surface.js`: square downloads (`osm.bounds`); `noDataShare`.
+    - `engine/params.js`: `ISRID_PROFILE`, `BLEND_WALKERS`, `N_SIGHTING_WALKERS`.
+  - **Screen (BenStew's files; all listed with reasons in the new `BEN.md`)**
+    - `app.js`: `readCase()` passes `minutesAt`; the engine runs in the worker with a fallback to the page (`askWorker`, `runEngine`); `recompute()` is async; two-phase load (`refineArea`); hazard lines for spots and areas; home areas saved bigger.
+    - `data.js`: the download is a square around the case's grid origin (3.4 km each way; home areas 4.2 km), in two requests (`buildQuery`, `buildLayersQuery`); `loadArea` returns `more`; a saved area is reused only if it covers the whole map (`coversGrid`).
+    - `i18n.js`: `mapRefining`, `mapRefined`, `areaHazard`, `spotHazardNear` in five languages.
+    - `sw.js`: three more engine files in the offline list, `v29` → `v30`.
+  - **Data:** `tests/fixtures/demo-area.json` re-downloaded as a square centered on the Demo's grid origin (37.541, −121.98): 11,805 ways, 322 features, 33,977 buildings, 6.9 MB. New `tools/data/fremont-wide.json.gz` (2.8 MB gzipped): a 11.2 km square for calibration and evaluation start points, never loaded by the app. `tools/make-fixture.js` rewritten to make both.
+  - **Tests:** 103 (was 86). New: statistics map sums and percentiles; rest of world grows with time; familiar places; slow mobility; hazard layer (three tests); a real brute-force allocation; no-data limit; the worker host; memory; two-phase load, coverage rule and lake relations in `tests/data.test.js`. `tools/browser/`: scripts that drive headless Chrome (Demo, two tabs, new area, time budget). `bench/phone-budget.js`: time and memory in Node.
+  - **Docs:** `INTERFACES.md` rewritten for the new contract; new `BEN.md`; `CLAUDE.md` points to both.
+- **Why:** Stage 3 of Nathan's brief, plus the six additions he made when approving stage 2 (joint spotting calibration, distance as the primary target, the no-data bug, the phone budget with a worker, two-phase load, `minutesAt`). The two calibration items are stage 4's.
+- **Decisions:**
+  - **Positions at 25 m, not 10 m.** Sectors, the map and the Bayes arithmetic only need the 25 m square; what needed the 10 m path was the road exposure, which is now added up while walking. Same 4 bytes as a 32-bit index, but a clock tick is 7–40 ms instead of re-reading every path.
+  - **Box, not circle**, for the download: it matches the square map and Overpass answers it faster.
+  - **The first map never waits for buildings.** Two phones can therefore differ for the minute or so one of them is still waiting; they agree once both have the layers.
+  - **The worker gets its own copy of the map data.** The page still prepares the street graph itself (for drawing streets and routes).
+  - `spot.hazard` keeps its meaning ("this spot is at water: for professionals"). Water *near* a spot is the new `hazardNearby`, shown with a different sentence ("look from the bank, don't go in"), so a likely street is not labeled "leave to professionals" because a channel runs 100 m away.
+  - Hazard reach 150 m and flag threshold 0.5% are assumptions.
+  - The familiar-place cost field is tied to the last-seen point for every story, so two phones that learned of sightings in a different order still use the same field.
+- **How it was verified:**
+  - `node --test`: 103 pass, 0 fail.
+  - **Chrome with the processor slowed 4× (`tools/browser/budget.mjs`):** cold replay 1,017 ms for the Demo case, 1,352 and 1,306 ms for new cases with 7 searches and 3 sightings; clock tick 21–40 ms. Unslowed: 299 / 404 / 345 ms.
+  - **Memory (`node --expose-gc bench/phone-budget.js`):** walkers 2.2 MB for a case at 45 min, 3.4 MB at 2 h, 15.4 MB at the 12 h cap; ground map 1.6 MB; one familiar-place field 1.6 MB; the result sent to the page 0.85 MB. The map data dominates: the 6.9 MB Demo file is 23 MB once read, plus 29 MB for the street network.
+  - **Browser (headless Chrome):** Demo on screen 0.9 s after the tap (1.3 s slowed 4×). Two tabs on a shared search (mock database): same spots, `minutesAt` in the link and the database case, a search in one tab reached the other in 106 ms. A new area with a live download: first map at 38.8 s from streets alone, "Map sharpened with buildings and land use." at 66.2 s, 28,628 buildings saved.
+  - The Demo's map has 0% no data (was 32%).
+- **Known issues / not done:**
+  - **Still not calibrated** (stage 4): distances are too short and `BLEND_WALKERS` is a placeholder.
+  - The worker doubles the map data in memory (about 50 MB more for the Demo's area).
+  - Not tried on a real phone, in Safari, or offline through the service worker with the new files. Module workers need Safari 15+ / Firefox 114+; older browsers use the fallback.
+  - `hazardSpots` and `restOfWorld` are not shown on screen.
+  - The sea is treated as plain ground (no OSM polygon for it).
+  - Areas saved before today are circles and are re-downloaded once when there is signal.
+  - `npm run bench` not re-run; README numbers are for the old engine.
+  - The four new sentences in es / fr / zh / ja are unreviewed.
+- **Next:** Stage 4: calibration (`tools/calibrate.js`), evaluation (`bench/prior-eval.js`), the report.
+
+### Prior v2, stage 2: ground map, walkers as particles, time-aware map
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 2 of 4
+- **What changed:**
+  - **New `engine/surface.js`:** the 10 m ground map (640 × 640 squares, ±3.2 km), built from OSM for the case's grid origin. 16 ground classes (road, path, service way, building, fence/rail/motorway, water, creek, wetland, woods, brush, grass, park, yard, open lot, plain ground, no data). Roads are drawn last, so bridges and gates stay open. Also per square: how exposed to the public a way is (road type, bus stops), "beside a building", joined to the main street network, and (worked out only when asked for) distance to the nearest road and to water. `snapToNetwork()` moves a start point in a house, a lake or a cut-off scrap of path onto walkable ground joined to the streets.
+  - **`engine/sim.js` rewritten:** walkers move square by square over the ground map and their position is stored **every minute**. Each has its own speed (0.62 ± 0.23 m/s, Toots et al. 2019), share of time moving, minutes of mobility, kind (keeps a course / wanders / heads for a familiar place / stays near a structure) and road habit (34% follow roads, ISRID). They stop when mobility runs out, at a structure, stuck in brush / woods / wetland / a drainage channel, or in water (decided once per walker). Familiar places pull through a walking-cost field (`costToGoal`), so goal-seekers go around lakes and blocks. Each walker has its own random stream, so its first hour is the same whether one hour or twelve are simulated.
+  - **New `engine/params.js`:** every tunable number, labeled DATA / EXPERT / ASSUMPTION with its source. **New `engine/calibrated.js`:** empty for now (stage 4 fills it).
+  - **`engine/grid.js` rewritten around particles:**
+    - The grid is anchored to the **case** (`gridOriginFor`: `caseInput.gridOrigin`, or the last-seen point rounded to 3 decimals), and coordinates are read at the share link's 6 decimals, so every phone means the same ground by the same sector id.
+    - The map is for **t minutes since last seen** (where each walker is at minute t), with **"still missing"** evidence: weight × (1 − rate × exposure) for every minute on a road.
+    - A search re-weighs the walkers that were in that sector **at the time of the search** (needs `caseInput.minutesAt`; without it every event counts as "now", as before).
+    - A sighting starts new walkers from the sighting point that walk for as long as it has been since (grows with the clock), is **not** discounted by searches made before it, and is discounted by searches made after it.
+    - `Number(ev.minutes)`; ties in `at` are ordered by code point like `sync.js`; `topSpots` checks the 150 m spacing after moving a pin onto a creek or park.
+    - New fields: `Prediction.restOfWorld` (walkers that left the map; `grid.p` now sums to `1 − restOfWorld`), `Prediction.minutes`, `grid.origin`. New exports: `gridOriginFor`, `sectorIdAt`, `groundClassAt`.
+    - Smoothing never crosses a sector's edge, so the sector Bayes arithmetic is exact.
+  - `engine/graph.js`: `prepareArea` also keeps a reference to `osm` (the ground map is drawn later, once the case is known). `engine/routes.js`: sector membership is measured from the grid origin.
+  - **`data.js` (BenStew's file; Nathan's brief allowed the query change):** the Overpass query also asks for buildings (sent without tags), fences / walls / hedges, rail, motorways, land use, pitches, parking, schools, bus stops, and lakes / parks stored as relations. New `parseLayers`, `packPoints`, `relationFeatures`; `parseOverpass` adds `osm.layers` when the answer has them. **Cost, measured on Nov 22 for Fremont:** buildings alone are about 3.7 MB on the wire and took 55 s on a busy public server (the old query's live download was 35 s).
+  - `tools/make-fixture.js`: new `--add file ...` mode that adds layers and relations to the existing fixture without touching its streets. `tests/fixtures/demo-area.json` regenerated that way: 22,582 buildings, 198 fences, 70 rail pieces, 334 residential areas, 475 lots, 425 green areas, 178 bus stops, and 5 relations including **Lake Elizabeth, which the old data did not have at all**. 3.0 → 4.6 MB.
+  - `sw.js` (BenStew's file): the three new engine files added to the offline list, `v28` → `v29`. Without this the app would not start offline.
+  - `bench/old-engine/`: a frozen copy of `main`'s `graph.js`, `sim.js`, `grid.js`, for comparing old and new. `bench/benchmark.js` now places its "true" people with those old walkers, so the app is no longer graded on its own model.
+  - `tests/engine.test.js` rewritten: 29 tests (was 16).
+- **Why:** Stage 2 of Nathan's brief: a movement surface, walkers stored as particles with per-walker variety, and a prior for "t minutes since last seen".
+- **Decisions:**
+  - The grid origin is derived inside the engine from the last-seen point, so sharing works with **no change to `app.js`**. `caseInput.gridOrigin` is honored if a later version wants to pass one.
+  - The probability map stays 256 × 256 squares of 25 m and sectors stay 200 m, so the screen draws it as before; only the walkers use the 10 m map.
+  - Buildings are stored as packed whole-number steps (about a third the size of `{lat, lng}` objects).
+  - Sightings use 2,500 walkers (the base run keeps 5,000) and walkers are simulated in half-hour blocks, to keep a cold replay fast.
+  - The even 2% floor is still there; stage 3 replaces it with the ISRID statistics map and the full rest-of-world share.
+  - Elevation skipped (see the design note).
+- **How it was verified:** `node --test`: 86 pass, 0 fail. On the laptop a cold replay of a new case with 7 searches and 3 sightings took 283–471 ms (the first run in a new process is the slow one), the 5-minute clock tick 12–24 ms, the Demo's cold replay about 250 ms. With the default (uncalibrated) numbers, from the map center: median straight-line distance 177 m at 15 min, 340 m at 60 min, 372 m at 12 h (ISRID urban says 1,100 m for where people are found, so the defaults are too short: that is what stage 4 fits). Busy roads hold 27% of the walkers at 120 min but 4% of the weight after "still missing". A familiar place 600 m away raises the chance within 200 m of it from 0.017 to 0.130 at 45 min; the Lake Elizabeth pin 1.7 km away from 0.001 to 0.023 within 400 m at 90 min (the old engine: 0.000 both ways).
+- **Known issues / not done:**
+  - **Not calibrated.** Distances are far too short until stage 4.
+  - `INTERFACES.md` is not updated yet (stage 3 does it, with the exact list for BenStew).
+  - The Demo's last-seen point is 1.6 km from the center of the bundled area, so 32% of its ground map is "no data".
+  - Two phones holding different downloads agree on the grid and on everything inside both downloads; walkers that reach ground only one phone has data for will differ.
+  - Hazard flags still come from the old trap lookup; the Demo's top spots show none yet (stage 3).
+  - The full benchmark (`npm run bench`) was not re-run; its numbers in the README are for the old engine.
+  - Not tried in a browser or on a phone.
+- **Next:** Stage 3: ISRID statistics map and blend, rest of world, hazard layer, remaining audit fixes, tests.
+
+### Integrity: caseUpdate and found events, INTERFACES §6, Firebase emulator check
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - **`caseUpdate { type, field, value?, by, at }`** in `firebase-rules.json`, `sync.js` and `tools/mock-firebase.py`.
+    - Allowed fields: `minutes`, `minutesAt`, `direction`, `mobility`, `familiarPlaces`, `travel`, `description`. `value` is checked like the case field it replaces.
+    - Leaving `value` out clears `direction`, `familiarPlaces` or `description`. The other fields need a value.
+  - **`found { type, lat, lng, by?, at, note? ≤ 300 }`** in the same three places.
+  - Case gets two optional fields: `travel` (`walking | car | bus | unknown`) and `description` (≤ 300 characters).
+  - `sync.js`:
+    - `applyCaseUpdates`: the latest `at` per field wins, ties go to the larger push id by code point (`compareIds`), and any update beats the case's first value.
+    - `readMirror` / `subscribe` / `loadSearch` return the updated `caseDoc` plus `baseCase`, and `info.caseUpdates`.
+    - `withoutNulls` also drops `[]` and `{}`, like Firebase. All sorting uses `compareIds`.
+  - `tests/sync.test.js`:
+    - The table grew from 75 to 118 rows (36 caseUpdate, 7 found).
+    - The write checks are now one scenario list, run against the rules evaluator (twice: checking the levels above the written path, and not), the mock, and the Firebase emulator when `FIREBASE_EMULATOR` is set.
+    - The evaluator now runs `.validate` on the levels above the written path, as the emulator showed real Firebase does.
+    - New tests for case-update merging, `compareIds`, and sending `caseUpdate` / `found`.
+  - `INTERFACES.md` §6 rewritten: Firebase shape, every event type's fields and ranges, caseUpdate merge rule, what phones do with what they receive. Plus one "known limits" line: lies aren't stopped.
+  - `docs/INTEGRITY-REPORT.md` (new): the full report. `UPDATESBYNATE.md`: the screen work for caseUpdate and found.
+- **Why:** Nathan's request. `docs/INTAKE-SPEC.md` open issue 1: the case is written once, so corrections after sharing need an append-only `caseUpdate`. A `found` event ends the search.
+- **Decisions:**
+  - **Any caseUpdate beats the first value, even with an older `at`.** Rejected: comparing with `createdAt`, which would silently drop a correction from a phone whose clock is behind.
+  - **`travel` and `description` shapes are assumptions** taken from INTAKE-SPEC's chips; noted in the report.
+  - **The rules generator stayed a scratch script.** `firebase-rules.json` is the source, checked by the tests.
+- **How it was verified:**
+  - `node --test`: 127 tests, 126 pass, 0 fail, 1 skipped (the emulator test, which is off unless `FIREBASE_EMULATOR` is set).
+  - **Firebase emulator** (firebase-tools 15.37.0, database emulator v4.11.2, Java 24), rules loaded into `demo-findthem-default-rtdb`: `node --test tests/sync.test.js` gives 25 tests, 25 pass, 0 fail, 0 skipped. Every scenario step matched; **0 differences.**
+  - Mutation A (rules accepting reliability 0.5): the emulator accepted it, so it really runs our file.
+  - Mutation B (case completeness removed from `.write`): the emulator still refused lone `case/minutes` and `case/lastSeen/lat` writes. So Firebase validates the levels above the written path; the evaluator was weaker and is fixed.
+- **Known issues / not done:**
+  - Not tested on the real database.
+  - `sync.js` itself was run only against the mock: its URLs have no `?ns=`.
+  - Screen work in `UPDATESBYNATE.md`: send `caseUpdate` on corrections, rebuild the case from `caseDoc`, a Found button, plus the earlier items.
+- **Next:** deploy the rules with `sync.js` to the real database and test with two phones; the screen session applies `UPDATESBYNATE.md`.
+
+### Event integrity: strict Firebase rules, checked events on every phone, engineVersion
+- **Date:** 2026-11-22
+- **Stage:** Finishing (reliability), branch `integrity` (Nathan), own worktree
+- **What changed:**
+  - `firebase-rules.json`:
+    - Every event type is checked for its exact shape: `searched`, `sighting`, `message`, plus the planner's `assigned`, `released` and `completed`. `assigned` accepts the planner shape and the INTERFACES shape, with an optional `toId`.
+    - Ranges: `searched` and `completed` minutes are numbers from 1 to 600, lat ±90, lng ±180, reliability is 0.3, 0.6 or 0.9, `at` ≥ 2020 and ≤ server time + 1 h.
+    - Text caps: name 40, note and message 300, ids by regex. A `track` is at most 2000 whole numbers.
+    - Unknown types and extra fields are refused.
+    - Completeness checks sit in `.write`, so writing one field at a time can't build a half event or half case.
+    - Events are append-only and need a 20-character push id. The case is written once, whole, and must carry `engineVersion`.
+    - Searcher positions can still be overwritten and removed, but their shape is checked now.
+  - `sync.js`:
+    - `checkEvent`, `checkCase` and `checkSearcher` apply the same rules (without the clock).
+    - `cleanEvents` / `readMirror` drop and count bad events and de-duplicate by content. `subscribe` passes an `info` 4th argument (dropped, duplicates, caseProblem, versionMismatch) and ignores stream messages it can't parse.
+    - `applyChange` handles multi-path patches and ignores `__proto__` paths.
+    - `addEvent` and `createSearch` refuse invalid data locally with `error: 'invalid'`.
+    - Events are sent with PUT at a client-made push id (`newPushId`). If a send is refused, sync.js reads that id back and treats an identical stored copy as success, so a retry is never stored twice.
+    - `createSearch` stamps `engineVersion` (`ENGINE_VERSION = '2026-11-22.1'`, or `setEngineVersion`). `loadSearch` returns `info` and fills in `direction: null` and `familiarPlaces: []`.
+  - `tools/mock-firebase.py`:
+    - Enforces the same rules by checking each touched slot (case, event or searcher) whole after a write.
+    - Adds PATCH (all-or-nothing) and DELETE, a 400 for bodies that aren't JSON, 401 "Permission denied", Firebase-style push ids, `--port 0`, and `patch` stream events.
+  - `tests/sync.test.js`:
+    - A 75-row table of good and bad events (malformed, oversized, wrong-type, extra-field, future-dated, emoji length) is checked against sync.js, against `firebase-rules.json` through a small rules evaluator, and against the mock over HTTP.
+    - Separate tests cover append-only, write-once case, partial-write and PATCH, duplicate and replay, lost-answer retry, prototype pollution, and junk on the stream.
+  - `UPDATESBYNATE.md` (new): what the screen must do.
+- **Why:** Anyone with a search link can write to the database. Before this, a malformed event (minutes as text, lat 500, a 1 MB note, an unknown field), an edit, or a duplicate could poison the map on every phone or crash `replay`.
+- **Decisions:**
+  - **Rejected: a server-side `cids/` index for replay protection.** `cid` is `local-<ms>-<n>`, which an attacker could guess and claim first. Retries are made safe by client-chosen push ids instead, and replays (same content under a new id) are counted once on every phone.
+  - **Case `minutes` and `minutesSince` allow up to 1440**, not 600: the form allows 1440, and `app.js` caps the growing minutes at 1440. Only event minutes are 1–600.
+  - **Phones don't apply the "not in the future" check.** Phone clocks differ, and every phone must drop the same events.
+  - `minutes` may be fractional (`markSearched` takes `Number(input)`).
+- **How it was verified:**
+  - `node --test`: 125 tests, 125 pass (110 before this change; the new ones are in `tests/sync.test.js`).
+  - Mutation check: loosening one rule (reliability 0.5) and one mock check (text 400) each made the table test fail. Both files were then restored.
+  - The rules were *not* deployed to real Firebase or run in the Firebase emulator. The evaluator in the test models Firebase's documented semantics (cascading `.write`, `.validate` at and below the write, `$` wildcards, `%`, `.matches`). The real server could differ in edge cases.
+- **Known issues / not done:**
+  - Screen work is listed in `UPDATESBYNATE.md`: show the version warning (i18n in 5 languages), handle `invalid` in `recordEvent`, clamp minutes, `sw.js` cache bump, `INTERFACES.md` §6 update.
+  - A malicious but well-formed event (a fake sighting) is still accepted; there are no accounts, so that is out of scope.
+- **Next:** deploy the rules with `sync.js` and test two phones against real Firebase; the screen session applies the `UPDATESBYNATE.md` items.
+
+### blind-2 scored once: the honest number for the pitch
+- **Date:** 2026-11-22
+- **Stage:** Finishing (evaluation), branch `agent-contract` (Nathan)
+- **What changed:**
+  - `bench/blind-2-results.md` (new): the full output, both readers, by language and by tag.
+  - `docs/REPORT-2026-11-22.md` (new): the overnight report.
+  - `docs/AGENT-CONTRACT.md`: the blind-2 result.
+  - `bench/jev-answers.json`: Jev's blind-2 answers (saved by the one run).
+- **Why:** Nathan: score blind-2 once with both readers, after the pin, the cautious backup reader and `/say`, and treat it as the honest number.
+- **Decisions:**
+  - **Street corners:** the 2 corners' null coordinates were filled with `findIntersections` on `tests/fixtures/demo-area.json`, not scored by name only.
+  - **"code-switch":** the set has no such tag; it was reported as the union of `spanglish`, `mixed-script` and `mixed`.
+  - **No tuning:** the dangerous cases were listed by category after scoring, and nothing was tuned on them.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-2 --reader local --final --by`: 429/564 (76%), 95 empty, 40 wrong, **7 dangerous** (7 high).
+  - `--reader proxy` (`jev-1.14.0` via `wrangler dev`): 479/564 (85%), 77 empty, 8 wrong, **3 dangerous** (3 high).
+  - The replay check passed. `node --test`: 141 pass.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - Jev: 3 cases, all two-in-one;
+    - backup reader: 7, in five categories (two-in-one; "nord ouest" with a space; mid-sentence corrections; "just saw … 5 minutes ago"; a spoken question without "?").
+  - blind-2 is spent.
+- **Next:** a new held-out set (two-in-one especially); the screen work in `docs/AGENT-CONTRACT.md` and `docs/REPLIES.md`; an `LLM_API_KEY` for `/say`.
+
+
+### Search-leader replies: POST /say, generated but constrained
+- **Date:** 2026-11-22
+- **Stage:** Finishing (conversation layer), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`replies.js` (new, root, pure; shared by phone and proxy):**
+    - `INTENTS` (ask, confirm, abstain, readRoute, comfort, found, emergency) and `cleanSayData` (per-intent fields only, and no advice, links or promises inside data);
+    - fixed templates in en/es/fr/zh/ja, with `templateReply`, `warningLines` (water / vehicle / "water in this area", fixed) and `replyFacts`;
+    - `checkReply`: numbers, places and directions only from the facts; banned medical, where-they-are, water/road/property, promise and "chatbot" content in 5 languages; one line, at most 2 sentences and 220 characters (90 for zh/ja); right language;
+    - `getReply`: the phone's call to `/say`, which re-checks the reply. It falls back to the template on any problem, uses a 2.5 s timeout, and never asks for emergency or found.
+  - **`proxy/say.js` (new):**
+    - the prompt (MEANING = the template, FACTS = the display facts);
+    - provider adapters with plain fetch: Anthropic Messages, `anthropic-version: 2026-10-21`, effort low, server-side refusal fallback; or OpenAI-compatible `/chat/completions`;
+    - `say()`: only `{ intent, data, lang }`, a 4 s timeout, a check, then the template.
+  - `proxy/worker.js`: route `POST /say`. `proxy/wrangler.toml`: `LLM_PROVIDER`, `LLM_MODEL`. `proxy/.dev.vars.example`: `LLM_API_KEY`.
+  - `tests/replies.test.js` (12 tests).
+  - Docs: `docs/REPLIES.md` (design, intents and data, provider, tests, **the screen hook-up list**); `INTERFACES.md` (`/say`); `docs/AGENT-CONTRACT.md` (AgentReply is now generated-but-constrained); `proxy/README.md`.
+- **Why:** Nathan's step 3: build the conversation layer from `docs/INTAKE-SPEC.md`, with generated but constrained wording.
+- **Decisions:**
+  - **The LLM never has to mention water, roads or property:** warnings are fixed lines added after the check. So any mention of them in a generated reply is rejected, except words the fixed template itself uses ("garage" in the house question).
+  - **The phone re-checks** what the proxy sends.
+  - **Templates live in `replies.js`** for now, because `i18n.js` is being edited elsewhere. The hook-up list moves them.
+  - **Strict over fluent:** a reply with Chinese numerals ("二十分钟") or a simplified direction is rejected, and the template is used.
+  - `docs/INTAKE-SPEC.md` (untracked in the main folder) was read but not copied into this branch, to avoid a merge clash.
+- **How it was verified:**
+  - `node --test`: 141 pass.
+  - Adversarial fake LLM: 0 of 720 bad replies got through. Fuzz: 500 planted errors, all rejected.
+  - All 60 generated-intent templates pass their own checker; 12 good paraphrases pass.
+  - The checker caught and fixed during development: neighbors' backyards (property), "il est là-bas", and English replies passing as es/fr.
+- **Known issues / not done:**
+  - **Not hooked up to the screen** (`app.js` / `i18n.js` untouched): see the list in `docs/REPLIES.md`.
+  - **No LLM key exists yet,** so the live generated path is untested against a real model: all tests use fakes.
+  - The templates need a native speaker's check.
+  - `caseGaps` / `proposeClue` (which feed `ask` / `confirm clue`) are still specified, not built.
+- **Next:** score blind-2 once.
+
+
+### Blind-test failure categories, and a cautious backup reader
+- **Date:** 2026-11-22
+- **Stage:** Finishing (report readers), branch `agent-contract` (Nathan)
+- **What changed:** blind-test was spent, so its 5 dangerous cases were opened. Each category was fixed, never a single case:
+
+  | Case | Reader | Level | Category | Fix |
+  |---|---|---|---|---|
+  | en-06 "SHE'S GONE … NOW SHES NOT HERE" | backup and Jev | medium | panic read as "searched" | "searched" needs search evidence (a search verb, or a place), in both readers (`hasSearchEvidence`); otherwise a message, kind unsure |
+  | en-11 "someone on nextdoor posted they saw…" | backup | medium | second-hand without a "says" word | `THIRD_PERSON_SEER` / `FIRST_PERSON_SEER`: someone else seeing ("the mailman saw", "posted", "was seen", es "vio / vieron", fr "l'a vue", zh "邻居…看到", ja "近所の人が…見") = maybe (0.3), unless the reporter also saw |
+  | fr-18 "Le facteur l'a vue…" | backup | high | same | same |
+  | ja-11 "…父じゃなかった" (it wasn't dad) | backup | high | "it wasn't" + a family word | `OTHER_PERSON` knows dad / mom / grandpa / grandma / husband / wife in 5 languages |
+
+  - Also, as a category: searching by walking a street ("walked all of", "端から端まで", "走遍", "parcouru") counts as a search verb.
+  - **Caution rule (Nathan):** a high-danger field is filled only on strong evidence, otherwise it's left empty and marked unsure.
+    - **place:** the full name, a short name of 7+ letters, or a short name next to a street word ("calle Walnut"); "walnut" or "bart" alone is left for the person;
+    - **kind:** a sighting with no "saw" verb is kept but marked unsure; "searched" without evidence becomes a message.
+  - Fields the caution rule emptied (backup reader, against the code before it): **18 in all**, 15 of them right, 1 wrong, 2 not scored. No field went from right to wrong.
+    - jev-cases 1 (a kind)
+    - safety 1 (a kind)
+    - blind-dev 13 (3 places, 10 kinds)
+    - blind-test 3 (1 place, 2 kinds)
+  - `tests/categories.test.js`: +4 tests, on new sentences. `sw.js` v32.
+- **Why:** Nathan: list the 5 dangerous blind-test cases, fix categories, and make the backup reader cautious.
+- **Decisions:**
+  - **"The lake" still pins Lake Elizabeth** when it's the only lake: Nathan's earlier rule, and uniqueness is the same evidence a person would use.
+  - **A presence sighting stays a sighting with kind unsure** (not a message), so a real sighting isn't dropped.
+  - **blind-test numbers are no longer held-out:** they were looked at. The honest number for the pitch is blind-2.
+- **How it was verified:**
+  - `node --test`: 129 pass.
+  - Dangerous is 0 on every set, for both readers. Backup reader: jev 98%, safety 99%, blind-dev 92%, blind-test 84% (it was 82%, with 4 dangerous). Jev through the layer: 100% / 97% / 95% / 94%.
+  - Live: the pinned `jev-1.14.0` answers through the local proxy (HTTP 200, `_jev.model` = `jev-1.14.0`).
+- **Known issues / not done:** blind-test can't measure these fixes honestly any more.
+- **Next:** the `/say` conversation layer, then blind-2 (once).
+
+
+### Pin Jev to jev-1.14.0
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev), branch `agent-contract` (Nathan's decision)
+- **What changed:**
+  - `proxy/jev.js`: `JEV_MODEL = 'jev-1.14.0'` (was the alias `jev-latest`).
+  - `proxy/worker.js`: a Jev response whose `model` is anything else, or missing, returns `502 model_mismatch`, so the phone reads the report with the backup rules.
+  - `tests/jev-api.test.js`: a new test that the proxy refuses `jev-1.15.0`, `jev-1.13.0`, `jev-latest` and a response with no `model`.
+  - `tests/jev.test.js`:
+    - the model assertion is now `'jev-1.14.0'`;
+    - the fake Jev response carries `model`, as the real API always does.
+  - `bench/eval.js` stops if a live answer comes from another model.
+  - `bench/jev-answers.json` re-keyed to the pinned request: 234 answers, all from `jev-1.14.0`. The 348 answers to earlier wordings were dropped; they are still in git history.
+- **Why:** the wording, `MIN_CONFIDENCE` and the safety rules were tuned on 1.14.0. The alias moves without notice.
+- **Decisions:** missing `model` counts as a mismatch: TypeSafe's docs say every response has it.
+- **How it was verified:**
+  - `node --test`: 125 pass.
+  - Replay scores identical before and after re-keying: jev 100%, safety 97%, blind-dev 95%, blind-test 93% / 1 dangerous.
+- **Known issues / not done:** a new TypeSafe release needs a deliberate re-tune and re-pin.
+- **Next:** blind-test failure categories.
+
+
+### Blind-test scored once: the honest number
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:** `docs/AGENT-CONTRACT.md` gets the blind-test result. `bench/jev-answers.json` now also holds Jev's answers for blind-test (saved by the one scoring run).
+- **Why:** step 6 of Nathan's request: score blind-test once, with both readers, after tuning.
+- **Decisions:**
+  - Scored on the committed state `4c3a77f`, with `--final` (totals only). Nobody looked at the failing cases, and they were not tuned on.
+  - blind-test is now spent: further tuning needs a new held-out set.
+- **How it was verified:**
+  - `node bench/eval.js --set blind-test --reader local --final`: 156/190 right (82%), 22 empty, 12 wrong; **4 dangerous** (2 high, 2 medium).
+  - `--reader proxy` (Jev `jev-1.14.0`): 176/190 (93%), 12 empty, 2 wrong; **1 dangerous** (0 high, 1 medium).
+  - The replay check passed.
+- **Known issues / not done:**
+  - **Dangerous is not 0 on unseen reports:**
+    - the backup reader has 4;
+    - Jev through the layer has 1, a medium one.
+  - The backup reader generalizes worst: 92% on dev vs 82% on test.
+  - The screen still doesn't show flags.
+- **Next:**
+  - Nathan: write a fresh held-out set to measure future changes.
+  - Decide whether to pin `jev-1.14.0`.
+  - The app.js session: the "Screen work" list in the contract.
+
+
+### Jev on the real API: docs check, blind split, tuning (before the blind-test score)
+- **Date:** 2026-11-22
+- **Stage:** Finishing (Jev tuning), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **`proxy/jev.js`, checked against TypeSafe's docs:**
+    - **score:** the answer is a probability-weighted mean, so we now take the most likely level, never above the rounded mean, ties to the lower level (`scoreLevel`);
+    - **option order:** Jev leans toward the first option, so every choice now lists its safe option first, and the minute options are words (number-like keys always sort first in JavaScript);
+    - **retries:** backoff now has 3 attempts.
+    - Tuned wording for kind ("found" is a message; a hedged sighting is still a sighting), place (a general description counts when only one place fits; a place they were heading toward doesn't) and how-sure (second-hand / far away = unsure).
+    - `minConfidence` can be passed in for the bench sweep.
+    - Safety layer: "found" is never a sighting. A searched report's time is the time spent searching, from the word rules; Jev's "seen" time is never used for it.
+  - **`proxy/worker.js`:**
+    - `env.RATE_LIMIT` override;
+    - `env.DEBUG_ANSWERS` (local benchmarks only) adds Jev's raw answers and model to the reply.
+  - **`quickread.js`:**
+    - new rules: found, second-hand (and far away = maybe), questions ending in "?", sightings without a "saw" verb, "bus stop" is not a vehicle, a car report with no "saw" words → message, searched time spent;
+    - place roles: toward / from / near, and "BART station" is not BART Way;
+    - `hasWord` fix: a Chinese or Japanese character next to a Latin word is a word edge;
+    - more hedge and certainty words.
+  - **New:**
+    - `bench/blind-cases.json` (Nathan's 120 blind reports, committed as asked);
+    - `bench/split-blind.js`, writing `bench/blind-dev.json` / `bench/blind-test.json` (60 / 60, seed 20261122, by language × kind);
+    - `bench/eval.js` (`npm run eval`): one scorer for all sets and both readers, with replay of saved answers;
+    - `bench/jev-answers.json`: Jev's saved answers (no keys);
+    - `tests/jev-api.test.js` (API conformance), `tests/categories.test.js` (each fixed category, on new sentences).
+  - `tests/jev.test.js`: only the fake answers' minute option names changed (`pick('10')` → `pick(MINUTE_OPTION[10])`), because the option names sent to Jev changed. No assertion changed.
+  - `bench/safety-cases.json`: `en-secondhand` now expects 0.3, the team's convention from the blind set.
+  - Docs: `INTERFACES.md` (a searched draft's `minutesSince` = time spent), `docs/AGENT-CONTRACT.md` (API table, tuning, before/after), `proxy/README.md` (model alias, benchmark mode), `NATHAN.md` (decide: pin the model). `.gitignore`: `.wrangler/`. `sw.js` v31.
+- **Why:** Nathan's request:
+  - check against the real API;
+  - make a real call;
+  - split the blind set and score both readers before tuning;
+  - tune by category until dangerous is 0 on safety-cases and blind-dev, with wrong answers becoming empty;
+  - then score blind-test once.
+- **Decisions:**
+  - **Tuning used only blind-dev** (and the two self-written sets). `bench/eval.js` refuses blind-test without `--final` and then prints totals only.
+  - **The key stays in `proxy/.dev.vars`** (git-ignored). It was found in the main folder's `proxy/` and copied into the worktree's `proxy/` without being read.
+  - **`MIN_CONFIDENCE` stays 0.5:** the sweep's best point.
+  - **The model alias is kept** as Nathan specified, but it now points to 1.14.0. Pinning is left to Nathan (NATHAN.md).
+  - **The wording was kept only after checking for new wrong answers.** The first version made hedged sightings into messages (3 new wrongs); the second fixed that category.
+- **How it was verified:**
+  - **The real call:** the curl Nathan gave returned `{"kind":"sighting",…,"direction":"E","minutesSince":10,…,"unsure":["reliability"],"flags":["water"]}`, HTTP 200.
+  - **Tests:** `node --test`: 124 pass.
+  - **Scores:** before → after, fields right, then dangerous:
+
+    | Set | Backup reader | Jev (`jev-1.14.0`) |
+    |---|---|---|
+    | jev-cases | 97% / 0 → 98% / 0 | 92% / 1 medium (a scorer bug) → 100% / 0 |
+    | safety-cases | 99% / 0 → 99% / 0 | 94% / 0 → 97% / 0 |
+    | blind-dev | 72% / 9 (7 high) → 92% / 0 | 81% / 1 medium → 95% / 0 |
+
+  - **Replay check:** the saved answers reproduce every proxy draft.
+- **Known issues / not done:**
+  - **blind-test is not scored yet:** that comes next, once, on this commit.
+  - The fixes were found on blind-dev, so dev numbers overstate how well the readers would do on new reports.
+  - The backup reader still can't read transliterated place names (ウォルナット通り, 泰森泻湖).
+  - The screen still doesn't show flags.
+- **Next:** score blind-test once with both readers and record it.
+
+
+### Safety layer: water never drops a sighting, street corners, language-aware vehicle words, INTERFACES v2
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan)
+- **What changed:**
+  - **Water flag checked** (`quickread.js`):
+    - Before this commit, "I saw him by the lake 10 minutes ago" already stayed a sighting with the `water` warning in both readers. The backup reader didn't pin "the lake", though.
+    - New `readFeaturePlace`: with no place name in the report, a feature word in any of the 5 languages (lake / creek / lagoon / river / park) pins the one nearby place of that kind. Only if there is exactly one; plurals like "Quarry Lakes" count.
+    - `PLACE_WORDS` and a whole-word `hasWord` moved here from `proxy/jev.js` and are shared. Jev's place-evidence check is now whole-word, so "lac" is no longer found in "place".
+  - **Street corners** (`quickread.js`):
+    - `findIntersections(osm, streetNames, near)`: one point per corner, the middle of a divided road's nodes. A pair that crosses in two places is left out as ambiguous.
+    - `readIntersection`: two streets joined by "and / & / y / con / et / 和 / 与 / と", or a corner word in the report. The report must name no other place.
+    - Both readers pin the corner. A corner suppresses the two-places conflict.
+    - `proxy/jev.js`: `cleanIntersections`. Corners are offered to Jev as place options. Jev naming one street of the corner agrees, and the corner is pinned.
+    - `proxy/worker.js` and `report.js` (`parseReport`, `confineDraft`) carry `context.intersections`.
+  - **Vehicle words by language:** `VEHICLE` is now per language. `guessLanguage(text, appLang)` decides: kana → ja, Han → zh, else the most common en/es/fr words. The app's language only breaks ties.
+  - **`INTERFACES.md`:**
+    - §5 rewritten for `ReportDraft` v2 (`unsure`, `flags`, what stops a sighting and what doesn't), `Intersection`, and the corner rule;
+    - `assigned` events get an optional `toId`;
+    - the status line records Nathan's approval.
+  - **`docs/AGENT-CONTRACT.md`:**
+    - status "approved";
+    - safety-layer rules 8–10;
+    - new results;
+    - a "Screen work" section: the exact `app.js` / `index.html` / `style.css` / `i18n.js` changes, with drafted strings in all 5 languages.
+  - **`bench/safety-cases.json`** (v2, 74 cases): +6 true water sightings, +8 corner cases, +1 French "car", and the demo corner list.
+  - **`bench/safety-eval.js`:** two new danger rules: a flag that drops a true sighting, and `mustNotFlag`. The readers get corners and language.
+  - **`tests/safety.test.js`:** +13 tests. `sw.js` v29 → v30. `README.md` / `PLAN.md` notes.
+- **Why:** Nathan's follow-up:
+  - a flag may add a warning but must never drop a true sighting;
+  - resolve intersections to where the two streets the phone sent cross;
+  - French "car" means "because";
+  - he approved the contract, so `INTERFACES.md` may change.
+- **Decisions:**
+  - **Corner coordinates come from the phone's own map**, sent as a list, not from the single point per name in `places`. That point is just the name's nearest node to the last-seen point, so two of them can't locate a corner.
+  - **A corner needs a joiner or a corner word.** Otherwise "on Paseo Padre, then on Stevenson" would be pinned to a corner nobody mentioned.
+  - **"The lake" pins only a unique match.** Two lakes nearby → the person taps the map.
+  - **Language comes from the text first:** people don't always type in the app's language. "car" is not counted as a French word, so "car gone" stays English.
+  - Still not touched: `app.js`, `i18n.js` (another session is editing `app.js`), `engine/`, `data.js`, `tests/fixtures/` (only read, for corner tests).
+- **How it was verified:**
+  - `node --test`: 110 pass, 0 fail.
+  - `npm run safety-eval -- --local`: 68 right, 6 abstained, **0 dangerous** (of 74). With no app language and no corner list (what app.js sends today): 62 / 12 / **0**. The original `quickread.js` (`439e868`) on the same 74: 17 / 14 / **43**.
+  - `--hostile`: 1 dangerous (`es-typos`, as before). `--hostile-details`: 0.
+  - `npm run jev-eval -- --local`: 133/138 (96%), unchanged.
+  - A new test caught plural lake names ("Quarry Lakes") being missed, which would have pinned the wrong lake; fixed.
+- **Known issues / not done:**
+  - **The screen shows no flags, unsure highlights or corners yet:** see "Screen work" in the contract.
+  - **Bug found (predates this work):** `openSightingForm` puts `0` minutes when the time is unknown, so the form says "just now".
+  - The language guess is word counting; a two-word report in no clear language falls back to the app's language.
+  - Jev's own dangerous rate still needs the TypeSafe key.
+- **Next:** the `app.js` session applies "Screen work". With the key, `npm run safety-eval` through Jev.
+
+### Uncommitted
+- `bench/blind-cases.json`: 120 blind test reports (en 40, es 22, fr 18, zh 20, ja 20) for the report box, written without reading `quickread.js`, `report.js` or `proxy/`. Each has the expected kind, place, direction, minutes and reliability, other acceptable values, and how dangerous a wrong reading would be (high/medium/low) with the reason. No scorer uses it yet.
+
+### Report box safety layer and agent contract
+- **Date:** 2026-11-22
+- **Stage:** Finishing (safety), branch `agent-contract` (Nathan), worked on in its own worktree while `prior-v2` rewrites the engine
+- **What changed:**
+  - `docs/AGENT-CONTRACT.md` (new): the contract between an AI agent and the intelligence layer. Principle: the agent reads and proposes; only a confirmed, schema-valid event changes the map. Versioned schemas (`CaseInput` 1, `CaseDraft` 1, `ReportDraft` 2, `Event` 1, `AgentReply` 1); the functions `caseGaps` (ranked by how much each answer would change the map: mean total-variation distance over the possible answers, with fixed question codes), `validateCase`, `validateClue`, `proposeClue` (a preview, nothing written), `myAssignment`, `explain` (reason codes only); the exact sentences the agent says when it abstains; and what is built vs. proposed.
+  - `report.js`: `ReportDraft` v2. `validateDraft` keeps the optional `unsure` (fields the reader wasn't sure about) and `flags` (`emergency`, `water`, `vehicle`, `conflict`, `guess`, `other_person`, `joke`) lists, known codes only, left out when empty; a place / direction / time marked unsure is always emptied. New `confineDraft`, used by `parseReport`: the note is always the person's own words, and the place must be one of the names the phone sent, pinned at that place's own point, so a proxy answer can't carry any text of its own.
+  - `quickread.js` (the backup reader): `readSignals` finds water, vehicle, emergency, someone else, joke and guess words in all 5 languages, plus conflicts (two places, two directions, two times, "definitely" + "not sure"). `readLocally` leaves conflicting fields empty and lists them in `unsure`, turns jokes and sightings of someone else into messages, and adds `flags`. Also: "I see him", "definitely him", "lo veo", "je le vois" count as sightings; "je ne le trouve nulle part" no longer reads as "found".
+  - `proxy/jev.js`: `safeJevDraft`, now used by `proxy/worker.js`. An answer that isn't one of the options counts as no answer; a close call between Jev's top two options (`MIN_MARGIN` 0.15) or a soft disagreement with the word rules costs `CONFLICT_PENALTY` (0.25) of confidence; two answers in the report, or the two readers disagreeing about a place / direction / time (or sighting vs searched), leave the field empty; Jev's place, direction and time need words of that kind in the report ("interpret, don't invent"), and "certain" needs certain words; a joke, someone else, or (with no "saw" words) a guess, "he took the car" or "I can't find him" is never a sighting. The `kind` question's wording now says guesses, jokes and other people are messages. `jevToDraft` (Jev alone) now lists its below-`MIN_CONFIDENCE` fields in `unsure`.
+  - `bench/safety-cases.json` (new): 59 adversarial reports (20 en, 11 es, 10 fr, 9 zh, 9 ja) with expected outcomes. `bench/safety-eval.js` (new, `npm run safety-eval`): scores each as right / abstained / dangerous; `--local`, `--hostile`, `--hostile-details`, or Jev through the proxy. Exits 1 if anything is dangerous.
+  - `tests/safety.test.js` (new, 24 tests). `sw.js` cache v28 → v29. Notes in `PLAN.md`, `NATHAN.md`, `README.md`, `proxy/README.md`.
+- **Why:** Nathan's request: the AI agent is an intermediary assumed to be unreliable; it never sets probabilities or gives search advice; accuracy beats latency because wrong advice can cost a life.
+- **Decisions:**
+  - **No new Jev questions.** The safety checks are deterministic word rules shared by both readers, so they never depend on the AI being right. (Adding Jev questions for water / vehicle would also have changed the question list that `tests/jev.test.js` checks.) Only the wording of the `kind` options changed.
+  - **Disagreement empties a field instead of picking a winner.** For reliability the lower one wins.
+  - **"message" from the word rules isn't a vote,** because it's what they say when they find nothing.
+  - **Flags are codes, shown by the screen** (sentences proposed in the contract). The flags only add caution and never change the map.
+  - Not changed: `INTERFACES.md`, which needs BenStew's OK (the contract lists what to add), and `app.js` / `i18n.js`, which are BenStew's and would need the flag sentences in all 5 languages.
+  - `engine/`, `data.js` and `tests/fixtures/` were not touched (prior v2 is being rewritten on another branch).
+- **How it was verified:**
+  - `node --test`: 97 pass, 0 fail (the 73 existing tests unchanged, plus 24 new).
+  - `npm run safety-eval -- --local`: 55 right, 4 abstained, **0 dangerous**. The same scorer on `quickread.js` as it was at `439e868`: 16 right, 8 abstained, **35 dangerous**.
+  - `--hostile` (a fake Jev that is confidently wrong on everything): 1 dangerous, `es-typos`. Every word is misspelled, so nothing contradicts Jev's "searched".
+  - `--hostile-details` (right kind, invented details): 0 dangerous.
+  - A perfect Jev answer set on `bench/jev-cases.json` keeps 137/138 fields through the layer (tested ≥ 95%).
+  - `npm run jev-eval -- --local`: 96%, up from 95%, with wrong answers down from 3 to 2. One place is now left empty: "on Paseo Padre … toward the BART station" names two places.
+- **Known issues / not done:**
+  - **Jev's own dangerous rate is not measured yet:** the TypeSafe key is still missing.
+  - The screen doesn't show `flags` or highlight `unsure` fields yet.
+  - The word rules over-flag a little:
+    - French "car" ("because") reads as a vehicle;
+    - any "lake" or "creek" in a report gets the water flag;
+    - an intersection ("Walnut and Paseo Padre") counts as two places and is left empty.
+  - The test set was written alongside the rules, so it is not a held-out test. Reports written by someone else are needed.
+  - `caseGaps`, `validateCase`, `proposeClue`, `myAssignment` and `explain` are specified, not built.
+- **Next:** with the key in, `npm run safety-eval` through Jev, recording its dangerous count. BenStew: show the flags in the form (`i18n.js`, 5 languages), then fold `ReportDraft` v2 into `INTERFACES.md`.
+
+### Prior v2, stage 1: design note
+- **Date:** 2026-11-22
+- **Stage:** Prior v2 (branch `prior-v2`, Nathan), stage 1 of 4
+- **What changed:** New `docs/PRIOR-V2.md`: what is wrong with the current prior (from Nathan's audit of `main`), the design of its replacement (10 m ground map, walkers stored as per-minute particles with their own speed / time moving / behavior, a map for "t minutes since last seen" with "still missing" evidence, a blend with an ISRID statistics map, an explicit "rest of world" share, a separate hazard layer, calibration and evaluation), the published numbers it uses, and the contract changes it will need.
+- **Why:** Nathan asked for the prior to be replaced with one as close to a real search team's method as the data allows, built in four committed stages on a branch, starting with a short design note.
+- **Decisions:**
+  - Urban ISRID dementia row for Fremont, temperate as the alternative.
+  - **Elevation is skipped**: the urban row has no elevation statistic, the test area is flat, and terrain tiles would add a download to the first minutes of a search.
+  - The grid will be anchored to the case (its last-seen point, rounded), not to each phone's download.
+  - `grid.p` will sum to `1 − restOfWorld` rather than 1. This and the new optional fields change `INTERFACES.md`, so they need BenStew's OK before any merge.
+  - Every tunable constant is labeled DATA, EXPERT or ASSUMPTION with its source.
+- **How it was verified:** Each ISRID number was read from Koester's dementia chapter (the PDF's text, extracted on the laptop): all matched, and the urban find-location row also lists linear 9, woods 3 and brush 1, which makes it sum to 100. Rowe 2011 was read in full: 53% of walkers within 1 mile is right, but "those found dead were mostly within 0.5 mile" is really **50%**. The gait-speed figure (0.62 ± 0.23 m/s, n = 309) is Toots et al. 2019. Sava et al.'s R formula and the 0.78 for rings were confirmed from the authors' preprint and the published abstract.
+- **Known issues / not done:** No engine code changed yet. No urban sweep width was found in the literature, so the search-coverage constants remain assumptions.
+- **Next:** Stage 2: the ground map, the new walkers, and time conditioning.
 
 ### PLAN.md: tonight's test pass noted
 - **Date:** 2026-11-21

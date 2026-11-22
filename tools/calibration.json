@@ -1,0 +1,658 @@
+{
+ "date": "2026-11-22T09:17:18.498Z",
+ "quick": false,
+ "starts": [
+  {
+   "lat": 37.547692,
+   "lng": -122.001129
+  },
+  {
+   "lat": 37.525684,
+   "lng": -121.992066
+  },
+  {
+   "lat": 37.52227,
+   "lng": -121.973372
+  },
+  {
+   "lat": 37.551016,
+   "lng": -121.984928
+  },
+  {
+   "lat": 37.53835,
+   "lng": -121.986628
+  },
+  {
+   "lat": 37.539877,
+   "lng": -121.979377
+  },
+  {
+   "lat": 37.536284,
+   "lng": -121.958871
+  },
+  {
+   "lat": 37.553711,
+   "lng": -121.995578
+  },
+  {
+   "lat": 37.528828,
+   "lng": -121.956832
+  },
+  {
+   "lat": 37.557035,
+   "lng": -121.970993
+  },
+  {
+   "lat": 37.541045,
+   "lng": -121.979377
+  },
+  {
+   "lat": 37.546974,
+   "lng": -121.975298
+  },
+  {
+   "lat": 37.530445,
+   "lng": -121.996371
+  },
+  {
+   "lat": 37.559101,
+   "lng": -121.969521
+  },
+  {
+   "lat": 37.550747,
+   "lng": -121.999543
+  },
+  {
+   "lat": 37.535835,
+   "lng": -121.9702
+  },
+  {
+   "lat": 37.545716,
+   "lng": -122.003395
+  },
+  {
+   "lat": 37.544638,
+   "lng": -121.967255
+  },
+  {
+   "lat": 37.552094,
+   "lng": -121.99875
+  },
+  {
+   "lat": 37.534397,
+   "lng": -121.983455
+  },
+  {
+   "lat": 37.551375,
+   "lng": -121.985268
+  },
+  {
+   "lat": 37.541943,
+   "lng": -122.002602
+  },
+  {
+   "lat": 37.534487,
+   "lng": -121.959098
+  },
+  {
+   "lat": 37.544638,
+   "lng": -121.998637
+  }
+ ],
+ "walkersPerStart": 300,
+ "settingsTried": 401,
+ "targets": {
+  "within300m": 25,
+  "within1100m": 50,
+  "within3200m": 75,
+  "structure": 35,
+  "road": 36,
+  "linear": 9,
+  "field": 6,
+  "water": 6,
+  "drainage": 4,
+  "woods": 3,
+  "brush": 1,
+  "trackOffset25": 4,
+  "trackOffset50": 15,
+  "trackOffset75": 71,
+  "trackOffset95": 307,
+  "dispersion25": 11,
+  "dispersion50": 23,
+  "dispersion75": 66,
+  "mobilityH25": 0,
+  "mobilityH50": 0.25,
+  "mobilityH75": 3.8,
+  "mobilityH95": 18,
+  "within1mile": 53
+ },
+ "weights": {
+  "within300m": 3,
+  "within1100m": 4,
+  "within3200m": 3,
+  "structure": 1,
+  "road": 1.5,
+  "linear": 0.75,
+  "field": 0.5,
+  "water": 1,
+  "drainage": 1,
+  "woods": 0.25,
+  "brush": 0.25,
+  "trackOffset50": 0.5,
+  "trackOffset75": 0.5,
+  "dispersion50": 0.25
+ },
+ "before": {
+  "score": 44.25320476554383,
+  "stats": {
+   "within300m": 62.96666666666667,
+   "within1100m": 93.11666666666666,
+   "within3200m": 99.67916666666666,
+   "within1mile": 97.14583333333333,
+   "trackOffset25": 10,
+   "trackOffset50": 10,
+   "trackOffset75": 20,
+   "trackOffset95": 42,
+   "dispersion25": 10.25119875081744,
+   "dispersion50": 23.7448787046295,
+   "dispersion75": 45.75384833307072,
+   "mobilityH25": 0.12243980566660563,
+   "mobilityH50": 0.3303134600321452,
+   "mobilityH75": 0.8032007853190104,
+   "mobilityH95": 2.252758280436198,
+   "leftMap": 0.2375,
+   "walkers": 24000,
+   "structure": 66.64014072708997,
+   "road": 15.241246439939689,
+   "linear": 3.6480147428379963,
+   "field": 6.563075892109231,
+   "water": 0.5779862623555034,
+   "drainage": 7.300217791924945,
+   "woods": 0.029318143742670465,
+   "brush": 0,
+   "stop: still moving": 0.020833333333333332,
+   "stop: mobility time over": 48.96666666666667,
+   "stop: went to a structure": 25.520833333333332,
+   "stop: walked into water": 0.16666666666666666,
+   "stop: stuck in terrain": 6.758333333333334,
+   "stop: noticed by the public": 18.329166666666666,
+   "stop: reached the familiar place": 0,
+   "stop: left the map": 0.2375,
+   "stop: boxed in": 0
+  }
+ },
+ "after": {
+  "score": 4.0582434596693275,
+  "stats": {
+   "within300m": 25.629166666666666,
+   "within1100m": 49.1125,
+   "within3200m": 81.07916666666667,
+   "within1mile": 60.8,
+   "trackOffset25": 10,
+   "trackOffset50": 14,
+   "trackOffset75": 30,
+   "trackOffset95": 54,
+   "dispersion25": 13.98942363809198,
+   "dispersion50": 31.98803924629658,
+   "dispersion75": 61.38954033403479,
+   "mobilityH25": 0.6580587387084961,
+   "mobilityH50": 2.790480295817057,
+   "mobilityH75": 5.720890299479167,
+   "mobilityH95": 12,
+   "leftMap": 16.416666666666668,
+   "walkers": 24000,
+   "structure": 37.45637650812643,
+   "road": 35.716422375112174,
+   "linear": 10.070794695383388,
+   "field": 2.308305912852727,
+   "water": 5.100209392760993,
+   "drainage": 9.2930501545518,
+   "woods": 0.054840961212483795,
+   "brush": 0,
+   "stop: still moving": 6.825,
+   "stop: mobility time over": 3.433333333333333,
+   "stop: went to a structure": 25.425,
+   "stop: walked into water": 3.1333333333333333,
+   "stop: stuck in terrain": 8.645833333333334,
+   "stop: noticed by the public": 36.12083333333333,
+   "stop: reached the familiar place": 0,
+   "stop: left the map": 16.416666666666668,
+   "stop: boxed in": 0
+  }
+ },
+ "knobs": [
+  {
+   "name": "MOBILE_MEDIAN_MIN",
+   "low": 10,
+   "high": 1440,
+   "scale": "log",
+   "default": 60,
+   "fitted": 1146,
+   "position": 0.9541,
+   "atLimit": null
+  },
+  {
+   "name": "MOBILE_SIGMA",
+   "low": 0.5,
+   "high": 2.5,
+   "scale": "linear",
+   "default": 1.4,
+   "fitted": 0.5,
+   "position": 0,
+   "atLimit": "low"
+  },
+  {
+   "name": "SHARE_WANDER",
+   "low": 0.02,
+   "high": 0.6,
+   "scale": "linear",
+   "default": 0.2,
+   "fitted": 0.118,
+   "position": 0.169,
+   "atLimit": null
+  },
+  {
+   "name": "SHARE_STAYER",
+   "low": 0.02,
+   "high": 0.9,
+   "scale": "linear",
+   "default": 0.25,
+   "fitted": 0.1377,
+   "position": 0.1337,
+   "atLimit": null
+  },
+  {
+   "name": "STAYER_MOBILE_MEDIAN_MIN",
+   "low": 1,
+   "high": 60,
+   "scale": "log",
+   "default": 10,
+   "fitted": 14.77,
+   "position": 0.6576,
+   "atLimit": null
+  },
+  {
+   "name": "TURN_SCALE_DEG",
+   "low": 15,
+   "high": 90,
+   "scale": "linear",
+   "default": 35,
+   "fitted": 47.61,
+   "position": 0.4348,
+   "atLimit": null
+  },
+  {
+   "name": "WANDER_TURN_SCALE_DEG",
+   "low": 30,
+   "high": 180,
+   "scale": "linear",
+   "default": 90,
+   "fitted": 63.05,
+   "position": 0.2203,
+   "atLimit": null
+  },
+  {
+   "name": "COURSE_SCALE_DEG",
+   "low": 15,
+   "high": 120,
+   "scale": "linear",
+   "default": 45,
+   "fitted": 50.67,
+   "position": 0.3397,
+   "atLimit": null
+  },
+  {
+   "name": "ROAD_STICK",
+   "low": 1.5,
+   "high": 40,
+   "scale": "log",
+   "default": 8,
+   "fitted": 5.205,
+   "position": 0.3789,
+   "atLimit": null
+  },
+  {
+   "name": "OPEN_BOOST",
+   "low": 0.3,
+   "high": 8,
+   "scale": "log",
+   "default": 1,
+   "fitted": 1.24,
+   "position": 0.4321,
+   "atLimit": null
+  },
+  {
+   "name": "P_STRUCT_STEP",
+   "low": 0.0003,
+   "high": 0.05,
+   "scale": "log",
+   "default": 0.004,
+   "fitted": 0.000445,
+   "position": 0.07708,
+   "atLimit": null
+  },
+  {
+   "name": "P_STRUCT_STAYER",
+   "low": 0.005,
+   "high": 1,
+   "scale": "log",
+   "default": 0.08,
+   "fitted": 1,
+   "position": 1,
+   "atLimit": "high"
+  },
+  {
+   "name": "P_WATER_ENTER",
+   "low": 0.01,
+   "high": 0.9,
+   "scale": "log",
+   "default": 0.15,
+   "fitted": 0.3564,
+   "position": 0.7941,
+   "atLimit": null
+  },
+  {
+   "name": "P_CREEK_STUCK",
+   "low": 0.001,
+   "high": 0.9,
+   "scale": "log",
+   "default": 0.2,
+   "fitted": 0.03082,
+   "position": 0.504,
+   "atLimit": null
+  },
+  {
+   "name": "P_WOODS_STUCK",
+   "low": 0.001,
+   "high": 0.3,
+   "scale": "log",
+   "default": 0.02,
+   "fitted": 0.001274,
+   "position": 0.04243,
+   "atLimit": null
+  },
+  {
+   "name": "P_BRUSH_STUCK",
+   "low": 0.001,
+   "high": 0.3,
+   "scale": "log",
+   "default": 0.05,
+   "fitted": 0.003291,
+   "position": 0.2088,
+   "atLimit": null
+  },
+  {
+   "name": "SPOT_RATE_PER_MIN",
+   "low": 0.001,
+   "high": 0.5,
+   "scale": "log",
+   "default": 0.03,
+   "fitted": 0.01024,
+   "position": 0.3743,
+   "atLimit": null
+  }
+ ],
+ "atLimit": [
+  "MOBILE_SIGMA (low)",
+  "P_STRUCT_STAYER (high)"
+ ],
+ "params": {
+  "MOBILE_MEDIAN_MIN": 1146,
+  "MOBILE_SIGMA": 0.5,
+  "SHARE_WANDER": 0.1465,
+  "SHARE_STAYER": 0.1709,
+  "STAYER_MOBILE_MEDIAN_MIN": 14.77,
+  "TURN_SCALE_DEG": 47.61,
+  "WANDER_TURN_SCALE_DEG": 63.05,
+  "COURSE_SCALE_DEG": 50.67,
+  "ROAD_STICK": 5.205,
+  "OPEN_BOOST": 1.24,
+  "P_STRUCT_STEP": 0.000445,
+  "P_STRUCT_STAYER": 1,
+  "P_WATER_ENTER": 0.3564,
+  "P_CREEK_STUCK": 0.03082,
+  "P_WOODS_STUCK": 0.001274,
+  "P_BRUSH_STUCK": 0.003291,
+  "SPOT_RATE_PER_MIN": 0.01024,
+  "SHARE_DIRECTION": 0.6826,
+  "BLEND_WALKERS": 0.05
+ },
+ "seconds": 246.638,
+ "blend": {
+  "best": 0.05,
+  "curve": [
+   {
+    "blend": 0,
+    "meanLogArea": -0.40125964517699464,
+    "typicalAreaKm2": 0.397,
+    "byTime": {
+     "30 min": 0.1741,
+     "60 min": 0.408,
+     "120 min": 0.7061,
+     "end": 0.5347
+    }
+   },
+   {
+    "blend": 0.05,
+    "meanLogArea": -0.40232728052634675,
+    "typicalAreaKm2": 0.396,
+    "byTime": {
+     "30 min": 0.1721,
+     "60 min": 0.408,
+     "120 min": 0.7051,
+     "end": 0.5368
+    }
+   },
+   {
+    "blend": 0.1,
+    "meanLogArea": -0.39938106815519503,
+    "typicalAreaKm2": 0.3987,
+    "byTime": {
+     "30 min": 0.1723,
+     "60 min": 0.4105,
+     "120 min": 0.7105,
+     "end": 0.5446
+    }
+   },
+   {
+    "blend": 0.15,
+    "meanLogArea": -0.39334329385625316,
+    "typicalAreaKm2": 0.4043,
+    "byTime": {
+     "30 min": 0.1735,
+     "60 min": 0.4154,
+     "120 min": 0.7215,
+     "end": 0.5575
+    }
+   },
+   {
+    "blend": 0.2,
+    "meanLogArea": -0.3865407776879228,
+    "typicalAreaKm2": 0.4106,
+    "byTime": {
+     "30 min": 0.175,
+     "60 min": 0.4212,
+     "120 min": 0.7341,
+     "end": 0.5719
+    }
+   },
+   {
+    "blend": 0.25,
+    "meanLogArea": -0.37633312448212886,
+    "typicalAreaKm2": 0.4204,
+    "byTime": {
+     "30 min": 0.1779,
+     "60 min": 0.43,
+     "120 min": 0.7524,
+     "end": 0.592
+    }
+   },
+   {
+    "blend": 0.3,
+    "meanLogArea": -0.3661579267433303,
+    "typicalAreaKm2": 0.4304,
+    "byTime": {
+     "30 min": 0.1798,
+     "60 min": 0.4403,
+     "120 min": 0.773,
+     "end": 0.6132
+    }
+   },
+   {
+    "blend": 0.35,
+    "meanLogArea": -0.3542005098702225,
+    "typicalAreaKm2": 0.4424,
+    "byTime": {
+     "30 min": 0.183,
+     "60 min": 0.4498,
+     "120 min": 0.8004,
+     "end": 0.6375
+    }
+   },
+   {
+    "blend": 0.4,
+    "meanLogArea": -0.34157921270121394,
+    "typicalAreaKm2": 0.4554,
+    "byTime": {
+     "30 min": 0.1861,
+     "60 min": 0.4636,
+     "120 min": 0.8261,
+     "end": 0.6636
+    }
+   },
+   {
+    "blend": 0.45,
+    "meanLogArea": -0.32770703519073774,
+    "typicalAreaKm2": 0.4702,
+    "byTime": {
+     "30 min": 0.1902,
+     "60 min": 0.4786,
+     "120 min": 0.8513,
+     "end": 0.6962
+    }
+   },
+   {
+    "blend": 0.5,
+    "meanLogArea": -0.3134415478983105,
+    "typicalAreaKm2": 0.4859,
+    "byTime": {
+     "30 min": 0.1939,
+     "60 min": 0.4941,
+     "120 min": 0.8839,
+     "end": 0.7287
+    }
+   },
+   {
+    "blend": 0.55,
+    "meanLogArea": -0.29825365539341686,
+    "typicalAreaKm2": 0.5032,
+    "byTime": {
+     "30 min": 0.1983,
+     "60 min": 0.5106,
+     "120 min": 0.9189,
+     "end": 0.7652
+    }
+   },
+   {
+    "blend": 0.6,
+    "meanLogArea": -0.28145232512101387,
+    "typicalAreaKm2": 0.5231,
+    "byTime": {
+     "30 min": 0.2043,
+     "60 min": 0.5297,
+     "120 min": 0.953,
+     "end": 0.8093
+    }
+   },
+   {
+    "blend": 0.65,
+    "meanLogArea": -0.2642053878787652,
+    "typicalAreaKm2": 0.5442,
+    "byTime": {
+     "30 min": 0.2095,
+     "60 min": 0.5501,
+     "120 min": 0.9926,
+     "end": 0.8589
+    }
+   },
+   {
+    "blend": 0.7,
+    "meanLogArea": -0.24474340467127792,
+    "typicalAreaKm2": 0.5692,
+    "byTime": {
+     "30 min": 0.2156,
+     "60 min": 0.5743,
+     "120 min": 1.041,
+     "end": 0.9167
+    }
+   },
+   {
+    "blend": 0.75,
+    "meanLogArea": -0.22606089599869283,
+    "typicalAreaKm2": 0.5942,
+    "byTime": {
+     "30 min": 0.2223,
+     "60 min": 0.5984,
+     "120 min": 1.087,
+     "end": 0.9738
+    }
+   },
+   {
+    "blend": 0.8,
+    "meanLogArea": -0.2053965231387792,
+    "typicalAreaKm2": 0.6232,
+    "byTime": {
+     "30 min": 0.2294,
+     "60 min": 0.6263,
+     "120 min": 1.141,
+     "end": 1.044
+    }
+   },
+   {
+    "blend": 0.85,
+    "meanLogArea": -0.18326603931337748,
+    "typicalAreaKm2": 0.6557,
+    "byTime": {
+     "30 min": 0.2374,
+     "60 min": 0.6566,
+     "120 min": 1.199,
+     "end": 1.131
+    }
+   },
+   {
+    "blend": 0.9,
+    "meanLogArea": -0.15876869827480303,
+    "typicalAreaKm2": 0.6938,
+    "byTime": {
+     "30 min": 0.2472,
+     "60 min": 0.6942,
+     "120 min": 1.261,
+     "end": 1.232
+    }
+   },
+   {
+    "blend": 0.95,
+    "meanLogArea": -0.13015063497129312,
+    "typicalAreaKm2": 0.7411,
+    "byTime": {
+     "30 min": 0.26,
+     "60 min": 0.7361,
+     "120 min": 1.339,
+     "end": 1.365
+    }
+   },
+   {
+    "blend": 1,
+    "meanLogArea": 0.06924663334807302,
+    "typicalAreaKm2": 1.173,
+    "byTime": {
+     "30 min": 0.4039,
+     "60 min": 1.182,
+     "120 min": 1.924,
+     "end": 2.458
+    }
+   }
+  ],
+  "cases": 3590
+ }
+}

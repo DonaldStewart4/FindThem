@@ -8,3 +8,6 @@ DEEPGRAM_API_KEY=
 ELEVENLABS_API_KEY=
 # ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
 ALLOWED_ORIGIN=*
+
+# Optional: the text LLM for POST /say (proxy/say.js). Without it, replies are the fixed templates.
+LLM_API_KEY=

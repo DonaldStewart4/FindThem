@@ -1,0 +1,3159 @@
+{
+  "about": "Blind test set 2 for the report box: 150 NEW reports, written WITHOUT looking at quickread.js, report.js, proxy/ or the other bench files (only the field format and place list of blind-cases.json). Same meaning of every field as blind-cases.json. Weighted toward speech: voice-transcription errors, run-on sentences, code-switching (English place names inside Spanish/French/Chinese/Japanese), mid-sentence corrections, and two reports in one message (tag \"two-in-one\": the expected reading is the newer sighting; \"message\" with no place is acceptable). New: \"place\" may also be a street corner from \"intersections\" (two streets, alphabetical, joined by \" & \", as in INTERFACES.md section 5); either street alone, or null, is listed as acceptable. Intersection lat/lng are left null: the phone computes corners from OSM. Note \"danger\" is how bad a WRONG reading would be; \"why\" says how.",
+  "version": 1,
+  "lastSeen": {
+    "lat": 37.553,
+    "lng": -121.97
+  },
+  "places": [
+    {
+      "name": "Stevenson Boulevard",
+      "lat": 37.55302,
+      "lng": -121.97035
+    },
+    {
+      "name": "Civic Center Drive",
+      "lat": 37.55208,
+      "lng": -121.97142
+    },
+    {
+      "name": "Paseo Padre Parkway",
+      "lat": 37.54966,
+      "lng": -121.97333
+    },
+    {
+      "name": "Walnut Avenue",
+      "lat": 37.55559,
+      "lng": -121.97489
+    },
+    {
+      "name": "Kearney Street",
+      "lat": 37.54894,
+      "lng": -121.97494
+    },
+    {
+      "name": "Fremont Central Park",
+      "lat": 37.55673,
+      "lng": -121.96241
+    },
+    {
+      "name": "Lake Elizabeth",
+      "lat": 37.5503,
+      "lng": -121.963
+    },
+    {
+      "name": "Tyson Lagoon",
+      "lat": 37.55834,
+      "lng": -121.97591
+    },
+    {
+      "name": "Liberty Street",
+      "lat": 37.54643,
+      "lng": -121.97238
+    },
+    {
+      "name": "Alameda County Veterans Memorial Park",
+      "lat": 37.55158,
+      "lng": -121.97776
+    },
+    {
+      "name": "Laguna Creek",
+      "lat": 37.54052,
+      "lng": -121.96155
+    },
+    {
+      "name": "BART Way",
+      "lat": 37.5567,
+      "lng": -121.97688
+    }
+  ],
+  "intersections": [
+    {
+      "name": "Paseo Padre Parkway & Stevenson Boulevard",
+      "streets": [
+        "Paseo Padre Parkway",
+        "Stevenson Boulevard"
+      ],
+      "lat": null,
+      "lng": null
+    },
+    {
+      "name": "Paseo Padre Parkway & Walnut Avenue",
+      "streets": [
+        "Paseo Padre Parkway",
+        "Walnut Avenue"
+      ],
+      "lat": null,
+      "lng": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "en-b01",
+      "lang": "en",
+      "tags": [
+        "voice"
+      ],
+      "text": "okay so I just saw him I think it was him by the lake a lizabeth near the boat house he was walking um east I think like five minutes ago he's got the blue cardigan on",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": "E",
+        "minutes": 5,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"lake a lizabeth\" is a transcription of Lake Elizabeth.",
+      "acceptable": {
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "en-b02",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "my neighbor Rosa just called she said she saw grandpa on Stevens in boulevard going west maybe 20 minutes ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "W",
+        "minutes": 20,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way. \"Stevens in\" is Stevenson."
+    },
+    {
+      "id": "en-b03",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "correction"
+      ],
+      "text": "he was on walnut no sorry not walnut it was kearney street heading south just now",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on.",
+      "acceptable": {
+        "minutes": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "en-b04",
+      "lang": "en",
+      "tags": [
+        "two-in-one",
+        "searched",
+        "secondhand"
+      ],
+      "text": "searched tyson lagoon 30 min nothing there. also a guy at the bart station said an old man in slippers walked toward paseo padre like 15 min ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": 15,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Two reports in one message. The useful one for the map is the newer sighting; reading it as \"searched\" would mark the place he was just seen as cleared. Leaving kind as message with no place is safe. \"toward Paseo Padre\" is not a compass point.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b05",
+      "lang": "en",
+      "tags": [
+        "panic",
+        "urgent"
+      ],
+      "text": "PLEASE HELP HES BEEN GONE 2 HOURS WE CANT FIND HIM ANYWHERE",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "No place, no time, no direction. Any value filled in here is invented and moves the map for nothing."
+    },
+    {
+      "id": "en-b06",
+      "lang": "en",
+      "tags": [
+        "water",
+        "urgent",
+        "maybe"
+      ],
+      "text": "omg I think I see someone in the water at lake elizabeth by where the geese are, it might be him, calling 911",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\". \"might be him\" keeps reliability low.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "en-b07",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "car"
+      ],
+      "text": "his car is gone from the drive way the silver camry and he still has his keys oh my god",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "He may be driving: the whole search radius changes. Misread as a walking sighting it hides a vehicle emergency."
+    },
+    {
+      "id": "en-b08",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "okay we checked all of veterans memorial park the bathrooms too that was about 25 minutes no sign of him",
+      "expect": {
+        "kind": "searched",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": null,
+        "minutes": 25,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "en-b09",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "clock"
+      ],
+      "text": "saw her at the civic center around three fifteen and it's three forty now she went north",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "N",
+        "minutes": 25,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The time is given as clock times; minutes = the difference. Leaving it empty is fine; a wrong number spreads the map wrongly.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b10",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "wrong-person",
+        "correction"
+      ],
+      "text": "never mind the man by the lagoon wasn't him it was some other old guy my bad",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "en-b11",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "certain",
+        "urgent"
+      ],
+      "text": "it's him a hundred percent I'm looking right at him on liberty street walking south I'm following him come now",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "Definite and live: a wrong place or direction loses him while he is being watched."
+    },
+    {
+      "id": "en-b12",
+      "lang": "en",
+      "tags": [
+        "voice"
+      ],
+      "text": "saw him on pace oh padre park way heading north west ten minutes ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "NW",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"pace oh padre park way\" is Paseo Padre Parkway.",
+      "acceptable": {
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b13",
+      "lang": "en",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "he went left past the library on walnut",
+      "expect": {
+        "kind": "sighting",
+        "place": "Walnut Avenue",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "A relative direction (left/right) cannot become a compass point without knowing which way he faced: direction must stay empty.",
+      "acceptable": {
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "en-b14",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "question",
+        "water"
+      ],
+      "text": "has anyone checked the la guna creek trail yet",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A question, not a report. Read as \"searched\" it marks the place cleared; read as a sighting it pulls the map there."
+    },
+    {
+      "id": "en-b15",
+      "lang": "en",
+      "tags": [
+        "far"
+      ],
+      "text": "from my balcony I can see someone with a cane way off on stevenson near the park, too far to tell, going east",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "E",
+        "minutes": 0,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger.",
+      "acceptable": {
+        "place": [
+          "Fremont Central Park"
+        ],
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b16",
+      "lang": "en",
+      "tags": [
+        "intersection",
+        "voice"
+      ],
+      "text": "he's standing at the corner of paseo padre and stevenson right now like he doesn't know where to go",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Stevenson Boulevard",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Stevenson Boulevard",
+          null
+        ],
+        "reliability": [
+          0.9
+        ]
+      }
+    },
+    {
+      "id": "en-b17",
+      "lang": "en",
+      "tags": [
+        "found"
+      ],
+      "text": "WE FOUND HIM. hes ok. at the bart station with a police officer. thank you all so much",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "He has been found. Read as a sighting it just redirects volunteers; the person reads the message either way."
+    },
+    {
+      "id": "en-b18",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "clue"
+      ],
+      "text": "found his reading glasses on the bench by tyson lagoon the brown ones",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "An item of his marks a place he passed: same weight as a sighting with no time. A wrong place sends volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "en-b19",
+      "lang": "en",
+      "tags": [
+        "joke"
+      ],
+      "text": "lol maybe he went to get boba again 😂 jk jk",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "low",
+      "why": "A joke. Read as a sighting it pins the map on a made-up place."
+    },
+    {
+      "id": "en-b20",
+      "lang": "en",
+      "tags": [
+        "searched",
+        "voice"
+      ],
+      "text": "me and my son walked the whole lake loop twice like 40 minutes nothing we're heading to the central park playground now",
+      "expect": {
+        "kind": "searched",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 40,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared. The playground is where they are going next, not what they searched."
+    },
+    {
+      "id": "en-b21",
+      "lang": "en",
+      "tags": [
+        "partial",
+        "voice"
+      ],
+      "text": "I saw him heading",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "Cut off before any place: there is nothing to read. Any place filled in is invented.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "en-b22",
+      "lang": "en",
+      "tags": [
+        "phone"
+      ],
+      "text": "his phone last pinged near kearney street 20 min ago on find my",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": null,
+        "minutes": 20,
+        "reliability": 0.3
+      },
+      "danger": "medium",
+      "why": "A phone location, not someone seeing him: low reliability (he may have dropped it). Leaving it as a message is also fine.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "en-b23",
+      "lang": "en",
+      "tags": [
+        "noise",
+        "voice"
+      ],
+      "text": "[inaudible] ...by the... walnut... [wind noise] ...him ...minutes",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Voice noise ate most of the words. Guessing a place from one surviving word could send volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "sighting"
+        ],
+        "place": [
+          "Walnut Avenue"
+        ]
+      }
+    },
+    {
+      "id": "en-b24",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "guess"
+      ],
+      "text": "he probably went to the bart he always talks about taking the train to see his sister in hayward",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A guess from habit, not a sighting. Pinned as a sighting it gives the map false certainty."
+    },
+    {
+      "id": "en-b25",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "secondhand",
+        "maybe"
+      ],
+      "text": "a jogger told my wife they maybe saw an old asian man in a white hat near the veterans building going south like half an hour ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": "S",
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "en-b26",
+      "lang": "en",
+      "tags": [
+        "certain"
+      ],
+      "text": "seen him walking north on civic center dr, definitely him, red sweater, 5 mins ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "N",
+        "minutes": 5,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "Definite and live: a wrong place or direction loses him while he is being watched."
+    },
+    {
+      "id": "en-b27",
+      "lang": "en",
+      "tags": [
+        "typo"
+      ],
+      "text": "saw hm by tyson lagon going sout 10 mn ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": "S",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "en-b28",
+      "lang": "en",
+      "tags": [
+        "voice"
+      ],
+      "text": "he was on stevenson eastbound like a few minutes ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "E",
+        "minutes": 5,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"eastbound\" = E; \"a few minutes\" is about 5.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b29",
+      "lang": "en",
+      "tags": [
+        "intersection",
+        "maybe"
+      ],
+      "text": "near walnut and paseo padre, by the gas station, heading southeast maybe 15 min ago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Walnut Avenue",
+        "direction": "SE",
+        "minutes": 15,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong. \"maybe\" hedges the time.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Walnut Avenue",
+          null
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "en-b30",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "checked the civics enter parking garage all levels not there",
+      "expect": {
+        "kind": "searched",
+        "place": "Civic Center Drive",
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared. \"civics enter\" is Civic Center."
+    },
+    {
+      "id": "en-b31",
+      "lang": "en",
+      "tags": [
+        "two-in-one",
+        "secondhand"
+      ],
+      "text": "I saw him at kearney 10 min ago going north, and ALSO my brother says he saw him at lake elizabeth just now",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "Two sightings at two places: a conflict. Leaving the place empty lets the person choose; the newer one (Lake Elizabeth, just now) is also fine. Mixing the Kearney direction with the lake place is wrong.",
+      "acceptable": {
+        "place": [
+          "Lake Elizabeth"
+        ],
+        "minutes": [
+          0,
+          10
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "en-b32",
+      "lang": "en",
+      "tags": [
+        "wrong-person",
+        "water"
+      ],
+      "text": "theres a homeless guy sleeping under the laguna creek bridge, not dad, but maybe someone should ask if hes seen him",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "en-b33",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "urgent",
+        "certain"
+      ],
+      "text": "he's walking in the road on paseo padre cars are swerving he's heading south right now",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "He is in traffic right now: a wrong place delays the people running to him.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "en-b34",
+      "lang": "en",
+      "tags": [
+        "plan"
+      ],
+      "text": "I'll take the north side of the park, someone else take the lake",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "Coordination between searchers. Read as \"searched\" it marks an area cleared before anyone has looked."
+    },
+    {
+      "id": "en-b35",
+      "lang": "en",
+      "tags": [
+        "vague",
+        "maybe"
+      ],
+      "text": "somewhere around downtown fremont I think, maybe an hour ago",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": 60,
+        "reliability": 0.3
+      },
+      "danger": "medium",
+      "why": "No listed place; \"downtown\" must not be pinned to a street. Kind is unclear (no \"saw\" word), so message is also fine.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "en-b36",
+      "lang": "en",
+      "tags": [
+        "voice"
+      ],
+      "text": "saw him on bart weigh going up towards walnut",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "\"Toward X\" is not a compass point: direction stays empty. \"bart weigh\" is BART Way."
+    },
+    {
+      "id": "en-b37",
+      "lang": "en",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "he was walking toward the hills from central park",
+      "expect": {
+        "kind": "sighting",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "\"Toward X\" is not a compass point: direction stays empty. (The hills are east of Fremont, so E is not wrong.)",
+      "acceptable": {
+        "direction": [
+          "E"
+        ]
+      }
+    },
+    {
+      "id": "en-b38",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "my eight year old says she saw grandpa at the playground at central park",
+      "expect": {
+        "kind": "sighting",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "en-b39",
+      "lang": "en",
+      "tags": [
+        "voice",
+        "searched",
+        "partial"
+      ],
+      "text": "we did the west half of central park twenty minutes we didn't do the lake side yet",
+      "expect": {
+        "kind": "searched",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": 20,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Only part of the area was searched: the place must be the part that was searched, not the whole park. It must never become Lake Elizabeth."
+    },
+    {
+      "id": "en-b40",
+      "lang": "en",
+      "tags": [
+        "correction",
+        "panic"
+      ],
+      "text": "saw him at liberty st 5 min ago, wait no more like 20, sorry im shaking",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": null,
+        "minutes": 20,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on. Here the correction is the time.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "es-b01",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "spanglish"
+      ],
+      "text": "acabo de ver a mi papá por el lake elizabeth caminando hacia el este hace como diez minutos",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": "E",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "es-b02",
+      "lang": "es",
+      "tags": [
+        "secondhand",
+        "voice"
+      ],
+      "text": "la vecina dice que lo vio en la Stevenson cerca del parque yendo al norte hace media hora",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "N",
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way.",
+      "acceptable": {
+        "place": [
+          "Fremont Central Park"
+        ]
+      }
+    },
+    {
+      "id": "es-b03",
+      "lang": "es",
+      "tags": [
+        "correction",
+        "voice"
+      ],
+      "text": "lo vi en walnut, no espera, era en Kearney, iba para el sur, ahorita",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on.",
+      "acceptable": {
+        "minutes": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "es-b04",
+      "lang": "es",
+      "tags": [
+        "searched"
+      ],
+      "text": "ya buscamos en todo el tyson lagoon como 45 minutos y nada",
+      "expect": {
+        "kind": "searched",
+        "place": "Tyson Lagoon",
+        "direction": null,
+        "minutes": 45,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "es-b05",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "car"
+      ],
+      "text": "su carro no está este se llevó la camioneta blanca",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "He may be driving: the whole search radius changes. Misread as a walking sighting it hides a vehicle emergency."
+    },
+    {
+      "id": "es-b06",
+      "lang": "es",
+      "tags": [
+        "water",
+        "urgent",
+        "maybe"
+      ],
+      "text": "creo que hay alguien en el agua del lago, ay dios mío, llamen al 911",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\".",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "es-b07",
+      "lang": "es",
+      "tags": [
+        "voice"
+      ],
+      "text": "lo vi en paseo padre park guey yendo al noroeste",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "NW",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"park guey\" is a transcription of \"parkway\"."
+    },
+    {
+      "id": "es-b08",
+      "lang": "es",
+      "tags": [
+        "intersection",
+        "certain"
+      ],
+      "text": "estoy segurísima que es él, está en la esquina de paseo padre y walnut ahora mismo",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Walnut Avenue",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Walnut Avenue",
+          null
+        ]
+      }
+    },
+    {
+      "id": "es-b09",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "question",
+        "water"
+      ],
+      "text": "alguien ya revisó el creek de la guna",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A question, not a report. Read as \"searched\" it marks the place cleared; read as a sighting it pulls the map there."
+    },
+    {
+      "id": "es-b10",
+      "lang": "es",
+      "tags": [
+        "two-in-one",
+        "secondhand",
+        "spanglish"
+      ],
+      "text": "revisamos el veterans park veinte minutos y nada, y un señor en el BART dijo que vio a un viejito con bastón hace quince minutos",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": 15,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Two reports in one message. The useful one for the map is the newer sighting; reading it as \"searched\" would mark the place he was just seen as cleared. Leaving kind as message with no place is safe.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "es-b11",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "wrong-person"
+      ],
+      "text": "no era él el señor de la laguna era otra persona perdón",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "es-b12",
+      "lang": "es",
+      "tags": [
+        "found"
+      ],
+      "text": "LO ENCONTRAMOS!! está bien, está en la estación de BART con la policía",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "He has been found. Read as a sighting it just redirects volunteers; the person reads the message either way."
+    },
+    {
+      "id": "es-b13",
+      "lang": "es",
+      "tags": [
+        "clue",
+        "spanglish"
+      ],
+      "text": "encontré su gorra roja en el pasto del central park junto a los juegos",
+      "expect": {
+        "kind": "sighting",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "An item of his marks a place he passed: same weight as a sighting with no time. A wrong place sends volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "es-b14",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "guess"
+      ],
+      "text": "a lo mejor se fue a la iglesia siempre va los domingos",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A guess from habit, not a sighting. Pinned as a sighting it gives the map false certainty."
+    },
+    {
+      "id": "es-b15",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "far"
+      ],
+      "text": "lo vi de lejos en la liberti no sé si era él iba al sur",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": "S",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger. \"liberti\" is Liberty Street."
+    },
+    {
+      "id": "es-b16",
+      "lang": "es",
+      "tags": [
+        "searched",
+        "voice"
+      ],
+      "text": "este mi hijo y yo caminamos alrededor del lago dos veces una hora y nada nada",
+      "expect": {
+        "kind": "searched",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 60,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "es-b17",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "certain"
+      ],
+      "text": "lo vimos en el civic center drive hace cinco minutos caminando al oeste seguro que era él",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "W",
+        "minutes": 5,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "Definite and live: a wrong place or direction loses him while he is being watched."
+    },
+    {
+      "id": "es-b18",
+      "lang": "es",
+      "tags": [
+        "voice"
+      ],
+      "text": "lo vi por la estiven son bulevar rumbo al este",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "E",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"estiven son bulevar\" is Stevenson Boulevard.",
+      "acceptable": {
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "es-b19",
+      "lang": "es",
+      "tags": [
+        "clock",
+        "secondhand"
+      ],
+      "text": "como a las cuatro lo vieron en Kearney y ya son las cuatro y media",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": null,
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "The time is given as clock times; minutes = the difference. Leaving it empty is fine; a wrong number spreads the map wrongly. \"lo vieron\" (they saw him) is second-hand.",
+      "acceptable": {
+        "minutes": [
+          null
+        ],
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "es-b20",
+      "lang": "es",
+      "tags": [
+        "urgent",
+        "certain"
+      ],
+      "text": "¡está caminando en medio de la calle en Paseo Padre! ¡hacia el sur! vengan YA",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "He is in traffic right now: a wrong place delays the people running to him.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "es-b21",
+      "lang": "es",
+      "tags": [
+        "panic"
+      ],
+      "text": "ay no sé, ayúdenme por favor, no lo encuentro, ya son tres horas",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "No place, no time, no direction. Any value filled in here is invented and moves the map for nothing."
+    },
+    {
+      "id": "es-b22",
+      "lang": "es",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "él dobló a la derecha en walnut hace como 10 min",
+      "expect": {
+        "kind": "sighting",
+        "place": "Walnut Avenue",
+        "direction": null,
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "A relative direction (left/right) cannot become a compass point without knowing which way he faced: direction must stay empty."
+    },
+    {
+      "id": "es-b23",
+      "lang": "es",
+      "tags": [
+        "partial",
+        "voice"
+      ],
+      "text": "lo vi en el",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "Cut off before any place: there is nothing to read. Any place filled in is invented.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "es-b24",
+      "lang": "es",
+      "tags": [
+        "spanglish",
+        "secondhand",
+        "correction"
+      ],
+      "text": "my mom saw him, digo, mi mamá lo vio en el parking lot del BART going north",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": "N",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "es-b25",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "busqué en el veterans memorial los baños y el estacionamiento como quince minutos",
+      "expect": {
+        "kind": "searched",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": null,
+        "minutes": 15,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "es-b26",
+      "lang": "es",
+      "tags": [
+        "vague"
+      ],
+      "text": "creo que lo vi cerca del tyson lagoon hace un ratito, iba hacia el sureste",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": "SE",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"un ratito\" is not a number.",
+      "acceptable": {
+        "minutes": [
+          5,
+          10
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "es-b27",
+      "lang": "es",
+      "tags": [
+        "joke"
+      ],
+      "text": "jaja seguro está en el Costco comiendo hot dogs 😂",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "low",
+      "why": "A joke. Read as a sighting it pins the map on a made-up place."
+    },
+    {
+      "id": "es-b28",
+      "lang": "es",
+      "tags": [
+        "water"
+      ],
+      "text": "lo vi en el laguna creek bien cerca del agua, iba hacia el sur, hace veinte minutos",
+      "expect": {
+        "kind": "sighting",
+        "place": "Laguna Creek",
+        "direction": "S",
+        "minutes": 20,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\". Water never stops a sighting."
+    },
+    {
+      "id": "es-b29",
+      "lang": "es",
+      "tags": [
+        "voice",
+        "phone"
+      ],
+      "text": "su celular marca cerca de liberty street hace diez minutos",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": null,
+        "minutes": 10,
+        "reliability": 0.3
+      },
+      "danger": "medium",
+      "why": "A phone location, not someone seeing him: low reliability (he may have dropped it). Leaving it as a message is also fine.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "es-b30",
+      "lang": "es",
+      "tags": [
+        "maybe",
+        "spanglish"
+      ],
+      "text": "vi a alguien parecido, no estoy segura, en el central park por el lago",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger. \"por el lago\" makes Lake Elizabeth more exact than the park.",
+      "acceptable": {
+        "place": [
+          "Fremont Central Park"
+        ]
+      }
+    },
+    {
+      "id": "fr-b01",
+      "lang": "fr",
+      "tags": [
+        "voice"
+      ],
+      "text": "je viens de le voir au bord du lac Elizabeth euh il partait vers l'est il y a cinq minutes",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": "E",
+        "minutes": 5,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "fr-b02",
+      "lang": "fr",
+      "tags": [
+        "voice"
+      ],
+      "text": "je l'ai vu sur Stevenson boulevard direction nord ouest il y a un quart d'heure",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "NW",
+        "minutes": 15,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "fr-b03",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "ma voisine l'aurait vu près du bart il y a une demi heure",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way. The French conditional (\"l'aurait vu\") is itself a hedge."
+    },
+    {
+      "id": "fr-b04",
+      "lang": "fr",
+      "tags": [
+        "correction",
+        "voice"
+      ],
+      "text": "il était sur Walnut non pardon sur Paseo Padre vers le sud",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "S",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on."
+    },
+    {
+      "id": "fr-b05",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "on a fouillé tout le central parc pendant une heure rien",
+      "expect": {
+        "kind": "searched",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": 60,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "fr-b06",
+      "lang": "fr",
+      "tags": [
+        "car"
+      ],
+      "text": "sa voiture a disparu du parking de la résidence",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "He may be driving: the whole search radius changes. Misread as a walking sighting it hides a vehicle emergency."
+    },
+    {
+      "id": "fr-b07",
+      "lang": "fr",
+      "tags": [
+        "water",
+        "urgent"
+      ],
+      "text": "quelqu'un dans l'eau au lac!! je crois que c'est lui!!",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\".",
+      "acceptable": {
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "fr-b08",
+      "lang": "fr",
+      "tags": [
+        "intersection",
+        "certain"
+      ],
+      "text": "je suis sûr à cent pour cent, il est au coin de Stevenson et Paseo Padre maintenant",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Stevenson Boulevard",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Stevenson Boulevard",
+          null
+        ]
+      }
+    },
+    {
+      "id": "fr-b09",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "question",
+        "water"
+      ],
+      "text": "est-ce que quelqu'un a vérifié taïsonne lagune",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A question, not a report. Read as \"searched\" it marks the place cleared; read as a sighting it pulls the map there. \"taïsonne lagune\" is a transcription of Tyson Lagoon."
+    },
+    {
+      "id": "fr-b10",
+      "lang": "fr",
+      "tags": [
+        "two-in-one",
+        "secondhand"
+      ],
+      "text": "J'ai cherché au Veterans Park, 20 minutes, rien. Et un monsieur m'a dit qu'il l'a vu sur Liberty il y a 10 minutes",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": null,
+        "minutes": 10,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Two reports in one message. The useful one for the map is the newer sighting; reading it as \"searched\" would mark the place he was just seen as cleared. Leaving kind as message with no place is safe.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "fr-b11",
+      "lang": "fr",
+      "tags": [
+        "wrong-person",
+        "correction"
+      ],
+      "text": "Fausse alerte, l'homme sur Kearney n'était pas lui",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "fr-b12",
+      "lang": "fr",
+      "tags": [
+        "found"
+      ],
+      "text": "On l'a retrouvé! Il va bien, il est avec les pompiers sur Walnut",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "He has been found. Read as a sighting it just redirects volunteers; the person reads the message either way."
+    },
+    {
+      "id": "fr-b13",
+      "lang": "fr",
+      "tags": [
+        "clue",
+        "water"
+      ],
+      "text": "j'ai trouvé sa canne près du Laguna Creek, au bord de l'eau",
+      "expect": {
+        "kind": "sighting",
+        "place": "Laguna Creek",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "An item of his marks a place he passed: same weight as a sighting with no time. A wrong place sends volunteers the wrong way. Near water: an emergency if wrong.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "fr-b14",
+      "lang": "fr",
+      "tags": [
+        "guess"
+      ],
+      "text": "il est peut-être allé à la boulangerie comme d'habitude",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A guess from habit, not a sighting. Pinned as a sighting it gives the map false certainty."
+    },
+    {
+      "id": "fr-b15",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "far",
+        "maybe"
+      ],
+      "text": "vu de loin peut-être lui sur civic center drive vers l'ouest",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "W",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger."
+    },
+    {
+      "id": "fr-b16",
+      "lang": "fr",
+      "tags": [
+        "voice"
+      ],
+      "text": "je l'ai vu à la gare bart il y a dix minutes il marchait vers le nord est",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": "NE",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "fr-b17",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "clock"
+      ],
+      "text": "je l'ai vu vers quatorze heures sur kearney street là il est quatorze heures vingt",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": null,
+        "minutes": 20,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The time is given as clock times; minutes = the difference. Leaving it empty is fine; a wrong number spreads the map wrongly.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "fr-b18",
+      "lang": "fr",
+      "tags": [
+        "urgent",
+        "certain"
+      ],
+      "text": "il traverse Paseo Padre au milieu des voitures, là maintenant, vers le nord!",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "N",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "He is in traffic right now: a wrong place delays the people running to him.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "fr-b19",
+      "lang": "fr",
+      "tags": [
+        "panic"
+      ],
+      "text": "aidez-moi s'il vous plaît, je ne le trouve nulle part",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "No place, no time, no direction. Any value filled in here is invented and moves the map for nothing. \"I can't find him\" is not a sighting."
+    },
+    {
+      "id": "fr-b20",
+      "lang": "fr",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "il a tourné à gauche après le lac",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "A relative direction (left/right) cannot become a compass point without knowing which way he faced: direction must stay empty."
+    },
+    {
+      "id": "fr-b21",
+      "lang": "fr",
+      "tags": [
+        "partial",
+        "voice"
+      ],
+      "text": "je l'ai vu sur",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "Cut off before any place: there is nothing to read. Any place filled in is invented.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "fr-b22",
+      "lang": "fr",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "on a fait le tour du lac élisabeth trente minutes pas de trace",
+      "expect": {
+        "kind": "searched",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 30,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "fr-b23",
+      "lang": "fr",
+      "tags": [
+        "mixed",
+        "voice"
+      ],
+      "text": "il était genre near the Tyson Lagoon, heading south, il y a genre 20 min",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": "S",
+        "minutes": 20,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "fr-b24",
+      "lang": "fr",
+      "tags": [
+        "secondhand"
+      ],
+      "text": "mon fils dit qu'il l'a vu au parc des vétérans en direction de l'est",
+      "expect": {
+        "kind": "sighting",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": "E",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way. \"parc des vétérans\" is the Veterans Memorial Park.",
+      "acceptable": {
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "fr-b25",
+      "lang": "fr",
+      "tags": [
+        "joke"
+      ],
+      "text": "mdr il est sûrement au casino 😂",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "low",
+      "why": "A joke. Read as a sighting it pins the map on a made-up place."
+    },
+    {
+      "id": "zh-b01",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "mixed-script"
+      ],
+      "text": "我刚才看到我爸在lake elizabeth旁边往东走大概十分钟前",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": "E",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "zh-b02",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "那个邻居说她半个小时前在Stevenson看到他往西走",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "W",
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "zh-b03",
+      "lang": "zh",
+      "tags": [
+        "correction",
+        "voice",
+        "mixed-script"
+      ],
+      "text": "他在Walnut 不对不对 是在Kearney Street 往南走 刚刚",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on.",
+      "acceptable": {
+        "minutes": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "zh-b04",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "searched",
+        "mixed-script"
+      ],
+      "text": "我们找遍了泰森那个lagoon找了四十分钟没有人",
+      "expect": {
+        "kind": "searched",
+        "place": "Tyson Lagoon",
+        "direction": null,
+        "minutes": 40,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "zh-b05",
+      "lang": "zh",
+      "tags": [
+        "car"
+      ],
+      "text": "他的车不见了，白色的丰田",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "He may be driving: the whole search radius changes. Misread as a walking sighting it hides a vehicle emergency."
+    },
+    {
+      "id": "zh-b06",
+      "lang": "zh",
+      "tags": [
+        "water",
+        "urgent",
+        "maybe"
+      ],
+      "text": "湖里好像有人！可能是他！快打911",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\".",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b07",
+      "lang": "zh",
+      "tags": [
+        "voice"
+      ],
+      "text": "我看到他在怕死偶帕德雷 往北 五分钟",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "N",
+        "minutes": 5,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"怕死偶帕德雷\" is a sound-alike transcription of Paseo Padre.",
+      "acceptable": {
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b08",
+      "lang": "zh",
+      "tags": [
+        "intersection",
+        "certain",
+        "mixed-script"
+      ],
+      "text": "我百分之百确定是他，现在就在Paseo Padre和Stevenson路口",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Stevenson Boulevard",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Stevenson Boulevard",
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b09",
+      "lang": "zh",
+      "tags": [
+        "question",
+        "water"
+      ],
+      "text": "有人去Laguna Creek找过了吗？",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A question, not a report. Read as \"searched\" it marks the place cleared; read as a sighting it pulls the map there."
+    },
+    {
+      "id": "zh-b10",
+      "lang": "zh",
+      "tags": [
+        "two-in-one",
+        "secondhand"
+      ],
+      "text": "我在Veterans Memorial Park找了二十分钟没有，然后BART站有个人说十五分钟前看到一个拄拐杖的老人",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": 15,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Two reports in one message. The useful one for the map is the newer sighting; reading it as \"searched\" would mark the place he was just seen as cleared. Leaving kind as message with no place is safe.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b11",
+      "lang": "zh",
+      "tags": [
+        "wrong-person"
+      ],
+      "text": "刚才那个在湖边的老人不是他，认错了",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "zh-b12",
+      "lang": "zh",
+      "tags": [
+        "found"
+      ],
+      "text": "找到了！！他没事，在BART站跟警察在一起",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "He has been found. Read as a sighting it just redirects volunteers; the person reads the message either way."
+    },
+    {
+      "id": "zh-b13",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "clue"
+      ],
+      "text": "在中央公园的椅子上找到了他的帽子",
+      "expect": {
+        "kind": "sighting",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "An item of his marks a place he passed: same weight as a sighting with no time. A wrong place sends volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "zh-b14",
+      "lang": "zh",
+      "tags": [
+        "guess"
+      ],
+      "text": "他可能去华人超市了，他以前经常去",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A guess from habit, not a sighting. Pinned as a sighting it gives the map false certainty."
+    },
+    {
+      "id": "zh-b15",
+      "lang": "zh",
+      "tags": [
+        "far"
+      ],
+      "text": "远远看到一个人在Liberty Street，不确定是不是他，往南走",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": "S",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger."
+    },
+    {
+      "id": "zh-b16",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "我们在湖边绕了两圈一个小时没找到",
+      "expect": {
+        "kind": "searched",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 60,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "zh-b17",
+      "lang": "zh",
+      "tags": [
+        "certain",
+        "mixed-script"
+      ],
+      "text": "肯定是他！五分钟前在Civic Center Drive往西走，穿红色毛衣",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "W",
+        "minutes": 5,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "Definite and live: a wrong place or direction loses him while he is being watched."
+    },
+    {
+      "id": "zh-b18",
+      "lang": "zh",
+      "tags": [
+        "voice"
+      ],
+      "text": "我看见他在史蒂文森大道往东走",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "E",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"史蒂文森大道\" is Stevenson Boulevard in Chinese.",
+      "acceptable": {
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b19",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "clock"
+      ],
+      "text": "三点左右在Kearney看到他现在三点半了",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": null,
+        "minutes": 30,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The time is given as clock times; minutes = the difference. Leaving it empty is fine; a wrong number spreads the map wrongly.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b20",
+      "lang": "zh",
+      "tags": [
+        "urgent",
+        "certain"
+      ],
+      "text": "他在Paseo Padre马路中间走！车很多！往南！快来！",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "He is in traffic right now: a wrong place delays the people running to him.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "zh-b21",
+      "lang": "zh",
+      "tags": [
+        "panic",
+        "voice"
+      ],
+      "text": "怎么办啊找不到他了已经两个小时了",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "No place, no time, no direction. Any value filled in here is invented and moves the map for nothing."
+    },
+    {
+      "id": "zh-b22",
+      "lang": "zh",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "他在Walnut那边往左拐了",
+      "expect": {
+        "kind": "sighting",
+        "place": "Walnut Avenue",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "A relative direction (left/right) cannot become a compass point without knowing which way he faced: direction must stay empty."
+    },
+    {
+      "id": "zh-b23",
+      "lang": "zh",
+      "tags": [
+        "partial",
+        "voice"
+      ],
+      "text": "我看到他在",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "Cut off before any place: there is nothing to read. Any place filled in is invented.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "zh-b24",
+      "lang": "zh",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "我妈妈说她在BART停车场看到他往北走",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": "N",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "zh-b25",
+      "lang": "zh",
+      "tags": [
+        "searched"
+      ],
+      "text": "Veterans Memorial Park的厕所和停车场都找过了，大概十五分钟",
+      "expect": {
+        "kind": "searched",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": null,
+        "minutes": 15,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "zh-b26",
+      "lang": "zh",
+      "tags": [
+        "maybe"
+      ],
+      "text": "好像在泰森泻湖附近看到他，往东南方向",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": "SE",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"泰森泻湖\" is Tyson Lagoon; \"好像\" hedges.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "zh-b27",
+      "lang": "zh",
+      "tags": [
+        "joke"
+      ],
+      "text": "哈哈他肯定又去打麻将了",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "low",
+      "why": "A joke. Read as a sighting it pins the map on a made-up place."
+    },
+    {
+      "id": "zh-b28",
+      "lang": "zh",
+      "tags": [
+        "phone"
+      ],
+      "text": "手机定位显示他十分钟前在Liberty Street附近",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": null,
+        "minutes": 10,
+        "reliability": 0.3
+      },
+      "danger": "medium",
+      "why": "A phone location, not someone seeing him: low reliability (he may have dropped it). Leaving it as a message is also fine.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "ja-b01",
+      "lang": "ja",
+      "tags": [
+        "voice"
+      ],
+      "text": "さっきレイクエリザベスのとこで父を見ました東の方に歩いてて10分くらい前です",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": "E",
+        "minutes": 10,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "ja-b02",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "えーと近所の人がスティーブンソンで見たって30分前に西の方へ",
+      "expect": {
+        "kind": "sighting",
+        "place": "Stevenson Boulevard",
+        "direction": "W",
+        "minutes": 30,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "ja-b03",
+      "lang": "ja",
+      "tags": [
+        "correction",
+        "mixed-script"
+      ],
+      "text": "Walnutにいました、あ、違う、Kearney Streetです、南に向かってます、今",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The person corrected themselves mid-sentence: only the second place counts. Reading the first one pins the map on a street he is not on."
+    },
+    {
+      "id": "ja-b04",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "searched",
+        "mixed-script"
+      ],
+      "text": "タイソンラグーンを45分探したんですけどいませんでした",
+      "expect": {
+        "kind": "searched",
+        "place": "Tyson Lagoon",
+        "direction": null,
+        "minutes": 45,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "ja-b05",
+      "lang": "ja",
+      "tags": [
+        "car"
+      ],
+      "text": "車がなくなってます、シルバーのホンダです",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "He may be driving: the whole search radius changes. Misread as a walking sighting it hides a vehicle emergency."
+    },
+    {
+      "id": "ja-b06",
+      "lang": "ja",
+      "tags": [
+        "water",
+        "urgent",
+        "maybe"
+      ],
+      "text": "湖に誰か入ってる!父かもしれない!",
+      "expect": {
+        "kind": "sighting",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Possible person in water: an emergency. The place must be right, and it must not become \"searched\".",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "ja-b07",
+      "lang": "ja",
+      "tags": [
+        "voice"
+      ],
+      "text": "パセオパドレパークウェイで北西に歩いてるの見ました",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "NW",
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way."
+    },
+    {
+      "id": "ja-b08",
+      "lang": "ja",
+      "tags": [
+        "intersection",
+        "certain",
+        "mixed-script"
+      ],
+      "text": "絶対に父です、今Paseo PadreとWalnutの交差点にいます",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway & Walnut Avenue",
+        "direction": null,
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "A street corner: the place is the crossing. Either street alone is close but less exact; a different street is wrong.",
+      "acceptable": {
+        "place": [
+          "Paseo Padre Parkway",
+          "Walnut Avenue",
+          null
+        ]
+      }
+    },
+    {
+      "id": "ja-b09",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "question",
+        "water"
+      ],
+      "text": "ラグーナクリークはもう誰か見ましたか",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A question, not a report. Read as \"searched\" it marks the place cleared; read as a sighting it pulls the map there."
+    },
+    {
+      "id": "ja-b10",
+      "lang": "ja",
+      "tags": [
+        "two-in-one",
+        "secondhand"
+      ],
+      "text": "Veterans Memorial Parkを20分探して見つからず、あとBARTの駅員さんが15分前にそれらしい人を見たそうです",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": null,
+        "minutes": 15,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Two reports in one message. The useful one for the map is the newer sighting; reading it as \"searched\" would mark the place he was just seen as cleared. Leaving kind as message with no place is safe.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "place": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "ja-b11",
+      "lang": "ja",
+      "tags": [
+        "wrong-person"
+      ],
+      "text": "さっきの湖の人は別人でした、すみません",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Retracts an earlier sighting: the man was someone else. Read as a sighting it pulls the map onto a stranger."
+    },
+    {
+      "id": "ja-b12",
+      "lang": "ja",
+      "tags": [
+        "found"
+      ],
+      "text": "見つかりました!無事です!BART駅で警察と一緒です",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "He has been found. Read as a sighting it just redirects volunteers; the person reads the message either way."
+    },
+    {
+      "id": "ja-b13",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "clue"
+      ],
+      "text": "セントラルパークのベンチに父の眼鏡がありました",
+      "expect": {
+        "kind": "sighting",
+        "place": "Fremont Central Park",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "An item of his marks a place he passed: same weight as a sighting with no time. A wrong place sends volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ],
+        "reliability": [
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "ja-b14",
+      "lang": "ja",
+      "tags": [
+        "guess"
+      ],
+      "text": "たぶん前に住んでた家の方に行ったと思います",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "A guess from habit, not a sighting. Pinned as a sighting it gives the map false certainty."
+    },
+    {
+      "id": "ja-b15",
+      "lang": "ja",
+      "tags": [
+        "far"
+      ],
+      "text": "遠くてよく分からないけど、Liberty Streetに似た人がいて南へ歩いてました",
+      "expect": {
+        "kind": "sighting",
+        "place": "Liberty Street",
+        "direction": "S",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Seen far away and unsure: reliability must stay at 0.3, or the map over-trusts a stranger."
+    },
+    {
+      "id": "ja-b16",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "searched"
+      ],
+      "text": "湖の周りを2周しました1時間いませんでした",
+      "expect": {
+        "kind": "searched",
+        "place": "Lake Elizabeth",
+        "direction": null,
+        "minutes": 60,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "ja-b17",
+      "lang": "ja",
+      "tags": [
+        "certain",
+        "mixed-script"
+      ],
+      "text": "間違いなく父です、5分前にCivic Center Driveを西へ、赤いセーター",
+      "expect": {
+        "kind": "sighting",
+        "place": "Civic Center Drive",
+        "direction": "W",
+        "minutes": 5,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "Definite and live: a wrong place or direction loses him while he is being watched."
+    },
+    {
+      "id": "ja-b18",
+      "lang": "ja",
+      "tags": [
+        "clock"
+      ],
+      "text": "2時ごろKearneyで見かけました、今2時20分です",
+      "expect": {
+        "kind": "sighting",
+        "place": "Kearney Street",
+        "direction": null,
+        "minutes": 20,
+        "reliability": 0.6
+      },
+      "danger": "high",
+      "why": "The time is given as clock times; minutes = the difference. Leaving it empty is fine; a wrong number spreads the map wrongly.",
+      "acceptable": {
+        "minutes": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "ja-b19",
+      "lang": "ja",
+      "tags": [
+        "urgent",
+        "certain"
+      ],
+      "text": "Paseo Padreの車道の真ん中を歩いてます!南へ!早く来て!",
+      "expect": {
+        "kind": "sighting",
+        "place": "Paseo Padre Parkway",
+        "direction": "S",
+        "minutes": 0,
+        "reliability": 0.9
+      },
+      "danger": "high",
+      "why": "He is in traffic right now: a wrong place delays the people running to him.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "ja-b20",
+      "lang": "ja",
+      "tags": [
+        "panic",
+        "voice"
+      ],
+      "text": "どうしようどこにもいないもう3時間です",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "medium",
+      "why": "No place, no time, no direction. Any value filled in here is invented and moves the map for nothing."
+    },
+    {
+      "id": "ja-b21",
+      "lang": "ja",
+      "tags": [
+        "relative-direction"
+      ],
+      "text": "Walnutで右に曲がりました",
+      "expect": {
+        "kind": "sighting",
+        "place": "Walnut Avenue",
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "A relative direction (left/right) cannot become a compass point without knowing which way he faced: direction must stay empty."
+    },
+    {
+      "id": "ja-b22",
+      "lang": "ja",
+      "tags": [
+        "partial",
+        "voice"
+      ],
+      "text": "父を見たのは",
+      "expect": {
+        "kind": "sighting",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": 0.6
+      },
+      "danger": "medium",
+      "why": "Cut off before any place: there is nothing to read. Any place filled in is invented.",
+      "acceptable": {
+        "kind": [
+          "message"
+        ]
+      }
+    },
+    {
+      "id": "ja-b23",
+      "lang": "ja",
+      "tags": [
+        "voice",
+        "secondhand"
+      ],
+      "text": "母がバートの駐車場で北へ歩く父を見たそうです",
+      "expect": {
+        "kind": "sighting",
+        "place": "BART Way",
+        "direction": "N",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "Second-hand: reliability must stay low (0.3); a wrong place or direction still sends volunteers the wrong way."
+    },
+    {
+      "id": "ja-b24",
+      "lang": "ja",
+      "tags": [
+        "searched"
+      ],
+      "text": "ベテランズメモリアルパークのトイレと駐車場を15分くらい探しました",
+      "expect": {
+        "kind": "searched",
+        "place": "Alameda County Veterans Memorial Park",
+        "direction": null,
+        "minutes": 15,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Read as a sighting it pulls the map onto an empty place; with the wrong place it marks an unsearched area cleared."
+    },
+    {
+      "id": "ja-b25",
+      "lang": "ja",
+      "tags": [
+        "maybe"
+      ],
+      "text": "タイソンラグーンの近くで見たような気がします、南東の方",
+      "expect": {
+        "kind": "sighting",
+        "place": "Tyson Lagoon",
+        "direction": "SE",
+        "minutes": null,
+        "reliability": 0.3
+      },
+      "danger": "high",
+      "why": "A wrong place or direction moves the map and sends volunteers the wrong way. \"気がします\" (I feel like) hedges.",
+      "acceptable": {
+        "reliability": [
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "ja-b26",
+      "lang": "ja",
+      "tags": [
+        "joke"
+      ],
+      "text": "冗談だけど、パチンコ屋にいるんじゃない?笑",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "low",
+      "why": "A joke. Read as a sighting it pins the map on a made-up place."
+    },
+    {
+      "id": "ja-b27",
+      "lang": "ja",
+      "tags": [
+        "noise",
+        "voice"
+      ],
+      "text": "えっと…[雑音]…ウォルナット…[聞き取れず]…分前",
+      "expect": {
+        "kind": "message",
+        "place": null,
+        "direction": null,
+        "minutes": null,
+        "reliability": null
+      },
+      "danger": "high",
+      "why": "Voice noise ate most of the words. Guessing a place from one surviving word could send volunteers the wrong way.",
+      "acceptable": {
+        "kind": [
+          "sighting"
+        ],
+        "place": [
+          "Walnut Avenue"
+        ]
+      }
+    }
+  ]
+}

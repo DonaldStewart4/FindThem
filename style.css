@@ -793,3 +793,35 @@ button.small {
 #case-inputs .step::before { counter-increment: step; content: counter(step) ". "; } /* 3. 4. 5. ... */
 #case-inputs[open] .recap { display: none; }  /* the short summary only shows while folded */
 .recap { display: block; margin-top: 4px; font-weight: 400; font-size: 16px; color: #444; }
+
+/* ---- Release, Nov 22: search tasks, Found, report flags, search leader -------------------- */
+
+/* A task card's warning lines and notes (inside #areas, which keeps its old look). */
+.task-warn { display: block; color: var(--hazard); font-weight: 700; font-size: 16px; }
+.task-note { display: block; font-size: 16px; }
+.task-urgent { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; background: var(--hazard); color: #fff; font-size: 14px; font-weight: 700; }
+.area-letter.held { background: #2e7d32; }
+.area-body .big { margin-top: 8px; }
+.unfilled { margin: 8px 0; padding-left: 20px; color: var(--hazard); font-weight: 700; }
+
+/* "They've been found": the button, the banner on every phone, and the pin. */
+button.found { border-color: #2e7d32; color: #1b5e20; }
+.found-banner { margin: 8px 0; padding: 12px; border-radius: 10px; background: #1b5e20; color: #fff; font-size: 19px; font-weight: 700; }
+.found-banner p { margin: 0 0 4px; }
+.found-banner p:last-child { margin: 0; font-size: 16px; font-weight: 400; }
+.map-found-person { width: 32px; height: 32px; border: 3px solid #fff; border-radius: 50%; background: #1b5e20; color: #fff; font-weight: 800; line-height: 26px; text-align: center; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+
+/* Safety flags read from a report: big and high contrast, never auto-hidden. */
+.flags { margin: 8px 0; }
+.flag { margin: 0 0 6px; padding: 10px 12px; border-radius: 8px; background: var(--warn-bg); color: #000; font-size: 18px; font-weight: 700; }
+.flag-emergency, .flag-water { background: #b00020; color: #fff; }
+.flag-call { color: inherit; text-decoration: underline; white-space: nowrap; }
+
+/* A field the report reader wasn't sure about: the person must check it. */
+.unsure { outline: 3px solid #e69500; outline-offset: 2px; }
+.unsure-mark { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--warn-bg); color: #000; font-size: 14px; font-weight: 700; }
+
+/* The search leader's one line (fixed sentences). */
+.leader { margin: 8px 0; padding: 10px 12px; border: 2px solid var(--line); border-radius: 10px; }
+.leader-line { margin: 4px 0 0; font-size: 18px; }
+.leader-warnings p { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: #000; font-weight: 700; }

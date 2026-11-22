@@ -26,7 +26,8 @@
 import * as data from './data.js';
 import * as sync from './sync.js';
 import * as report from './report.js';
-import { readLocally } from './quickread.js';
+import { readLocally, findIntersections } from './quickread.js';
+import { getReply, templateReply } from './replies.js';
 import { databaseUrl, proxyUrl } from './config.js';
 import * as i18n from './i18n.js';
 import { t } from './i18n.js';
@@ -52,12 +53,15 @@ const DEMO_CASE = {
 const MAX_FAMILIAR = 3;
 const SPOTS_SHOWN_FIRST = 3;          // the list shows 3, "Show more" reveals up to 8
 const SPOTS_MAX = 8;
-const NEXT_AREAS = 3;                 // how many "next areas to search" we suggest
-const DEFAULT_SEARCH_MINUTES = 20;    // effort per searcher when ranking areas
 const RING_METERS = [804.672, 1609.344, 2414.016]; // 0.5, 1 and 1.5 miles
 // Streets used by more walkers get darker and thicker (5 steps, light to dark purple).
 const STREET_COLORS = ['#d9ccf0', '#b39ddb', '#8e6cc6', '#6a3fb0', '#3f1d8a'];
-const AREA_LETTERS = 'ABCDEFGH';
+// The search planner (engine/planner): who should search where next.
+const PLAN_MIN_GAP_MS = 5000;         // re-plan at most this often when only positions changed
+const MAP_REACH_M = 3000;             // my GPS position counts for routes only this close to the last-seen point
+const FOUND_REACH_M = 20000;          // ...and for "found here" only this close; otherwise tap the map
+const TRACK_MAX = 2000;               // most squares an event's track may hold (sync.js LIMITS.TRACK_MAX)
+const ENGINE_EVENT_TYPES = ['searched', 'sighting']; // the events that change the engine's map
 
 // ---- What the user has entered ---------------------------------------------------
 
@@ -96,6 +100,17 @@ const state = {
   lastPosSent: null,       // { lat, lng, at } the position we last shared
   minutesAt: null,         // the time (ms) at which "minutes since last seen" had the typed value
   fromDemo: false,         // the inputs hold the Demo's details (cleared when a real search starts)
+  // Search tasks (the planner), Found, corrections
+  plan: null,              // the planner's latest answer: up to three routes per searcher
+  planFromLastSeen: false, // my routes start at the last-seen point (no usable GPS position)
+  planEventsKey: '',       // fingerprint of the events the last plan was made from
+  selectedTask: null,      // task id of the route card that is open
+  heldRoute: null,         // { taskId, route } of the task I took, so its route stays on the map
+  found: null,             // the 'found' event, once somebody reported the person found
+  versionMismatch: false,  // this shared search was started on another engine version
+  sharedCase: null,        // the shared case as the database has it (with every correction applied)
+  caseSnapshot: null,      // the case form as last shown, to spot what I changed since
+  leaderSaid: null,        // { intent, data } of the search leader's line, to redo it in a new language
 };
 
 // The map keeps up with time: every 5 minutes, "minutes since last seen" goes up by 5 and
@@ -214,6 +229,18 @@ const els = {
   demo: $('demo'),
   language: $('language'),
   units: $('units'),
+  foundBanner: $('found-banner'),
+  foundButton: $('found-button'),
+  leader: $('leader'),
+  leaderLine: $('leader-line'),
+  leaderWarnings: $('leader-warnings'),
+  versionWarning: $('version-warning'),
+  reportFlags: $('report-flags'),
+  sightingFlags: $('sighting-flags'),
+  messageFlags: $('message-flags'),
+  taskNote: $('task-note'),
+  unfilled: $('unfilled'),
+  planMeasures: $('plan-measures'),
 };
 
 // ---- The map ---------------------------------------------------------------------
@@ -242,6 +269,7 @@ const layers = {
   route: L.layerGroup().addTo(map),     // the walking route of the selected area
   spots: L.layerGroup().addTo(map),     // numbered "check these first" markers
   sightings: L.layerGroup().addTo(map), // reported sightings
+  found: L.layerGroup().addTo(map),     // the pin where the person was found
   pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft, home
   others: L.layerGroup().addTo(map),    // the other searchers' positions (green dots)
   me: L.layerGroup().addTo(map),        // my own GPS position (blue dot)
@@ -400,6 +428,22 @@ function drawDirectionArrow() {
 // What a tap on the map does depends on the current mode.
 map.on('click', (e) => placeAt({ lat: e.latlng.lat, lng: e.latlng.lng }));
 
+// A tap that lands on a marker (a numbered spot, a pin, a searcher's dot) never reaches the
+// map, so "tap the map where they were found" would do nothing there, and people are often
+// found right at a numbered spot. While placing a sighting or "found", a tap on a marker
+// counts as a tap on the map at that marker.
+map.on('layeradd', (e) => {
+  const layer = e.layer;
+  if (!(layer instanceof L.Marker || layer instanceof L.CircleMarker) || layer.tapsThrough) return;
+  if (layer.options.draggable || layer.options.interactive === false) return; // the direction arrow; decorations
+  layer.tapsThrough = true; // a layer can be added again: listen only once
+  layer.on('click', (ev) => {
+    if (state.mode !== 'sighting' && state.mode !== 'found') return;
+    const at = ev.latlng || layer.getLatLng();
+    placeAt({ lat: at.lat, lng: at.lng });
+  });
+});
+
 // Puts the point the current mode is waiting for at `point`. Used by map taps and by the
 // map search (then `label` is the place's name, e.g. for a familiar place).
 function placeAt(point, label = '') {
@@ -409,6 +453,7 @@ function placeAt(point, label = '') {
     state.seed = newSeed();   // a new case gets a new seed...
     state.events = [];        // ...and starts with no searches or sightings
     leaveSharedSearch();      // ...and is not the shared search any more
+    resetTasks();             // ...and has no tasks taken, and nobody found
     if (state.fromDemo) clearDemoDetails(); // the Demo's made-up details must not leak into a real search
     setMode(null);
   } else if (state.mode === 'familiar') {
@@ -419,11 +464,15 @@ function placeAt(point, label = '') {
     setMode(null);
   } else if (state.mode === 'sighting') {
     state.sightingDraft = point;
+    clearUnsure('place'); // the person has now said where
     els.sightingWhere.textContent = t('sightingPlaced');
     renderModeUI(); // the blue bar now says "placed, tap again to move it"
   } else if (state.mode === 'home') {
     setHomeDraft(point, label || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
     setMode(null);
+  } else if (state.mode === 'found') {
+    setMode(null);
+    reportFound(point);
   }
   drawPins();
 }
@@ -440,7 +489,7 @@ function setMode(mode) {
 }
 
 // The text each mode shows in the blue bar.
-const MODE_PROMPTS = { lastSeen: 'tapLastSeenOrSearch', familiar: 'tapFamiliarOrSearch', sighting: 'tapSighting', home: 'homeTapPrompt' };
+const MODE_PROMPTS = { lastSeen: 'tapLastSeenOrSearch', familiar: 'tapFamiliarOrSearch', sighting: 'tapSighting', home: 'homeTapPrompt', found: 'tapFound' };
 
 function renderModeUI() {
   const mode = state.mode;
@@ -554,12 +603,96 @@ function readCase() {
     mobility: readMobility(),
     familiarPlaces: state.familiarPlaces.map((p, i) => ({ lat: p.lat, lng: p.lng, label: p.label || t('familiarDefault', { n: i + 1 }) })),
     seed: state.seed,
+    // The clock time at which `minutes` was true. With it the engine can tell WHEN each search
+    // and sighting happened (a sighting spreads out as time passes; a search doesn't count
+    // against a person who arrived later). It is already in the share link and the shared case.
+    minutesAt: state.minutesAt,
   };
 }
 
 // ---- Running the prediction -------------------------------------------------------
 
-let areaCache = { key: null, area: null, osm: null }; // so a re-run on the same area is fast
+// The map area in use. `version` goes up whenever the area or its ground layers change, so the
+// background worker knows when it needs the new data.
+let areaCache = { key: null, area: null, osm: null, version: 0 }; // so a re-run on the same area is fast
+
+// ---- The engine runs in a background worker ---------------------------------------------
+// Drawing the 10 m ground map and running 5,000 walkers takes a second or two on a phone. In a
+// Web Worker (engine/worker.js) that happens on another thread, so the page keeps scrolling and
+// the loading bar keeps moving. If the worker can't start (an old browser) or stops answering,
+// the engine runs on the page itself, as it did before.
+const WORKER_TIMEOUT_MS = 20000;
+let engineWorker = null;
+let workerBroken = typeof Worker === 'undefined';
+let workerArea = null;      // "key#version" of the area the worker holds
+let workerLayers = null;    // "key#version" once it also holds that area's ground layers
+let nextMessageId = 1;
+const waitingForWorker = new Map(); // message id → { resolve, reject, timer }
+
+// Starts the worker (once). Called when the page opens, so the worker has warmed the engine up
+// (see engine/host.js) by the time the first map is asked for.
+function startWorker() {
+  if (engineWorker || workerBroken) return;
+  try {
+    engineWorker = new Worker('engine/worker.js', { type: 'module' });
+  } catch (err) {
+    workerBroken = true;
+    return;
+  }
+  engineWorker.onmessage = (event) => {
+    const waiting = waitingForWorker.get(event.data.id);
+    if (!waiting) return;
+    waitingForWorker.delete(event.data.id);
+    clearTimeout(waiting.timer);
+    if (event.data.ok) waiting.resolve(event.data);
+    else waiting.reject(new Error(event.data.error));
+  };
+  engineWorker.onerror = (event) => failWorker(new Error((event && event.message) || 'worker error'));
+}
+
+function askWorker(message, transfer = []) {
+  return new Promise((resolve, reject) => {
+    startWorker();
+    if (!engineWorker) { reject(new Error('no worker')); return; }
+    const id = nextMessageId++;
+    const timer = setTimeout(() => failWorker(new Error('worker timed out')), WORKER_TIMEOUT_MS);
+    waitingForWorker.set(id, { resolve, reject, timer });
+    engineWorker.postMessage({ ...message, id }, transfer);
+  });
+}
+
+// The worker failed: give up on it for this visit and let every waiting request fall back.
+function failWorker(err) {
+  console.warn('Engine worker unavailable, running on the page instead:', err.message);
+  workerBroken = true;
+  if (engineWorker) { engineWorker.terminate(); engineWorker = null; }
+  for (const waiting of waitingForWorker.values()) { clearTimeout(waiting.timer); waiting.reject(err); }
+  waitingForWorker.clear();
+}
+
+// Runs the engine for the current area: { prediction, spots }.
+async function runEngine(caseInput, events) {
+  const cache = areaCache;
+  if (!workerBroken) {
+    try {
+      const stamp = `${cache.key}#${cache.version}`;
+      if (workerArea !== `${cache.key}#${cache.areaVersion}`) {
+        await askWorker({ type: 'area', key: cache.key, osm: cache.osm });
+        workerArea = `${cache.key}#${cache.areaVersion}`;
+        workerLayers = stamp;
+      } else if (workerLayers !== stamp) {
+        // Same streets, but the ground layers have arrived since: send only those.
+        await askWorker({ type: 'layers', key: cache.key, layers: cache.osm.layers });
+        workerLayers = stamp;
+      }
+      return await askWorker({ type: 'replay', key: cache.key, caseInput, events, spotsMax: SPOTS_MAX });
+    } catch (err) {
+      if (!workerBroken) failWorker(err);
+    }
+  }
+  const prediction = engine.replay(cache.area, caseInput, events);
+  return { prediction, spots: engine.topSpots(cache.area, prediction, SPOTS_MAX) };
+}
 
 // ---- Loading bar ---------------------------------------------------------------------
 // Shown while streets download and the engine runs. Overpass doesn't say how big its answer
@@ -623,6 +756,8 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     els.minutes.focus();
     return;
   }
+  // In a shared search, what I changed in "What you know" is a correction for everyone.
+  const corrected = sendCaseCorrections();
   if (keepClock || state.searchId) ageMinutes(); // catch up on time that already passed
   else state.minutesAt = Date.now();
   const caseInput = readCase();
@@ -649,9 +784,16 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
       clearInterval(progressTimer);
       showProgress(85, t('progressReading'));
       await nextFrame();
-      areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm };
+      const version = areaCache.version + 1;
+      areaCache = { key, area: engine.prepareArea(loaded.osm), osm: loaded.osm, version, areaVersion: version };
       drawStreets(loaded.osm);
       if (loaded.fromCache && loaded.savedAt) savedNotice = t('usingSaved', { date: i18n.formatDateTime(loaded.savedAt) });
+      // Two-phase load: the streets are enough for a full map now. Buildings, fences and land
+      // use arrive in a second, bigger download; when they do, the map is worked out again.
+      if (loaded.more) {
+        savedNotice = t('mapRefining');
+        loaded.more.then((better) => refineArea(key, version, better));
+      }
     }
     state.areaSource = useDemoData ? 'demo' : 'live';
     if (!state.caseStartedAt) state.caseStartedAt = Date.now();
@@ -661,7 +803,7 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     await nextFrame();
     state.showAllSpots = false;
     state.selectedArea = null;
-    recompute();
+    await recompute();
     els.firstSteps.open = false; // first steps are done once a search is running
     els.caseInputs.open = false; // fold "What you know" so the results are right there
     renderCaseRecap();
@@ -669,6 +811,7 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 300)); // let the full bar show for a moment
     hideProgress();
     if (savedNotice) showStatus(savedNotice); // "Using streets saved on …"
+    else if (corrected) showStatus(t('caseUpdated'));
   } finally {
     hideProgress();
     setBusy(false);
@@ -684,6 +827,7 @@ function ageMinutes() {
   if (steps < 1) return false;
   els.minutes.value = Math.min(MAX_MINUTES, Number(els.minutes.value) + steps * TIME_STEP_MIN);
   state.minutesAt += steps * stepMs;
+  if (state.caseSnapshot) state.caseSnapshot.minutes = String(els.minutes.value); // the app's change, not mine
   return true;
 }
 
@@ -708,12 +852,43 @@ function renderCaseRecap() {
 
 // Runs the engine on the current case + all events, then redraws every result.
 // Called after a run, after "searched", and after a sighting.
-function recompute() {
+// The engine runs in the background worker (see runEngine), so this returns a promise that
+// settles once the new results are on screen. If several requests overlap (events arriving
+// quickly), only the newest one is drawn.
+let recomputeSerial = 0;
+let recomputing = 0; // how many requests are with the engine right now
+async function recompute() {
+  const serial = ++recomputeSerial;
   const caseInput = readCase();
-  state.prediction = engine.replay(areaCache.area, caseInput, currentEvents());
-  state.lastSpots = engine.topSpots(areaCache.area, state.prediction, SPOTS_MAX);
-  state.engineEventsKey = engineEventsKey();
+  const eventsKey = engineEventsKey();
+  recomputing += 1;
+  let result;
+  try {
+    result = await runEngine(caseInput, currentEvents());
+  } finally {
+    recomputing -= 1;
+  }
+  if (serial !== recomputeSerial) return; // a newer request is on its way
+  state.prediction = result.prediction;
+  state.lastSpots = result.spots;
+  state.engineEventsKey = eventsKey;
   drawResults();
+  requestPlan(); // the routes depend on the map: work them out again
+}
+
+// Second phase of the area download: the ground layers (buildings, fences, land use) have
+// arrived for the area we're showing. Swap them in and work the map out again.
+// `better` is { osm, savedAt }, or null if they couldn't be fetched (the map stays as it is).
+function refineArea(key, version, better) {
+  if (!better || areaCache.key !== key || areaCache.areaVersion !== version) return; // moved on to another area
+  areaCache = {
+    ...areaCache,
+    area: engine.withLayers(areaCache.area, better.osm.layers),
+    osm: better.osm,
+    version: areaCache.version + 1,
+  };
+  if (!state.prediction && !recomputing) return; // no map asked for yet
+  recompute().then(() => showStatus(t('mapRefined')));
 }
 
 // All events for this search: from Firebase, plus ones this phone sent that haven't
@@ -741,22 +916,43 @@ function currentEvents() {
 // A short fingerprint of the events the engine uses (not messages).
 function engineEventsKey() {
   return currentEvents()
-    .filter((e) => e.type === 'searched' || e.type === 'sighting')
+    .filter((e) => ENGINE_EVENT_TYPES.includes(e.type))
+    .map((e) => e.cid || e.id)
+    .join(',');
+}
+
+// The same for the planner: it reads every event except messages (tasks taken, done, given up,
+// "found"), so the routes are worked out again whenever one of those arrives.
+function plannerEventsKey() {
+  return currentEvents()
+    .filter((e) => e.type !== 'message')
     .map((e) => e.cid || e.id)
     .join(',');
 }
 
 // Records a new event: on this phone, and in Firebase if the search is shared.
+// Returns false if the event was not recorded (it broke the shared database's rules).
 function recordEvent(event) {
-  const ev = { ...event, cid: newEventId(), by: state.myName, at: Date.now() };
+  const ev = { ...event, cid: newEventId(), by: state.myName, at: event.at || Date.now() };
   if (state.searchId) {
+    // The database refuses anything that isn't exactly a known event. sync.js runs the same
+    // check, so ask it first: an event that would be refused must not sit on this phone's map.
+    const problem = sync.checkEvent(ev);
+    if (problem) { console.warn('Event not recorded, it breaks the rules:', problem, ev); return false; }
     state.optimistic.push(ev);
-    sync.addEvent(state.searchId, ev).then(renderLiveStatus);
+    sync.addEvent(state.searchId, ev).then((result) => {
+      renderLiveStatus();
+      // The database said no (for example its rules are older than this app): the event is on
+      // this phone only. Say so, instead of letting the person think everyone has it.
+      if (result && result.error === 'rejected') showStatus(t('eventRefused'), { error: true });
+    });
   } else {
     state.events.push(ev);
   }
   if (ev.type === 'message') renderMessages();
-  else recompute();
+  else if (ENGINE_EVENT_TYPES.includes(ev.type)) recompute(); // the map changes (then the routes)
+  else if (ev.type !== 'caseUpdate') { renderTasks(); requestPlan(); } // only the routes change
+  return true;
 }
 
 // Redraws everything that depends on the prediction (also used when language/units change).
@@ -769,7 +965,7 @@ function drawResults() {
   drawSearched(state.prediction);
   drawSightings();
   renderSpots();
-  renderAreas();
+  renderTasks();
   renderMessages();
   renderLiveStatus();
 }
@@ -929,7 +1125,7 @@ function drawSearched(prediction) {
 // Orange "!" markers for reported sightings.
 function drawSightings() {
   layers.sightings.clearLayers();
-  for (const ev of state.events) {
+  for (const ev of currentEvents()) {
     if (ev.type !== 'sighting') continue;
     const text = ev.note ? `${t('sightingMarker')}: ${ev.note}` : t('sightingMarker');
     L.marker([ev.lat, ev.lng], { icon: labelIcon('!', 'map-sighting') }).bindTooltip(text).addTo(layers.sightings);
@@ -979,6 +1175,19 @@ function renderSpots() {
       hazard.className = 'spot-hazard';
       hazard.textContent = t('hazard');
       text.append(hazard);
+    } else if (spot.hazardNearby) {
+      // From the engine's hazard layer: water or a drainage channel close to this spot.
+      const near = document.createElement('span');
+      near.className = 'spot-hazard';
+      near.textContent = t('spotHazardNear', { dist: i18n.formatDistance(spot.hazardNearby.distanceM, state.units) });
+      text.append(near);
+    }
+    if (spot.woodsNearby) {
+      // The engine's second hazard class: woods or brush close to this spot. Check from the path.
+      const woods = document.createElement('span');
+      woods.className = 'spot-hazard';
+      woods.textContent = t('spotWoodsNear', { dist: i18n.formatDistance(spot.woodsNearby.distanceM, state.units) });
+      text.append(woods);
     }
 
     button.append(num, text);
@@ -996,106 +1205,465 @@ function renderSpots() {
   els.moreSpots.textContent = state.showAllSpots ? t('showLess') : t('showMore', { n: hiddenCount });
 }
 
-// ---- Next areas to search -------------------------------------------------------------
+// ---- Your next task (the search planner) ------------------------------------------------
+// The planner (engine/planner) gives each searcher up to three ranked routes, worked out from
+// where they stand and from what everyone else has already taken, so nobody doubles up.
+// It only returns codes and numbers; every word shown here comes from i18n.js.
+//   Take this task  → an 'assigned' event (the others' plans then leave that ground alone)
+//   Done            → a 'completed' event (the planner counts the ground as searched)
+//   Stop            → a 'released' event (the ground is free again)
 
-// Lists the engine's best areas (A, B, C) with their walking routes. Opening one shows
-// its route on the map and a "Searched, nobody found" button.
-function renderAreas() {
-  const area = areaCache.area;
-  const prediction = state.prediction;
-  const next = engine.nextSectors(prediction, DEFAULT_SEARCH_MINUTES, NEXT_AREAS);
-  if (!next.some((n) => n.sectorId === state.selectedArea)) state.selectedArea = null;
+// My GPS position, if it is close enough to this search to be useful (`reachM` meters).
+function usablePosition(reachM) {
+  if (!state.myPos || !state.lastSeen) return null;
+  return map.distance([state.myPos.lat, state.myPos.lng], state.lastSeen) <= reachM ? state.myPos : null;
+}
 
+// Everyone the planner should plan for: the other searchers seen lately, and me.
+function planSearchers() {
+  const now = Date.now();
+  const list = [];
+  for (const [id, p] of Object.entries(state.searchers || {})) {
+    if (id === state.searcherId || !p || typeof p.lat !== 'number' || typeof p.lng !== 'number') continue;
+    if ((now - (p.at || 0)) / 60000 >= SEARCHER_STALE_MIN) continue; // not seen for a while
+    list.push({ id, lat: p.lat, lng: p.lng, at: p.at, mode: 'foot' });
+  }
+  // Me: from where I stand, or from the last-seen point when my location is off or far away
+  // (someone trying the Demo from another city still gets routes).
+  const here = usablePosition(MAP_REACH_M);
+  state.planFromLastSeen = !here;
+  const from = here || state.lastSeen;
+  list.push({ id: state.searcherId, lat: from.lat, lng: from.lng, at: now, mode: 'foot' });
+  return list;
+}
+
+// Asks the planner for a new plan and shows it. If several requests overlap, the newest wins.
+let planSerial = 0;
+let planTimer = null;
+let lastPlanAt = 0;
+let lastPlanPos = null;
+async function requestPlan() {
+  if (!state.prediction || !areaCache.area || !state.lastSeen) return;
+  if (state.found) { renderTasks(); return; } // the search is over: nobody is sent anywhere
+  const serial = ++planSerial;
+  const cache = areaCache;
+  const caseInput = readCase();
+  // The planner orders events by time, then id. Events made on this phone have only a `cid`.
+  const events = currentEvents().filter((e) => e.type !== 'message').map((e) => ({ ...e, id: e.id || e.cid }));
+  const eventsKey = plannerEventsKey();
+  const searchers = planSearchers();
+  const nowMs = Date.now();
+  lastPlanAt = nowMs;
+  lastPlanPos = state.myPos ? { lat: state.myPos.lat, lng: state.myPos.lng } : null;
+  let plan = null;
+  if (!workerBroken) {
+    try {
+      plan = (await askWorker({ type: 'plan', key: cache.key, caseInput, events, searchers, nowMs })).plan;
+    } catch (err) {
+      console.warn('Planner in the worker failed, planning on the page instead:', err.message);
+    }
+  }
+  // No worker at all (an old browser, or it stopped answering): plan on the page instead.
+  // (If the worker only said "not ready", skip: a new plan is asked for after the next map.)
+  if (!plan && workerBroken && serial === planSerial && state.prediction) {
+    try {
+      plan = engine.planSearch(cache.area, caseInput, state.prediction, { searchers, events, nowMs });
+    } catch (err) {
+      console.warn('Planner failed:', err);
+    }
+  }
+  if (serial !== planSerial || !plan) return; // a newer request is on its way (or nothing to show)
+  state.plan = plan;
+  state.planEventsKey = eventsKey;
+  renderTasks();
+}
+
+// A new plan soon, but not more often than every 5 s (used when only positions changed).
+function schedulePlan() {
+  if (planTimer || !state.prediction) return;
+  const wait = Math.max(0, PLAN_MIN_GAP_MS - (Date.now() - lastPlanAt));
+  planTimer = setTimeout(() => { planTimer = null; requestPlan(); }, wait);
+}
+
+// "Quick street sweep · Northeast", "Stand and watch here · bridge".
+function taskTitle(option, tr = t) {
+  const base = i18n.hasKey('task_' + option.type) ? tr('task_' + option.type) : option.type;
+  const kind = option.kind;
+  if (kind && DIRECTIONS.includes(kind)) return `${base} · ${tr('dir_' + kind)}`;
+  if (kind && i18n.hasKey('kind_' + kind)) return `${base} · ${tr('kind_' + kind)}`;
+  return base;
+}
+
+// The kind of task, read back from its id (for the hand-off sheet): 'hasty:NE', 'c123', 'y45'...
+function taskTypeFromId(taskId) {
+  const id = String(taskId);
+  if (id.startsWith('hasty')) return { type: 'hasty', kind: id.split(':')[1] || null };
+  if (id.startsWith('drive')) return { type: 'drive', kind: id.split(':')[1] || null };
+  const types = { c: 'containment', y: 'yards', p: 'park', h: 'hazard_check' };
+  return { type: types[id[0]] || id, kind: null };
+}
+
+// My own 'assigned' event for a task (to know when I took it).
+function myAssignment(taskId) {
+  return currentEvents()
+    .filter((e) => e.type === 'assigned' && e.searcherId === state.searcherId && e.taskId === taskId)
+    .sort((x, y) => y.at - x.at)[0] || null;
+}
+
+// Draws one option's route: the walk there dashed, the part to search solid, and the block or
+// park as a rectangle. `strong` = the open card (the others are drawn faint).
+function drawTaskRoute(route, strong, number) {
+  if (!route) return;
+  const points = (route.points || []).map((pt) => [pt.lat, pt.lng]);
+  const from = Math.min(Math.max(route.searchFrom || 0, 0), Math.max(points.length - 1, 0));
+  const opacity = strong ? 0.9 : 0.35;
+  if (from > 0) {
+    L.polyline(points.slice(0, from + 1), { color: '#0b57d0', weight: strong ? 4 : 2, opacity, dashArray: '6 8', interactive: false }).addTo(layers.route);
+  }
+  if (points.length - from > 1) {
+    L.polyline(points.slice(from), { color: '#0b57d0', weight: strong ? 6 : 3, opacity, interactive: false }).addTo(layers.route);
+  }
+  if (route.area && route.area.bounds) {
+    L.rectangle(route.area.bounds, { color: '#0b57d0', weight: strong ? 3 : 1, dashArray: strong ? null : '4 6', fill: false, interactive: false }).addTo(layers.areas);
+  }
+  // A number where the searching starts (for a "stand here" task, that is the post itself).
+  const at = points[from] || (route.area && route.area.center && [route.area.center.lat, route.area.center.lng]);
+  if (at) L.marker(at, { icon: labelIcon(number, 'map-letter'), keyboard: false, opacity: strong ? 1 : 0.6 }).addTo(layers.areas);
+}
+
+// Everything the route shows on the map, as one box (to zoom to it).
+function routeBounds(route) {
+  const points = (route.points || []).map((pt) => [pt.lat, pt.lng]);
+  if (route.area && route.area.bounds) points.push(...route.area.bounds);
+  return points.length ? L.latLngBounds(points) : null;
+}
+
+// Shows my options from the plan: up to three cards, best first, each with its warnings.
+function renderTasks() {
   els.areas.innerHTML = '';
+  els.unfilled.innerHTML = '';
+  els.unfilled.hidden = true;
+  els.planMeasures.hidden = true;
+  els.taskNote.hidden = true;
   layers.areas.clearLayers();
   layers.route.clearLayers();
+  if (!state.prediction) return;
+  if (renderFound()) return; // found: no more tasks for anyone
 
-  next.forEach((choice, i) => {
-    const letter = AREA_LETTERS[i];
-    const sector = prediction.grid.sectors.find((s) => s.id === choice.sectorId);
-    const route = engine.routeFor(area, prediction, choice.sectorId);
-    const selected = state.selectedArea === choice.sectorId;
+  const note = (text) => {
+    const li = document.createElement('li');
+    li.className = 'help';
+    li.textContent = text;
+    els.areas.append(li);
+  };
+  const plan = state.plan;
+  const mine = plan && plan.searchers.find((x) => x.searcherId === state.searcherId);
+  if (!plan || !mine) { note(t('planWorking')); return; }
 
-    // On the map: a blue square with its letter.
-    L.rectangle(sector.bounds, {
-      color: '#0b57d0', weight: selected ? 4 : 2, dashArray: selected ? null : '4 6', fill: false, interactive: false,
-    }).addTo(layers.areas);
-    L.marker([sector.bounds[1][0], sector.bounds[0][1]], { icon: labelIcon(letter, 'map-letter'), keyboard: false })
-      .addTo(layers.areas);
-    if (selected && route.points.length) {
-      L.polyline(route.points.map((p) => [p.lat, p.lng]), { color: '#0b57d0', weight: 6, opacity: 0.85 }).addTo(layers.route);
-    }
+  if (state.planFromLastSeen) {
+    els.taskNote.textContent = t('planFromLastSeen');
+    els.taskNote.hidden = false;
+  }
+  const options = mine.options || [];
+  if (!options.length) note(t(i18n.hasKey('hold_' + mine.hold) ? 'hold_' + mine.hold : 'hold_nothing_useful'));
+  // The route I took stays on the map while I hold it (the plan no longer repeats its points).
+  const holding = options.find((o) => o.keep);
+  if (!holding) state.heldRoute = null;
+  if (holding) state.selectedTask = holding.taskId;
+  else if (!options.some((o) => o.taskId === state.selectedTask)) state.selectedTask = options.length ? options[0].taskId : null;
 
-    // In the list.
+  options.forEach((option, i) => {
+    const selected = state.selectedTask === option.taskId;
+    const held = Boolean(option.keep);
+    const route = held && state.heldRoute && state.heldRoute.taskId === option.taskId ? state.heldRoute.route : option.route;
+    drawTaskRoute(route, selected, held ? '✓' : i + 1);
+
     const li = document.createElement('li');
     li.classList.toggle('selected', selected);
-
+    li.dataset.task = option.taskId; // which task this card is (handy for the browser checks)
     const head = document.createElement('button');
     head.type = 'button';
     head.className = 'area-head';
     head.setAttribute('aria-expanded', String(selected));
     const badge = document.createElement('span');
-    badge.className = 'area-letter';
-    badge.textContent = letter;
+    badge.className = held ? 'area-letter held' : 'area-letter';
+    badge.textContent = held ? '✓' : String(i + 1);
     const text = document.createElement('span');
     text.className = 'spot-text';
     const title = document.createElement('strong');
-    title.textContent = t('areaLabel', { n: letter });
+    title.textContent = held ? `${t('taskYours')}: ${taskTitle(option)}` : taskTitle(option);
+    text.append(title);
+    if (option.urgent) {
+      const urgent = document.createElement('span');
+      urgent.className = 'task-urgent';
+      urgent.textContent = t('taskUrgent');
+      text.append(urgent);
+    }
     const chance = document.createElement('span');
-    chance.className = 'spot-share';
-    chance.textContent = t('areaChance', { pct: i18n.formatPercent(sector.probability) });
-    const routeLine = document.createElement('span');
-    routeLine.className = route.points.length ? 'spot-share' : 'spot-hazard';
-    routeLine.textContent = route.points.length
-      ? ' · ' + t('routeInfo', { dist: i18n.formatDistance(route.lengthM, state.units), min: Math.round(route.minutes) })
-      : t('noRoute');
-    text.append(title, chance, routeLine);
-    if (sector.searchedMinutes) {
-      const done = document.createElement('span');
-      done.className = 'area-searched';
-      done.textContent = t('searchedMinutes', { min: sector.searchedMinutes });
-      text.append(done);
+    chance.className = 'task-note';
+    chance.textContent = t('taskChance', { pct: i18n.formatPercent(option.posGain) });
+    const time = document.createElement('span');
+    time.className = 'task-note';
+    time.textContent = t('taskTime', { walk: Math.round(option.travelMin), search: Math.round(option.searchMin) });
+    text.append(chance, time);
+    // Warnings: one line per code, most serious tasks first in the engine's own order.
+    for (const code of (option.danger && option.danger.warnings) || []) {
+      if (!i18n.hasKey('warn_' + code)) continue;
+      const warn = document.createElement('span');
+      warn.className = 'task-warn';
+      warn.textContent = t('warn_' + code, { number: state.emergencyNumber });
+      text.append(warn);
+    }
+    if (option.permission === 'ask') {
+      const ask = document.createElement('span');
+      ask.className = 'task-warn';
+      ask.textContent = t('taskAsk');
+      text.append(ask);
+    }
+    if (option.partnerId) {
+      const partner = (state.searchers || {})[option.partnerId];
+      const pair = document.createElement('span');
+      pair.className = 'task-warn';
+      pair.textContent = t('taskPair', { name: (partner && partner.name) || t('searcherNoName') });
+      text.append(pair);
     }
     head.append(badge, text);
     head.addEventListener('click', () => {
-      state.selectedArea = selected ? null : choice.sectorId;
-      renderAreas();
-      if (!selected) map.flyToBounds(sector.bounds, { padding: [30, 30], maxZoom: 17 });
+      state.selectedTask = option.taskId;
+      renderTasks();
+      const box = routeBounds(route);
+      if (box) map.flyToBounds(box, { padding: [30, 30], maxZoom: 17 });
     });
     li.append(head);
 
     if (selected) {
       const body = document.createElement('div');
       body.className = 'area-body';
-      const id = `minutes-${choice.sectorId}`;
-      const label = document.createElement('label');
-      label.htmlFor = id;
-      label.textContent = t('minutesSpent');
-      const input = document.createElement('input');
-      input.id = id;
-      input.type = 'number';
-      input.inputMode = 'numeric';
-      input.min = '1';
-      input.value = String(Math.max(1, Math.round(route.minutes || DEFAULT_SEARCH_MINUTES)));
-      const done = document.createElement('button');
-      done.type = 'button';
-      done.className = 'big primary';
-      done.textContent = t('markSearched');
-      done.addEventListener('click', () => markSearched(choice.sectorId, Number(input.value)));
-      body.append(label, input, done);
+      if (held) {
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'big primary';
+        done.textContent = t('taskDone');
+        done.addEventListener('click', () => finishTask(option, true));
+        const stop = document.createElement('button');
+        stop.type = 'button';
+        stop.className = 'big';
+        stop.textContent = t('taskStop');
+        stop.addEventListener('click', () => finishTask(option, false));
+        body.append(done, stop);
+      } else {
+        const take = document.createElement('button');
+        take.type = 'button';
+        take.className = 'big primary';
+        take.textContent = t('taskTake');
+        take.addEventListener('click', () => takeTask(option));
+        body.append(take);
+      }
       li.append(body);
     }
-
     els.areas.append(li);
   });
+
+  // For whoever runs the search: danger spots nobody can cover yet, and how far the search is.
+  // (One line per reason, however many spots share it.)
+  for (const reason of new Set((plan.unfilled || []).map((u) => u.reason))) {
+    if (!i18n.hasKey('unfilled_' + reason)) continue;
+    const li = document.createElement('li');
+    li.textContent = t('unfilled_' + reason);
+    els.unfilled.append(li);
+  }
+  els.unfilled.hidden = !els.unfilled.children.length;
+  if (plan.measures) {
+    els.planMeasures.textContent = t('planMeasures', {
+      pos: i18n.formatPercent(plan.measures.cumulativePOS), row: i18n.formatPercent(plan.measures.restOfWorld),
+    });
+    els.planMeasures.hidden = false;
+  }
 }
 
-// Adds a "searched, nobody found" event and recomputes the map.
-function markSearched(sectorId, minutes) {
-  if (!(minutes > 0)) return;
-  state.selectedArea = null;
-  recordEvent({ type: 'searched', sectorId, minutes });
-  showStatus(t('searchedDone'));
+// "Take this task": tells everyone, so the others' routes leave this ground alone.
+function takeTask(option) {
+  const ev = engine.assignedEvent(option, state.searcherId, Date.now());
+  if (ev.track && ev.track.length > TRACK_MAX) ev.track = ev.track.slice(0, TRACK_MAX);
+  if (!ev.track || !ev.track.length) delete ev.track; // "stand here" tasks have no trail
+  ev.searchMin = Math.min(600, Math.max(0, ev.searchMin));
+  state.heldRoute = { taskId: option.taskId, route: option.route };
+  state.selectedTask = option.taskId;
+  if (recordEvent(ev)) showStatus(t('taskTaken'));
+}
+
+// "Done, nobody found" (done = true) or "Stop this task".
+function finishTask(option, done) {
+  const taken = myAssignment(option.taskId);
+  state.heldRoute = null;
+  state.selectedTask = null;
+  if (done) {
+    // Searcher-minutes actually spent, within the limits the shared database accepts (1–600).
+    const spent = taken ? Math.round((Date.now() - taken.at) / 60000) : Math.round(option.searchMin);
+    const ev = { type: 'completed', searcherId: state.searcherId, taskId: option.taskId, minutes: Math.min(600, Math.max(1, spent)) };
+    if (option.partnerId) ev.partnerId = option.partnerId;
+    if (recordEvent(ev)) {
+      showStatus(t('taskDoneStatus'));
+      leaderSays('comfort', {}); // one calm line after a task with nothing found
+    }
+  } else {
+    recordEvent({ type: 'released', searcherId: state.searcherId, taskId: option.taskId });
+  }
+}
+
+// ---- Found ---------------------------------------------------------------------------------
+
+// The first 'found' event of this search, or null.
+function foundEvent() {
+  return currentEvents().filter((e) => e.type === 'found').sort((x, y) => x.at - y.at)[0] || null;
+}
+
+// The "They've been found" button: asks once, then records where (my position, or a map tap).
+function onFoundButton() {
+  if (!state.prediction || state.found) return;
+  if (!window.confirm(t('foundConfirm'))) return;
+  const here = usablePosition(FOUND_REACH_M);
+  if (here) reportFound(here);
+  else setMode('found'); // no usable location: "Tap the map where they were found"
+}
+
+function reportFound(point) {
+  recordEvent({ type: 'found', lat: point.lat, lng: point.lng });
+}
+
+// Shows (or hides) the end-of-search state: a banner on every phone and a pin on the map.
+// Returns the 'found' event, or null while the search goes on.
+function renderFound() {
+  const found = foundEvent();
+  state.found = found;
+  layers.found.clearLayers();
+  els.foundBanner.hidden = !found;
+  els.foundButton.hidden = Boolean(found);
+  if (!found) return null;
+  const who = found.by || t('someone');
+  // The sentence is one of the fixed ones in replies.js ('found' is never worded by an AI).
+  const line = document.createElement('p');
+  line.textContent = templateReply('found', {}, i18n.getLanguage());
+  const by = document.createElement('p');
+  by.textContent = t('foundBy', { name: who, time: i18n.formatTime(found.at) });
+  els.foundBanner.replaceChildren(line, by);
+  L.marker([found.lat, found.lng], { icon: labelIcon('✓', 'map-found-person'), keyboard: false, zIndexOffset: 1000 })
+    .bindTooltip(t('foundMarker'), { permanent: true, direction: 'top', offset: [0, -16] })
+    .addTo(layers.found);
+  if (state.mode === 'found') setMode(null);
+  return found;
+}
+
+// ---- The search leader's line ----------------------------------------------------------------
+// One short sentence from the fixed templates in replies.js (five languages). proxyUrl '' keeps
+// it on the phone: no AI words it. It is shown, never stored, and never reaches the engine.
+async function leaderSays(intent, data) {
+  state.leaderSaid = { intent, data };
+  const reply = await getReply(intent, data, i18n.getLanguage(), { proxyUrl: '' });
+  els.leaderLine.textContent = reply.text;
+  els.leaderWarnings.replaceChildren(...reply.warnings.map((w) => Object.assign(document.createElement('p'), { textContent: w })));
+  els.leaderWarnings.hidden = !reply.warnings.length;
+  els.leader.hidden = false;
+}
+function leaderQuiet() {
+  state.leaderSaid = null;
+  els.leader.hidden = true;
+}
+
+// ---- Corrections in a shared search (caseUpdate events) ---------------------------------------
+// The shared case can be written only once. A correction ("actually 40 minutes") is therefore
+// an event, 'caseUpdate': one per changed field, and the newest per field wins on every phone.
+
+// The case form as it is now, as plain text values that are easy to compare.
+function snapshotCaseForm() {
+  return {
+    minutes: String(els.minutes.value),
+    direction: els.direction.value || '',
+    mobility: readMobility(),
+    familiar: JSON.stringify(state.familiarPlaces.map((f) => [f.lat, f.lng, f.label || ''])),
+  };
+}
+
+// A fingerprint of the shared case's correctable fields.
+function sharedCaseKey(c) {
+  if (!c) return '';
+  return JSON.stringify([c.minutes, c.minutesAt || null, c.direction || null, c.mobility || 'normal',
+    (c.familiarPlaces || []).map((f) => [f.lat, f.lng, f.label || ''])]);
+}
+
+// Remembers the shared case as the database has it, and the form as it is shown now.
+function rememberSharedCase(c) {
+  state.sharedCase = c ? {
+    minutes: c.minutes, minutesAt: c.minutesAt || null, direction: c.direction || null, mobility: c.mobility || 'normal',
+    familiarPlaces: (c.familiarPlaces || []).map((f) => ({ lat: f.lat, lng: f.lng, label: f.label || '' })),
+  } : null;
+  state.caseSnapshot = c ? snapshotCaseForm() : null;
+}
+
+// Sends what I changed in "What you know" since the form was last in step with the shared
+// case. Returns true if anything was sent. (Not shared: nothing to send; the form is the case.)
+function sendCaseCorrections() {
+  const before = state.caseSnapshot;
+  if (!state.searchId || !before || !state.sharedCase) return false;
+  const now = snapshotCaseForm();
+  const at = Date.now();
+  const shared = { ...state.sharedCase };
+  let sent = false;
+  if (now.minutes !== before.minutes) {
+    // "40" typed now means 40 minutes as of now: every phone counts on from this same moment.
+    const minutes = Math.min(MAX_MINUTES, Math.max(1, Math.round(Number(now.minutes))));
+    els.minutes.value = minutes;
+    state.minutesAt = at;
+    sent = recordEvent({ type: 'caseUpdate', field: 'minutes', value: minutes, at }) || sent;
+    sent = recordEvent({ type: 'caseUpdate', field: 'minutesAt', value: at, at }) || sent;
+    shared.minutes = minutes;
+    shared.minutesAt = at;
+  }
+  if (now.direction !== before.direction) {
+    sent = recordEvent({ type: 'caseUpdate', field: 'direction', value: now.direction || null, at }) || sent;
+    shared.direction = now.direction || null;
+  }
+  if (now.mobility !== before.mobility) {
+    sent = recordEvent({ type: 'caseUpdate', field: 'mobility', value: now.mobility, at }) || sent;
+    shared.mobility = now.mobility;
+  }
+  if (now.familiar !== before.familiar) {
+    const places = readCase().familiarPlaces.map((f) => ({ lat: f.lat, lng: f.lng, label: String(f.label || '').slice(0, 100) }));
+    sent = recordEvent({ type: 'caseUpdate', field: 'familiarPlaces', value: places, at }) || sent;
+    shared.familiarPlaces = places;
+  }
+  if (sent) {
+    state.sharedCase = shared;
+    state.caseSnapshot = snapshotCaseForm();
+  }
+  return sent;
+}
+
+// Another phone corrected the case: fill the form from the database's copy (sync.js has
+// already applied every correction to it). Returns true if the form changed.
+function applySharedCase(caseDoc, events) {
+  if (!caseDoc) return false;
+  if (sharedCaseKey(caseDoc) === sharedCaseKey(state.sharedCase)) return false;
+  // My own corrections that haven't come back yet: wait for them, or the form would flip back.
+  // (Only the ones THIS page sent. The send queue in the phone's storage is shared by every tab
+  // of the browser, so looking there made a second tab ignore the first tab's correction.)
+  if (state.optimistic.some((e) => e.type === 'caseUpdate')) return false;
+  const hadCase = Boolean(state.sharedCase);
+  els.minutes.value = caseDoc.minutes;
+  if (caseDoc.minutesAt) state.minutesAt = caseDoc.minutesAt;
+  els.direction.value = caseDoc.direction || '';
+  setMobility(caseDoc.mobility || 'normal');
+  state.familiarPlaces = (caseDoc.familiarPlaces || []).map((f) => ({ lat: f.lat, lng: f.lng, label: f.label || '' }));
+  renderFamiliarList();
+  drawPins();
+  ageMinutes(); // the stored minutes were true at minutesAt: add the time since
+  rememberSharedCase(caseDoc);
+  renderCaseRecap();
+  if (hadCase) {
+    const last = [...events].reverse().find((e) => e.type === 'caseUpdate');
+    showStatus(t('caseChanged', { name: (last && last.by) || t('someone') }));
+  }
+  return true;
 }
 
 // ---- Sightings --------------------------------------------------------------------------
@@ -1106,13 +1674,19 @@ function openSightingForm({ draft = null } = {}) {
   if (!state.prediction) { showStatus(t('needRunFirst'), { error: true }); return; }
   state.sightingDraft = null;
   els.sightingWhere.textContent = t('tapSighting');
-  els.sightingMinutes.value = draft && draft.minutesSince != null ? String(draft.minutesSince) : '0';
+  // From a report with no time in it, the box stays EMPTY (and marked): an unknown time must
+  // not turn into "0 minutes ago", the most aggressive guess. By hand, 0 ("just now") is the start.
+  els.sightingMinutes.value = !draft ? '0' : draft.minutesSince != null ? String(draft.minutesSince) : '';
   els.sightingDirection.value = (draft && draft.direction) || '';
   els.sightingNote.value = (draft && draft.note) || '';
   const sure = draft ? String(draft.reliability) : '0.6';
   const radio = document.querySelector(`input[name="sure"][value="${sure}"]`);
   if (radio) radio.checked = true;
   els.sightingCheck.hidden = !draft;
+  const unsure = (draft && draft.unsure) || [];
+  els.sightingCheck.textContent = t(unsure.includes('kind') ? 'reportCheckKind' : 'reportCheck');
+  showFlags(els.sightingFlags, draft && draft.flags);
+  markUnsure(draft && draft.minutesSince == null && !unsure.includes('minutesSince') ? [...unsure, 'minutesSince'] : unsure);
   els.sightingForm.hidden = false;
   setMode('sighting');
   if (draft && draft.lat != null && draft.lng != null) {
@@ -1132,20 +1706,89 @@ function closeSightingForm() {
   state.sightingDraft = null;
   els.sightingForm.hidden = true;
   els.sightingCheck.hidden = true;
+  showFlags(els.sightingFlags, []);
+  markUnsure([]);
   setMode(null);
   drawPins();
 }
 
+// Safety flags from a report draft (report.js DRAFT_FLAGS), most urgent first. They stay until
+// the form is closed or a new report is read: never hidden by a timer.
+function showFlags(box, flags) {
+  box.replaceChildren();
+  for (const code of flags || []) {
+    if (!report.DRAFT_FLAGS.includes(code)) continue;
+    const line = document.createElement('p');
+    line.className = `flag flag-${code}`;
+    line.textContent = t('flag_' + code, { number: state.emergencyNumber });
+    if (code === 'emergency' || code === 'water') {
+      // Tap to call, like the banner at the top of the page.
+      const call = document.createElement('a');
+      call.className = 'flag-call';
+      call.href = 'tel:' + state.emergencyNumber;
+      call.textContent = '📞 ' + state.emergencyNumber;
+      line.append(' ', call);
+    }
+    box.append(line);
+  }
+  box.hidden = !box.children.length;
+}
+
+// The fields a report draft can be unsure about, and what to highlight for each.
+function unsureParts(code) {
+  const labelFor = (id) => document.querySelector(`label[for="${id}"]`);
+  if (code === 'place') return { box: els.sightingWhere, label: null };
+  if (code === 'direction') return { box: els.sightingDirection, label: labelFor('sighting-direction') };
+  if (code === 'minutesSince') return { box: els.sightingMinutes, label: labelFor('sighting-minutes') };
+  if (code === 'reliability') {
+    const fieldset = els.sightingForm.querySelector('fieldset');
+    return { box: fieldset, label: fieldset && fieldset.querySelector('legend') };
+  }
+  if (code === 'kind') return { box: els.sightingCheck, label: null };
+  return { box: null, label: null };
+}
+
+// Highlights the fields the report reader left empty or wasn't sure about ("Not sure: please check").
+function markUnsure(codes) {
+  for (const code of report.UNSURE_FIELDS) clearUnsure(code);
+  for (const code of codes || []) {
+    const { box, label } = unsureParts(code);
+    if (!box) continue;
+    box.classList.add('unsure');
+    if (label) {
+      const mark = document.createElement('span');
+      mark.className = 'unsure-mark';
+      mark.textContent = t('unsureMark');
+      label.append(mark);
+    }
+  }
+}
+
+// The person has looked at this field (changed it): take the highlight off.
+function clearUnsure(code) {
+  const { box, label } = unsureParts(code);
+  if (box) box.classList.remove('unsure');
+  if (label) label.querySelectorAll('.unsure-mark').forEach((mark) => mark.remove());
+}
+
 function saveSighting() {
   if (!state.sightingDraft) { showStatus(t('needSightingPlace'), { error: true }); return; }
+  // An empty time is not "0 minutes ago": ask for it.
+  const minutesText = els.sightingMinutes.value.trim();
+  if (minutesText === '' || !(Number(minutesText) >= 0)) {
+    showStatus(t('needSightingMinutes'), { error: true });
+    els.sightingMinutes.classList.add('unsure');
+    els.sightingMinutes.focus();
+    return;
+  }
   const sighting = {
     type: 'sighting',
     lat: state.sightingDraft.lat,
     lng: state.sightingDraft.lng,
     direction: els.sightingDirection.value || null,
-    minutesSince: Math.max(0, Number(els.sightingMinutes.value) || 0),
+    minutesSince: Math.min(MAX_MINUTES, Math.max(0, Number(minutesText))), // the shared database allows 0–1440
     reliability: Number(document.querySelector('input[name="sure"]:checked').value),
-    note: els.sightingNote.value.trim(),
+    note: els.sightingNote.value.trim().slice(0, 300),
   };
   closeSightingForm();
   recordEvent(sighting);
@@ -1229,9 +1872,12 @@ function startRecordingReport() {
 // What the voice bot says after filling in the form, in the app's language. Short sentences,
 // and it names what it wasn't sure about, so the person knows what to check.
 function readBackText(draft) {
-  if (draft.kind === 'message') return t('sayMessage');
-  if (draft.kind === 'searched') return t('saySearched', { areas: t('nextAreasTitle'), button: t('markSearched') });
-  const parts = [t('saySighting')];
+  // Safety warnings first, then what was filled in, then what the person must check.
+  const flags = (draft.flags || []).filter((f) => report.DRAFT_FLAGS.includes(f)).map((f) => t('flag_' + f, { number: state.emergencyNumber }));
+  const unsure = draft.unsure || [];
+  if (draft.kind === 'message') return [...flags, t('sayMessage')].join(' ');
+  if (draft.kind === 'searched') return [...flags, t('saySearched', { areas: t('tasksTitle'), button: t('taskDone') })].join(' ');
+  const parts = [...flags, t('saySighting')];
   const missing = [];
   if (draft.placeText) parts.push(t('sayPlace', { place: draft.placeText }));
   else missing.push(t('sayFieldPlace'));
@@ -1239,6 +1885,8 @@ function readBackText(draft) {
   else missing.push(t('sayFieldTime'));
   if (draft.direction) parts.push(t('sayDirection', { direction: t('dir_' + draft.direction) }));
   else missing.push(t('sayFieldDirection'));
+  if (unsure.includes('reliability')) missing.push(t('sayFieldSure'));
+  if (unsure.includes('kind')) missing.push(t('sayFieldKind'));
   if (missing.length) parts.push(t('sayMissing', { list: missing.join(', ') }));
   parts.push(t('sayCheck'));
   return parts.join(' ');
@@ -1291,15 +1939,22 @@ async function readReport() {
   els.reportStatus.textContent = t('reportReading');
   els.reportRead.disabled = true;
 
+  // A new report: the last one's warnings go.
+  showFlags(els.reportFlags, []);
+  showFlags(els.messageFlags, []);
+  leaderQuiet();
+
   let draft;
   let readOnPhone = false; // true when the backup word rules filled it in instead of Jev
   const places = nearbyPlaces();
+  // Street corners near the last-seen point, so "corner of Paseo Padre and Stevenson" gets a pin.
+  const intersections = findIntersections(areaCache.osm, places.map((place) => place.name), state.lastSeen);
   try {
-    draft = await report.parseReport(text, { lastSeen: state.lastSeen, places }, i18n.getLanguage());
+    draft = await report.parseReport(text, { lastSeen: state.lastSeen, places, intersections }, i18n.getLanguage());
   } catch (err) {
     // Jev can't answer (no signal, proxy or key missing, or an error): read the report on
     // the phone with simple word rules instead (quickread.js). Same checks as Jev's answer.
-    draft = report.validateDraft(readLocally(text, { places }));
+    draft = report.validateDraft(readLocally(text, { places, intersections, lang: i18n.getLanguage() }));
     readOnPhone = true;
     if (!draft) {
       // Shouldn't happen, but the manual form is always the way out.
@@ -1328,12 +1983,20 @@ async function readReport() {
     els.reportText.value = '';
     toggleReportBox();
     els.messageText.value = draft.note || draft.placeText;
+    showFlags(els.messageFlags, draft.flags); // e.g. "he took the car" is a message with the vehicle warning
     els.messageText.scrollIntoView({ block: 'center' });
     showStatus(t('reportMessageReady')); // a message has no fields to check, so no "read on the phone" note
   } else {
-    // 'searched' needs an area from the map, which the person picks under "Next areas".
+    // 'searched' is recorded by finishing a task under "Your next task".
     els.reportStatus.textContent = t('reportSearched');
+    showFlags(els.reportFlags, draft.flags);
   }
+  // The search leader's one line: call now, or "I wasn't sure about ..." (fixed sentences).
+  const flags = draft.flags || [];
+  const unsure = (draft.unsure || []).filter((code) => report.UNSURE_FIELDS.includes(code));
+  const cautions = flags.filter((f) => f === 'water' || f === 'vehicle');
+  if (flags.includes('emergency')) leaderSays('emergency', { number: state.emergencyNumber });
+  else if (unsure.length || cautions.length) leaderSays('abstain', { fields: unsure, flags: cautions });
 }
 
 // ---- Offline ---------------------------------------------------------------------------
@@ -1516,6 +2179,8 @@ function startLocation({ auto }) {
         if (!auto) hideStatus();
       }
       shareMyPosition();
+      // My routes start where I stand: work them out again once I've moved a little.
+      if (state.prediction && (!lastPlanPos || map.distance([lastPlanPos.lat, lastPlanPos.lng], [state.myPos.lat, state.myPos.lng]) >= POSITION_MOVE_M)) schedulePlan();
     },
     () => {
       // Said no, or no GPS fix. When the app asked by itself, stay quiet: the app works
@@ -1544,6 +2209,7 @@ function drawMyPosition() {
 // force: share now (used when joining or starting a shared search).
 function shareMyPosition(force = false) {
   if (!state.searchId || !state.myPos || !navigator.onLine) return;
+  if (state.found) return; // the search is over: stop telling the others where I am
   const now = Date.now();
   const last = state.lastPosSent;
   if (!force && last) {
@@ -1616,7 +2282,9 @@ async function saveHomeArea() {
   try {
     showProgress(3, t('progressChecking'));
     // Downloads and stores it (or finds it saved).
-    const result = await data.loadArea(point.lat, point.lng, { onProgress: onDownloadProgress });
+    // A bigger square than a search downloads, so a last-seen point up to about 1 km from
+    // home is still fully covered with no signal.
+    const result = await data.loadArea(point.lat, point.lng, { radiusM: data.HOME_RADIUS_M, onProgress: onDownloadProgress });
     state.home = { lat: point.lat, lng: point.lng, savedAt: result.savedAt };
     state.homeDraft = null;
     remember('home', JSON.stringify(state.home));
@@ -1651,6 +2319,21 @@ function clearDemoDetails() {
   showStatus(t('demoCleared'));
 }
 
+// A new case (the Demo, a new last-seen point, a link): no tasks taken, nobody found, no plan.
+function resetTasks() {
+  state.plan = null;
+  state.planEventsKey = '';
+  state.selectedTask = null;
+  state.heldRoute = null;
+  state.found = null;
+  planSerial += 1; // a plan still on its way belongs to the old case
+  leaderQuiet();
+  showFlags(els.reportFlags, []);
+  showFlags(els.messageFlags, []);
+  layers.found.clearLayers();
+  els.foundBanner.hidden = true;
+}
+
 async function runDemo() {
   state.fromDemo = true;
   state.lastSeen = { ...DEMO_CASE.lastSeen };
@@ -1659,6 +2342,7 @@ async function runDemo() {
   state.events = [];
   state.caseStartedAt = null;
   leaveSharedSearch();
+  resetTasks();
   els.minutes.value = DEMO_CASE.minutes;
   els.direction.value = DEMO_CASE.direction;
   setMobility(DEMO_CASE.mobility);
@@ -1731,6 +2415,7 @@ async function shareSearch() {
     if (result.ok) {
       const local = state.events;
       state.events = [];
+      rememberSharedCase(caseDoc); // the form and the shared case are in step from here
       startLive(id);
       for (const ev of local) {
         state.optimistic.push(ev);
@@ -1777,15 +2462,27 @@ function startLive(searchId) {
   history.replaceState(null, '', shareLinkPathWithHash());
   state.unsubscribe = sync.subscribe(
     searchId,
-    (caseDoc, events, searchers) => {
+    (caseDoc, events, searchers, info) => {
       state.searchers = searchers;
       renderSearchers();
       state.remoteEvents = events;
       const back = new Set(events.map((e) => e.cid));
       state.optimistic = state.optimistic.filter((e) => !back.has(e.cid));
       if (caseDoc && caseDoc.startedAt && !state.caseStartedAt) state.caseStartedAt = caseDoc.startedAt;
-      if (state.prediction && engineEventsKey() !== state.engineEventsKey) recompute();
-      else { renderMessages(); renderLiveStatus(); }
+      // Started on another version of the map engine: this phone's map may differ. Say so.
+      state.versionMismatch = Boolean(info && info.versionMismatch);
+      els.versionWarning.hidden = !state.versionMismatch;
+      if (state.versionMismatch) console.warn('This search was started on engine', info.caseEngineVersion, 'and this phone runs', info.engineVersion);
+      // Another phone corrected the case (caseUpdate): take it over, then redo the map.
+      const caseChanged = applySharedCase(caseDoc, events);
+      if (state.prediction && (caseChanged || engineEventsKey() !== state.engineEventsKey)) recompute();
+      else {
+        renderMessages();
+        renderLiveStatus();
+        // Tasks taken or finished, "found", or somebody moved: the routes may change.
+        if (plannerEventsKey() !== state.planEventsKey) { renderTasks(); requestPlan(); }
+        else schedulePlan();
+      }
     },
     (status) => { state.liveStatus = status; renderLiveStatus(); },
   );
@@ -1806,6 +2503,9 @@ function leaveSharedSearch() {
   state.liveStatus = null;
   state.searchers = {};
   state.lastPosSent = null;
+  state.versionMismatch = false;
+  els.versionWarning.hidden = true;
+  rememberSharedCase(null);
   layers.others.clearLayers();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   renderLiveStatus();
@@ -1824,12 +2524,14 @@ async function joinFromLink() {
   }
   // The database copy of the case wins, if we can reach it.
   let reachedDatabase = false;
+  let fromDatabase = null; // the database's copy of the case (every correction applied)
   if (searchId && sync.isConfigured()) {
     try {
       const { caseDoc } = await sync.loadSearch(searchId);
       reachedDatabase = true;
       if (caseDoc) {
         caseInput = caseDoc;
+        fromDatabase = caseDoc;
         if (caseDoc.startedAt) state.caseStartedAt = caseDoc.startedAt;
         if (caseDoc.area) params.set('a', caseDoc.area);
       }
@@ -1843,7 +2545,11 @@ async function joinFromLink() {
   // Count time from the same moment as the phone that shared it (older links: when it started).
   state.minutesAt = caseInput.minutesAt || caseInput.startedAt || Date.now();
   state.events = [];
+  resetTasks();
   state.areaSource = params.get('a') === 'demo' ? 'demo' : 'live'; // before startLive saves the link
+  // In step with the database's case, so later corrections (mine or others') are spotted.
+  // (Database not reached: the first live update fills the form from it instead.)
+  if (fromDatabase) rememberSharedCase(fromDatabase);
   if (searchId && sync.isConfigured()) startLive(searchId);
   els.firstSteps.open = false;
   await runPrediction({ useDemoData: params.get('a') === 'demo', keepClock: true });
@@ -1906,6 +2612,7 @@ function sendMessage() {
   saveName();
   recordEvent({ type: 'message', text: text.slice(0, 300) });
   els.messageText.value = '';
+  showFlags(els.messageFlags, []);
 }
 
 // ---- Police hand-off sheet -----------------------------------------------------------------
@@ -1934,7 +2641,7 @@ function handoffText(lang) {
   lines.push('', tr('handoffTimeline'), '-'.repeat(30));
   const events = currentEvents().slice().sort((a, b) => a.at - b.at);
   const sure = { 0.3: 'sure_low', 0.6: 'sure_mid', 0.9: 'sure_high' };
-  if (!events.some((e) => e.type === 'searched' || e.type === 'sighting')) lines.push(tr('handoffNothing'));
+  if (!events.some((e) => ['searched', 'sighting', 'completed', 'found'].includes(e.type))) lines.push(tr('handoffNothing'));
   for (const ev of events) {
     const time = i18n.formatTime(ev.at);
     const by = ev.by || tr('someone');
@@ -1950,6 +2657,10 @@ function handoffText(lang) {
       }).trim());
     } else if (ev.type === 'message') {
       lines.push(tr('handoffMessage', { time, by, text: ev.text }));
+    } else if (ev.type === 'completed') {
+      lines.push(tr('handoffTask', { time, by, task: taskTitle(taskTypeFromId(ev.taskId), tr), min: ev.minutes }));
+    } else if (ev.type === 'found') {
+      lines.push(tr('handoffFound', { time, by, coords: coords(ev) }));
     }
   }
 
@@ -2017,6 +2728,7 @@ function applyLanguage(code) {
   showHomeSaved();
   drawResults();
   drawPins();
+  if (state.leaderSaid) leaderSays(state.leaderSaid.intent, state.leaderSaid.data); // the leader's line, in the new language
 }
 
 function applyUnits(units) {
@@ -2068,6 +2780,11 @@ function start() {
   els.reportSighting.addEventListener('click', () => (state.mode === 'sighting' ? closeSightingForm() : openSightingForm()));
   els.sightingSave.addEventListener('click', saveSighting);
   els.sightingCancel.addEventListener('click', closeSightingForm);
+  // A highlighted "not sure" field loses its highlight once the person changes it.
+  els.sightingMinutes.addEventListener('input', () => clearUnsure('minutesSince'));
+  els.sightingDirection.addEventListener('change', () => clearUnsure('direction'));
+  for (const radio of document.querySelectorAll('input[name="sure"]')) radio.addEventListener('change', () => clearUnsure('reliability'));
+  els.foundButton.addEventListener('click', onFoundButton);
   els.panelToggle.addEventListener('click', () => {
     const collapsed = els.panel.classList.toggle('collapsed');
     els.panelToggle.setAttribute('aria-expanded', String(!collapsed));
@@ -2108,6 +2825,8 @@ function start() {
 
   // Sharing
   sync.setDbUrl(databaseUrl());
+  // The shared case carries the engine's version, so a phone on another version can warn.
+  sync.setEngineVersion(engine.ENGINE_VERSION);
   state.myName = recall('name') || '';
   els.myName.value = state.myName;
   els.myName.addEventListener('change', saveName);
@@ -2128,6 +2847,7 @@ function start() {
   setInterval(onClockTick, CLOCK_CHECK_MS); // redraws the map every 5 minutes as time passes
 
   setMode('lastSeen');
+  startWorker(); // in the background: warms the engine up before the first map is asked for
   joinFromLink().then((joined) => { if (joined) setMode(null); });
 }
 

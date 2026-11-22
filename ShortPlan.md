@@ -16,18 +16,20 @@
 2. **Check the house and yard.** A 2-minute checklist.
 3. **Enter what you know.** Where and when they were last seen, which way they went, how well they walk, and familiar places.
 4. **See the map.** Red / orange / yellow likely areas (1 in 4, 1 in 2, 4 in 5) and the top 3 places to check first.
-5. **Share the link.** Each searcher who joins gets an area and a walking route, and everyone sees the others as green dots on the map.
+5. **Share the link.** Each searcher gets up to 3 ranked routes with warnings; a route someone took isn't offered again. Everyone sees the others as green dots.
 6. **Talk and report.**
    - A shared message feed.
-   - A report box: type or speak "saw him by the lake 10 min ago"; it becomes a sighting once you confirm it. A voice bot reads the form back (English).
-7. **Update as you go.** Searched routes, sightings and every 5 minutes that pass shift the map for everyone.
-8. **Hand off to police.** One tap gives a sheet of what was searched, what was seen, and what's left.
+   - A report box: type or speak "saw him by the lake 10 min ago"; it becomes a sighting once you confirm it. Unsure fields are left empty and marked. A voice bot reads the form back (English).
+7. **Update as you go.** Searched routes, sightings, corrections and every 5 minutes that pass shift the map for everyone.
+8. **Found, or hand off to police.** One button ends the search for everyone. One tap gives a sheet of what was searched, what was seen, and what's left.
 
 ## How it works (lightly)
-- Thousands of simulated "walkers" move along real streets the way research says people with dementia do: straight until stuck, usually within a mile, often just off the road in a creek or brush.
-- Where they end up becomes the starting map (search-and-rescue statistics, OpenStreetMap).
-- Each area searched with no luck drops on the map and the rest rise (Bayesian search theory). Routes update with it.
-- The prediction runs on the phone. Online: the shared record, messages, searcher positions and Jev's report reading (word rules on the phone fill in when Jev can't).
+- The starting map: statistics on where people with dementia are found, laid over the real ground (streets, buildings, water, parks from OpenStreetMap), plus simulated "walkers" for what statistics can't say: a direction, a familiar place, a sighting.
+- It is for "this many minutes since last seen", and says how likely the person is already off the map.
+- Each area searched with no luck drops and the rest rise (Bayesian search theory). Routes update with it.
+- Water and drainage near the likely area are flagged: look from the bank, don't go in. Woods and brush: check from the path.
+- The database and every phone check each event against the same rules.
+- The prediction runs on the phone. Online: the shared record, messages, searcher positions and Jev's report reading (word rules fill in when Jev can't).
 
 ## What it is NOT
 - **Not a replacement for 911**, police or search-and-rescue.
@@ -39,7 +41,7 @@
 
 ## Team
 - **BenStew:** screen, hosting and the engine, built with Claude Code.
-- **Nathan:** tests, debugging, speed, and tuning Jev.
+- **Nathan:** tests, debugging, speed, tuning Jev; on Nov 22 the engine rewrite, the search planner, event integrity and the report box's safety layer (with Claude Code).
 - **Jev** isn't a person: it's TypeSafe's AI model, used only to fill in report forms.
 
 ## Must work by the deadline (Sun Nov 22, 12 pm)
@@ -56,6 +58,10 @@
 - [x] One-tap Demo button
 
 ## After the core works (still required)
-- [x] Benchmark: FindThem vs. volunteers searching on their own (found 54% vs. 21% after 1,500 searcher-minutes)
+- [x] Benchmark vs. volunteers on their own (graded on a walker model not its own: 40% vs. 19% found after 1,500 searcher-minutes; ring sweep 28%)
+- [x] The map tested on 60 untuned start points (median 0.99 km² searched; rings 1.30; first engine 2.54)
+- [x] Report box on 150 unseen reports: Jev 85% of fields right, 3 dangerous; backup reader 76%, 7
+- [x] 161 real cases as a held-out check
+- [ ] Ben: publish the new Firebase rules, redeploy the proxy, try it on phones (`UPDATESBYNATE.md`)
 
-*Details: `PLAN.md` (full plan), `INTERFACES.md` (screen ↔ engine contract), `CommitHistory.md` (every decision and commit).*
+*Details: `PLAN.md` (full plan), `INTERFACES.md` (screen ↔ engine contract), `CommitHistory.md` (every decision and commit), `bench/prior-report.md` (how good the map is).*
