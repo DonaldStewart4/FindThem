@@ -17,7 +17,7 @@
 2. **Check the house and yard.** A 2-minute checklist.
 3. **Enter what you know.** Where and when they were last seen, which way they went, how well they walk, and familiar places.
 4. **See the map.** Red / orange / yellow likely areas (1 in 4, 1 in 2, 4 in 5) and the top 3 places to check first.
-5. **Share the link.** Each searcher who joins gets an area and a walking route.
+5. **Share the link.** Each searcher who joins gets an area and a walking route, and everyone sees the others as green dots on the map.
 6. **Talk and report.**
    - A shared message feed.
    - A report box: type or speak "saw him by the lake 10 min ago" and it becomes a sighting on the map once you confirm it. Optional voice bot reads the form back aloud.

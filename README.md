@@ -25,7 +25,7 @@ Built for EvoHacks II (theme: social good).
    - dashed rings at 0.5, 1 and 1.5 miles
    - **Check these first:** the top 3 places (8 when expanded), each with a reason such as "Creek 130 ft off Main St – 12% of walkers". Water and wetland spots are marked "leave this to professionals".
 4. **Next areas to search.** Areas A, B and C are the best places for the next searcher, each with its chance and a walking route. Open one, search it, and tap **Searched, nobody found** with the minutes spent.
-5. **Share the search.** Enter your name and tap **Share this search**. Everyone who opens the link sees the same live map: searched areas, sightings and messages appear for everyone within about a second.
+5. **Share the search.** Enter your name and tap **Share this search**. Everyone who opens the link sees the same live map: searched areas, sightings and messages appear for everyone within about a second. The app asks for the phone's location when it opens, so each searcher also shows up as a green dot with their name (updated every 30 s or after 25 m; hidden after 15 minutes without an update). Saying no is fine: the app works without it.
 6. **Report a sighting**, either:
    - on the map: tap where they were seen, then say how long ago, which way, how sure, and any details, or
    - in the **report box**: type or speak ("saw a man in a blue coat by the lake 10 minutes ago, heading east") and an AI fills in the form. **Nothing is added until you check it and tap the button.** How it works:
@@ -117,7 +117,7 @@ The translations were written by AI and haven't been checked by native speakers 
 | `sw.js`, `manifest.json`, `icons/` | Offline mode and installing to the home screen |
 | `lib/` | Leaflet (map), stored here rather than loaded from the internet |
 | `proxy/` | Tiny Cloudflare Worker that holds the API keys as secrets: asks Jev about a report (`jev.js`) and returns form data only; optional voice bot with Deepgram and ElevenLabs (`voice.js`) |
-| `firebase-rules.json` | Database rules: no listing searches, events can only be added |
+| `firebase-rules.json` | Database rules: no listing searches, events can only be added, searcher positions checked |
 | `tests/` | `node --test` tests; `tests/fixtures/demo-area.json` is real Fremont street data, used by the Demo and the engine tests |
 | `bench/` | `benchmark.js` (the search simulation above) and `results.md` (its latest output) |
 | `tools/` | `make-fixture.js` (rebuild the Fremont data), `mock-firebase.py` and `mock-proxy.py` (local stand-ins for testing), `make-icons.py` |
@@ -157,6 +157,7 @@ Live sharing (one map for every searcher, messages, searched areas) needs a free
    - nobody can list searches; you need the 32-character id from a link
    - a search's case can be written once
    - events can only be added, never changed or deleted
+   - each searcher's position (`searchers/`) must be a plain lat/lng/time/name, and each phone overwrites only its own
 4. Copy the database URL shown at the top of the **Data** tab (like `https://findthem-12345-default-rtdb.firebaseio.com`) into `FIREBASE_DB_URL` in `config.js`, then commit.
 
 The URL isn't a secret, so it's fine in the repo. No API key is needed.

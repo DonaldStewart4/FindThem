@@ -95,3 +95,21 @@ test('two events sent at the same moment each reach the database exactly once', 
     globalThis.fetch = old;
   }
 });
+
+test('setSearcherPosition overwrites my own entry, rounded to ~1 m; offline is not queued', async () => {
+  sync.setDbUrl('https://db.example');
+  const id = sync.newSearcherId();
+  assert.match(id, /^[0-9a-f]{16}$/);
+  online = false;
+  assert.equal(await sync.setSearcherPosition('ab'.repeat(16), id, { lat: 37.5531234, lng: -121.9701234, name: 'Ana' }), false);
+  online = true;
+  const before = posted.length;
+  assert.equal(await sync.setSearcherPosition('ab'.repeat(16), id, { lat: 37.5531234, lng: -121.9701234, name: 'Ana' }), true);
+  const sent = posted[posted.length - 1];
+  assert.equal(posted.length, before + 1); // only the online call reached the database
+  assert.equal(sent.url, `https://db.example/searches/${'ab'.repeat(16)}/searchers/${id}.json`);
+  assert.equal(sent.body.lat, 37.55312);
+  assert.equal(sent.body.lng, -121.97012);
+  assert.equal(sent.body.name, 'Ana');
+  assert.equal(typeof sent.body.at, 'number');
+});

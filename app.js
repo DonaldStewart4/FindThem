@@ -89,7 +89,16 @@ const state = {
   homeDraft: null,         // { lat, lng } chosen in "Save my home area", not saved yet
   home: null,              // { lat, lng, savedAt } saved home area
   gpsWatch: null,          // id from navigator.geolocation.watchPosition while showing my location
+  myPos: null,             // { lat, lng, accuracy } my latest GPS position
+  searcherId: '',          // random id for this phone's position in a shared search
+  searchers: {},           // { id: { lat, lng, at, name } } everyone's position in the shared search
+  lastPosSent: null,       // { lat, lng, at } the position we last shared
 };
+
+// Sharing my position with the others in a shared search (never used by the engine).
+const POSITION_SEND_MS = 30 * 1000;  // share at most every 30 s while standing still...
+const POSITION_MOVE_M = 25;          // ...or sooner (5 s) once I've moved 25 m
+const SEARCHER_STALE_MIN = 15;       // hide a searcher whose position is older than this
 
 // A random whole number for the engine's random-number generator.
 function newSeed() {
@@ -222,6 +231,7 @@ const layers = {
   spots: L.layerGroup().addTo(map),     // numbered "check these first" markers
   sightings: L.layerGroup().addTo(map), // reported sightings
   pins: L.layerGroup().addTo(map),      // last-seen point, familiar places, sighting draft, home
+  others: L.layerGroup().addTo(map),    // the other searchers' positions (green dots)
   me: L.layerGroup().addTo(map),        // my own GPS position (blue dot)
 };
 
@@ -1295,7 +1305,7 @@ const LocateControl = L.Control.extend({
     button.textContent = '◎';
     button.setAttribute('aria-pressed', 'false');
     L.DomEvent.disableClickPropagation(box); // a tap on the button isn't a tap on the map
-    L.DomEvent.on(button, 'click', toggleMyLocation);
+    L.DomEvent.on(button, 'click', onLocateButton);
     els.locateButton = button;
     return box;
   },
@@ -1327,6 +1337,7 @@ const SearchControl = L.Control.extend({
 
 function openMapSearch() {
   els.searchBox.hidden = false;
+  els.mapWrap.classList.add('searching'); // moves the loading bar out from under the search box
   els.searchResults.innerHTML = '';
   els.searchMsg.hidden = true;
   els.searchInput.focus();
@@ -1334,6 +1345,7 @@ function openMapSearch() {
 }
 function closeMapSearch() {
   els.searchBox.hidden = true;
+  els.mapWrap.classList.remove('searching');
 }
 function searchMessage(text) {
   els.searchMsg.textContent = text;
@@ -1391,34 +1403,89 @@ function chooseSearchResult(result, shortName) {
   }
 }
 
-function toggleMyLocation() {
-  if (state.gpsWatch !== null) {
-    navigator.geolocation.clearWatch(state.gpsWatch);
-    state.gpsWatch = null;
-    layers.me.clearLayers();
-    els.locateButton.setAttribute('aria-pressed', 'false');
+// The location button: shows me where I am, or asks for location again if it was off.
+function onLocateButton() {
+  if (state.myPos) map.flyTo([state.myPos.lat, state.myPos.lng], Math.max(map.getZoom(), 16));
+  else startLocation({ auto: false });
+}
+
+// Starts following my GPS position (the blue dot). Called right when the app opens
+// (auto: true) so that, in a shared search, everyone can see where everyone is.
+function startLocation({ auto }) {
+  if (!navigator.geolocation) {
+    if (!auto) showStatus(t('locationDenied'), { error: true });
     return;
   }
-  if (!navigator.geolocation) { showStatus(t('locationDenied'), { error: true }); return; }
-  showStatus(t('locating'), { sticky: true });
-  els.locateButton.setAttribute('aria-pressed', 'true');
+  if (state.gpsWatch !== null) return; // already following
+  if (!auto) showStatus(t('locating'), { sticky: true });
+  // Fly to my position the first time only if nothing else is on the map yet
+  // (not when opening a shared link, and not after a point was placed).
   let first = true;
   state.gpsWatch = navigator.geolocation.watchPosition(
     (pos) => {
-      const here = [pos.coords.latitude, pos.coords.longitude];
-      layers.me.clearLayers();
-      L.circle(here, { radius: pos.coords.accuracy, color: '#0b57d0', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(layers.me);
-      L.circleMarker(here, { radius: 9, color: '#fff', weight: 3, fillColor: '#0b57d0', fillOpacity: 1 })
-        .bindTooltip(t('youAreHere'))
-        .addTo(layers.me);
-      if (first) { map.flyTo(here, Math.max(map.getZoom(), 16)); hideStatus(); first = false; }
+      state.myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      els.locateButton.setAttribute('aria-pressed', 'true');
+      drawMyPosition();
+      if (first) {
+        first = false;
+        const mapIsEmpty = !state.lastSeen && !state.searchId && !location.hash;
+        if (!auto || mapIsEmpty) map.flyTo([state.myPos.lat, state.myPos.lng], Math.max(map.getZoom(), 16));
+        if (!auto) hideStatus();
+      }
+      shareMyPosition();
     },
     () => {
-      showStatus(t('locationDenied'), { error: true });
-      toggleMyLocation(); // stop watching
+      // Said no, or no GPS fix. When the app asked by itself, stay quiet: the app works
+      // without location; only the location button shows a message.
+      if (!auto) showStatus(t('locationDenied'), { error: true });
+      navigator.geolocation.clearWatch(state.gpsWatch);
+      state.gpsWatch = null;
+      state.myPos = null;
+      layers.me.clearLayers();
+      els.locateButton.setAttribute('aria-pressed', 'false');
     },
     { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
   );
+}
+
+function drawMyPosition() {
+  const here = [state.myPos.lat, state.myPos.lng];
+  layers.me.clearLayers();
+  L.circle(here, { radius: state.myPos.accuracy, color: '#0b57d0', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(layers.me);
+  L.circleMarker(here, { radius: 9, color: '#fff', weight: 3, fillColor: '#0b57d0', fillOpacity: 1 })
+    .bindTooltip(t('youAreHere'))
+    .addTo(layers.me);
+}
+
+// In a shared search, tells the others where I am: every 30 s, or after moving 25 m.
+// force: share now (used when joining or starting a shared search).
+function shareMyPosition(force = false) {
+  if (!state.searchId || !state.myPos || !navigator.onLine) return;
+  const now = Date.now();
+  const last = state.lastPosSent;
+  if (!force && last) {
+    const moved = map.distance([last.lat, last.lng], [state.myPos.lat, state.myPos.lng]);
+    const waited = now - last.at;
+    if (waited < POSITION_SEND_MS && !(moved >= POSITION_MOVE_M && waited >= 5000)) return;
+  }
+  state.lastPosSent = { lat: state.myPos.lat, lng: state.myPos.lng, at: now };
+  sync.setSearcherPosition(state.searchId, state.searcherId, { ...state.myPos, name: state.myName });
+}
+
+// Draws the other searchers as green dots with their name and how long ago they were there.
+function renderSearchers() {
+  layers.others.clearLayers();
+  const now = Date.now();
+  for (const [id, p] of Object.entries(state.searchers || {})) {
+    if (id === state.searcherId || !p || typeof p.lat !== 'number' || typeof p.lng !== 'number') continue;
+    const minutes = Math.floor((now - (p.at || 0)) / 60000);
+    if (minutes >= SEARCHER_STALE_MIN) continue; // too old to be useful
+    const name = p.name || t('searcherNoName');
+    const label = minutes < 1 ? t('searcherNow', { name }) : t('searcherAgo', { name, minutes });
+    L.circleMarker([p.lat, p.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#00897b', fillOpacity: minutes < 5 ? 1 : 0.55 })
+      .bindTooltip(label, { permanent: true, direction: 'right', offset: [8, 0], className: 'searcher-label' })
+      .addTo(layers.others);
+  }
 }
 
 // ---- Save my home area -----------------------------------------------------------------
@@ -1612,7 +1679,9 @@ function startLive(searchId) {
   history.replaceState(null, '', shareLinkPathWithHash());
   state.unsubscribe = sync.subscribe(
     searchId,
-    (caseDoc, events) => {
+    (caseDoc, events, searchers) => {
+      state.searchers = searchers;
+      renderSearchers();
       state.remoteEvents = events;
       const back = new Set(events.map((e) => e.cid));
       state.optimistic = state.optimistic.filter((e) => !back.has(e.cid));
@@ -1622,6 +1691,7 @@ function startLive(searchId) {
     },
     (status) => { state.liveStatus = status; renderLiveStatus(); },
   );
+  shareMyPosition(true); // let the others see me right away
   renderLiveStatus();
 }
 
@@ -1636,6 +1706,9 @@ function leaveSharedSearch() {
   state.remoteEvents = [];
   state.optimistic = [];
   state.liveStatus = null;
+  state.searchers = {};
+  state.lastPosSent = null;
+  layers.others.clearLayers();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   renderLiveStatus();
 }
@@ -1690,6 +1763,7 @@ function renderLiveStatus() {
 function saveName() {
   state.myName = els.myName.value.trim().slice(0, 40);
   remember('name', state.myName);
+  shareMyPosition(true); // so my dot on the others' maps shows the new name
 }
 
 // ---- Messages -------------------------------------------------------------------------------
@@ -1935,6 +2009,12 @@ function start() {
   els.handoffPrint.addEventListener('click', () => window.print());
   els.handoffClose.addEventListener('click', () => els.handoffDialog.close());
   renderLiveStatus();
+
+  // My position: asked for right away, so the others in a shared search can see me.
+  state.searcherId = recall('searcherId') || sync.newSearcherId();
+  remember('searcherId', state.searcherId);
+  startLocation({ auto: true });
+  setInterval(renderSearchers, 60 * 1000); // ages the "x min ago" labels and hides old dots
 
   setMode('lastSeen');
   joinFromLink().then((joined) => { if (joined) setMode(null); });

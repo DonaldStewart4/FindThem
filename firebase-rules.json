@@ -9,6 +9,12 @@
           ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && !data.exists()",
           ".validate": "newData.hasChildren(['lastSeen', 'minutes', 'mobility', 'seed', 'createdAt'])"
         },
+        "searchers": {
+          "$searcherId": {
+            ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && $searcherId.matches(/^[0-9a-f]{16}$/)",
+            ".validate": "newData.hasChildren(['lat', 'lng', 'at']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('at').isNumber() && (!newData.child('name').exists() || (newData.child('name').isString() && newData.child('name').val().length <= 40))"
+          }
+        },
         "events": {
           "$eventId": {
             ".write": "$searchId.matches(/^[0-9a-f]{32}$/) && !data.exists() && newData.exists()",

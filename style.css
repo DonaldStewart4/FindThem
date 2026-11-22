@@ -621,6 +621,19 @@ body.picking #panel { max-height: 38dvh; }
 .swatch.orange { background: rgba(255, 109, 0, 0.7); }
 .swatch.yellow { background: rgba(255, 214, 0, 0.75); }
 .swatch.purple { height: 5px; background: #3f1d8a; }
+.swatch.teal { width: 12px; border-radius: 50%; background: #00897b; }
+
+/* The other searchers' names next to their green dots. */
+.leaflet-tooltip.searcher-label {
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #004d40;
+  border: 1px solid #00897b;
+}
+
+/* While the map search box is open, the loading bar moves to the bottom so it isn't hidden. */
+#map-wrap.searching #progress { top: auto; bottom: 110px; }
 
 /* ---- Direction: the arrow on the map and the pill in the panel ---- */
 .field-label { margin: 14px 0 6px; font-weight: 600; }

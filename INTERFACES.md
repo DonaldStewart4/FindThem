@@ -238,9 +238,10 @@ The screen shows the draft as a filled-in form. Only after the person taps **Con
 searches/<random 128-bit id>/
   case:      CaseInput + { createdAt }
   events/<push id>: Event
+  searchers/<16-hex id>: { lat, lng, at, name }   where each searcher is now
 ```
 
-Every phone downloads `case` + `events` and calls `replay`. Only events are ever added; nothing is edited or deleted.
+Every phone downloads `case` + `events` and calls `replay`. Only events are ever added; nothing is edited or deleted. `searchers` is the one exception: each phone overwrites its own position (every 30 s, or after moving 25 m). It's only drawn as dots on the map; the engine never sees it.
 
 ## Known limits of this contract
 

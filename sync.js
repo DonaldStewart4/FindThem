@@ -3,7 +3,10 @@
 // What gets stored (see INTERFACES.md, section 6):
 //   searches/<search id>/case             the CaseInput + extras (createdAt, area source)
 //   searches/<search id>/events/<push id> one event: 'searched', 'sighting', 'message', ...
-// Events are only ever ADDED, never edited or deleted. Every phone downloads the case and
+//   searches/<search id>/searchers/<id>   where each searcher is now: { lat, lng, at, name }
+// Events are only ever ADDED, never edited or deleted. Searcher positions are the exception:
+// each phone overwrites its own entry as it moves. The engine never uses them; they're only
+// dots on the map so everyone can see where the others are. Every phone downloads the case and
 // all events and runs the engine itself, so everyone sees the same map.
 //
 // We talk to Firebase with plain web requests (its "REST API"), no Firebase library:
@@ -137,6 +140,32 @@ export function pendingCount() {
 }
 
 // The events still waiting for one search (the screen shows them on the map anyway).
+// Saves where this searcher is now (overwrites their previous position). Positions are not
+// queued when there's no signal: an old position is no use later. Returns true if saved.
+export async function setSearcherPosition(searchId, searcherId, pos) {
+  if (!isConfigured()) return false;
+  try {
+    const res = await fetch(url(`searches/${searchId}/searchers/${searcherId}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lat: Math.round(pos.lat * 1e5) / 1e5, // about 1 m: plenty for a dot on the map
+        lng: Math.round(pos.lng * 1e5) / 1e5,
+        at: Date.now(),
+        name: String(pos.name || '').slice(0, 40),
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// A random id for this phone (16 hex characters), so its position entry can be overwritten.
+export function newSearcherId() {
+  return newSearchId().slice(0, 16);
+}
+
 export function queuedEvents(searchId) {
   return readQueue().filter((q) => q.searchId === searchId).map((q) => q.event);
 }
@@ -187,7 +216,8 @@ export async function loadSearch(searchId) {
   return { caseDoc: doc.case || null, events: sortedEvents(doc.events) };
 }
 
-// Listens for every change to a search. Calls onChange(caseDoc, events) each time, and
+// Listens for every change to a search. Calls onChange(caseDoc, events, searchers) each time
+// (searchers: { id: { lat, lng, at, name } }), and
 // onStatus('live' | 'reconnecting' | 'denied'). Returns a function that stops listening.
 export function subscribe(searchId, onChange, onStatus = () => {}) {
   let mirror = {};
@@ -196,7 +226,7 @@ export function subscribe(searchId, onChange, onStatus = () => {}) {
   const handle = (kind) => (message) => {
     const { path, data } = JSON.parse(message.data);
     mirror = applyChange(mirror, kind, path, data);
-    onChange(mirror.case || null, sortedEvents(mirror.events));
+    onChange(mirror.case || null, sortedEvents(mirror.events), mirror.searchers || {});
   };
   const flush = () => { flushQueue(); };
 

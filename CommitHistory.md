@@ -59,6 +59,22 @@ Current decisions. Updated 2026-11-21 after merging the team's planning doc ("Co
 
 ## Log
 
+### Searchers see each other on the map; location asked on start; loading bar clear of search
+- **Date:** 2026-11-21
+- **Stage:** Finishing (quality check)
+- **What changed:**
+  - `app.js`: the app asks for the phone's location as soon as it opens (`startLocation({ auto: true })`) instead of only when the ◎ button is pressed. The first fix flies the map there only if nothing is on the map yet (no last-seen point, no shared link). If the person says no, the app stays quiet; the ◎ button then asks again and shows the "location off" message. The ◎ button now re-centers on me instead of turning location off. In a shared search, `shareMyPosition()` sends my position to Firebase right away on joining/starting, then every 30 s or after moving 25 m (at least 5 s apart); not queued offline. `renderSearchers()` draws the others as green dots with a permanent label "Name (now)" / "Name (8 min ago)", faded after 5 min, hidden after 15 min (`SEARCHER_STALE_MIN`), refreshed every minute. A per-phone random `searcherId` (16 hex) is kept in localStorage. Changing your name re-sends the position. New constants `POSITION_SEND_MS`, `POSITION_MOVE_M`, `SEARCHER_STALE_MIN`.
+  - `sync.js`: `setSearcherPosition()` (PUT to `searches/<id>/searchers/<searcherId>`, lat/lng rounded to 5 decimals ≈ 1 m), `newSearcherId()`; `subscribe()` now also passes `searchers` to `onChange`.
+  - `firebase-rules.json`: new `searchers/$searcherId` rule (id must be 16 hex; lat, lng, at numbers; name ≤ 40 chars).
+  - `style.css`: while the map search box is open (`#map-wrap.searching`), the loading bar moves to the bottom of the map; it used to sit exactly under the search box. Styles for the searcher labels and a teal legend swatch.
+  - `index.html`: legend line "Other searchers (now)"; a note under "Your name" that others see your location while searching together. `i18n.js`: `legendSearchers`, `searcherNoName`, `searcherNow`, `searcherAgo`, `locationSharedNote` in all 5 languages. `sw.js` `v17` → `v18`.
+  - Docs: `INTERFACES.md` §6 (the new `searchers` path; positions are the one thing that's overwritten, and the engine never sees them), `README.md` (feature + rules list), `ShortPlan.md` step 5, `PLAN.md` status. `tests/sync.test.js`: one new test.
+- **Why:** BenStew: "search bar covers the search Prediction progress bar" and "ask for location right away so we know where all searchers are".
+- **Decisions:** Positions are display-only: they don't mark areas as searched (that would be the roadmap's "coverage from GPS trails", not built). The location prompt on open is what BenStew asked for; the app still works fully if it's refused. Positions overwrite one entry per phone rather than adding events, so the database doesn't fill with a trail. Rejected: queuing positions offline (stale positions mislead).
+- **How it was verified:** `node --test`: 65/65. Browser pane with `tools/mock-firebase.py` (`?db=`): with location blocked, no error appeared on open; with a faked GPS position, ◎ showed pressed, Demo + Share wrote `searchers/<id>` = {lat 37.5535, lng -121.9705, name "Ben"}; three fake searchers added with curl showed as "Nathan (now)" and "Searcher (8 min ago)", and the 40-minute-old one was hidden. With the loading bar shown and the search box open, they no longer overlap (box bottom 130 px, bar top 329 px).
+- **Known issues / not done:** **The live database needs the new rules:** until BenStew pastes `firebase-rules.json` into Firebase → Realtime Database → Rules → Publish, position writes are refused (the rest of sharing works as before). On a phone the legend can cover dots until it's folded. Not tested on a real phone (iPhone asks for location on open).
+- **Next:** Publish the rules; test with two real phones.
+
 ### Laptop layout: the page no longer scrolls, only the side panel does
 - **Date:** 2026-11-21
 - **Stage:** Finishing (quality check)
