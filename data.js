@@ -332,15 +332,24 @@ const r5 = (x) => Math.round(x * 1e5) / 1e5;
 // after MAX_CONNECTION_FAILURES failed connections in a row we stop too (e.g. Wi-Fi with no
 // internet, which the phone can't detect). The error then has `offline: true`.
 // `query` replaces the usual streets query (used for the second request, the ground layers).
-export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {}, firstDelayMs = 3000, query = null } = {}) {
+// A time limit too: a busy server sometimes accepts the request and then never answers. Each
+// try is given up after `timeoutMs` and the next server is tried ('busy'); after MAX_TIMEOUTS
+// such tries the download stops with `timeout: true` on the error, so the screen can say
+// "the map servers took too long" and the person can try again.
+export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { attempts = 5, extraHeaders = {}, onProgress = () => {}, firstDelayMs = 3000, query = null, timeoutMs = DOWNLOAD_TIMEOUT_MS } = {}) {
   const body = 'data=' + encodeURIComponent(query || buildQuery(lat, lng, radiusM));
   let lastError;
   let delayMs = firstDelayMs; // doubles after each failed try (tests pass a tiny one)
   let connectionFailures = 0;
+  let timeouts = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (isOffline()) throw offlineError(lastError);
     const url = OVERPASS_URLS[attempt % OVERPASS_URLS.length];
     let reason;
+    // Stops this try (the wait for an answer and the download itself) after timeoutMs.
+    const stopper = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timedOut = false;
+    const timer = stopper ? setTimeout(() => { timedOut = true; stopper.abort(); }, timeoutMs) : null;
     try {
       // 'waiting': the server is collecting the streets (often 5–40 s before any data arrives).
       onProgress({ stage: 'waiting', attempt: attempt + 1, attempts });
@@ -348,16 +357,29 @@ export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { atte
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...extraHeaders },
         body,
+        ...(stopper ? { signal: stopper.signal } : {}),
       });
       if (res.ok) return await readJsonWithProgress(res, onProgress);
       lastError = new Error(`Overpass ${res.status} from ${url}`);
       reason = 'busy';
       connectionFailures = 0;
     } catch (err) {
-      lastError = offlineError(err); // no internet, or the server dropped the connection
-      reason = 'offline';
-      connectionFailures += 1;
+      if (timedOut) {
+        // The server took too long: not a connection problem. Try the next server.
+        lastError = new Error(`Overpass gave no answer within ${Math.round(timeoutMs / 1000)} s (${url})`);
+        lastError.timeout = true;
+        reason = 'busy';
+        connectionFailures = 0;
+        timeouts += 1;
+      } else {
+        lastError = offlineError(err); // no internet, or the server dropped the connection
+        reason = 'offline';
+        connectionFailures += 1;
+      }
+    } finally {
+      clearTimeout(timer);
     }
+    if (timeouts >= MAX_TIMEOUTS) throw lastError;
     if (isOffline() || connectionFailures >= MAX_CONNECTION_FAILURES) throw offlineError(lastError);
     if (attempt < attempts - 1) {
       onProgress({ stage: 'retry', reason, attempt: attempt + 2, attempts, waitMs: delayMs });
@@ -369,6 +391,9 @@ export async function fetchOverpass(lat, lng, radiusM = DEFAULT_RADIUS_M, { atte
 }
 
 const MAX_CONNECTION_FAILURES = 2;
+const DOWNLOAD_TIMEOUT_MS = 75000; // one try at the streets: usually 5–40 s; past 75 s it isn't coming
+const LAYERS_TIMEOUT_MS = 150000;  // the second, bigger request (buildings and land use)
+const MAX_TIMEOUTS = 2;            // give up after this many tries that timed out
 
 // True when the browser knows there's no connection (airplane mode, Wi-Fi off).
 // (It can't tell "connected to Wi-Fi that has no internet"; fetch failing tells us that.)
@@ -563,7 +588,7 @@ export async function findSavedAreaCovering(center) {
 export async function fetchLayers(osm, { attempts = 4, extraHeaders = {}, firstDelayMs = 3000 } = {}) {
   try {
     const json = await fetchOverpass(osm.center.lat, osm.center.lng, osm.radiusM, {
-      attempts, extraHeaders, firstDelayMs,
+      attempts, extraHeaders, firstDelayMs, timeoutMs: LAYERS_TIMEOUT_MS,
       query: buildLayersQuery(osm.center.lat, osm.center.lng, osm.radiusM),
     });
     const layers = parseLayers(json, osm.center);

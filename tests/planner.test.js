@@ -15,7 +15,7 @@ import { replay } from '../engine/grid.js';
 import { C } from '../engine/surface.js';
 import { makeRandom } from '../engine/sim.js';
 import * as planner from '../engine/planner/index.js';
-import { G, V, DEFAULTS, withParams, mobileShare } from '../engine/planner/params.js';
+import { G, V, SPECIAL, DEFAULTS, withParams, mobileShare } from '../engine/planner/params.js';
 import { buildWorld, FOOT, CAR, PRIVATE, RAIL_X, shortestFrom, trackOfEdges, cellAtXY } from '../engine/planner/world.js';
 import { buildSegments } from '../engine/planner/segments.js';
 import { postmanTour, orienteer, localGraph, matchOdd } from '../engine/planner/routes.js';
@@ -676,6 +676,115 @@ test('a lone searcher is never sent to water; the unchecked hazard is reported i
   assert.notEqual(plan.searchers[0].primary.type, 'hazard_check');
   assert.ok(plan.unfilled.some((u) => u.reason === 'needs_partner'));
   assert.ok(plan.measures.expand.reasons.includes('hazard_unchecked'));
+});
+
+// The two of a hazard pair accept on their own phones, one after the other, and every accepted
+// task triggers a re-plan. The pair must survive the moment when only one has accepted.
+test('a hazard pair survives one partner accepting first; a holder with nobody coming is reported, never left silently alone', () => {
+  const ana = { id: 'ana', mode: 'foot', at: NOON, ...CASES[0].lastSeen };
+  const ben = { id: 'ben', mode: 'foot', at: NOON, lat: CASES[0].lastSeen.lat + 0.001, lng: CASES[0].lastSeen.lng };
+  const who = (plan, id) => plan.searchers.find((s) => s.searcherId === id);
+  const first = planReal(0, [ana, ben]);
+  const offered = who(first, 'ana').primary;
+  assert.equal(offered.type, 'hazard_check');
+  assert.equal(offered.partnerId, 'ben');
+  assert.equal(who(first, 'ben').primary.taskId, offered.taskId);
+  const needsPartner = (plan) => plan.unfilled.some((u) => u.taskId === offered.taskId && u.reason === 'needs_partner');
+
+  // Only ana has accepted.
+  const anaEvent = { id: 'e1', ...assignedEvent(offered, 'ana', NOON + 1000) };
+  const second = planReal(0, [ana, ben], [anaEvent], NOON + 2000);
+  const holder = who(second, 'ana');
+  assert.ok(holder.keep && !holder.switchSuggested, 'the holder waits for their partner: no advice to leave');
+  assert.equal(holder.primary.taskId, offered.taskId);
+  assert.equal(holder.primary.partnerId, 'ben', 'the holder still sees who is coming');
+  const mate = who(second, 'ben');
+  assert.equal(mate.options[0], mate.primary, 'the first option is the primary');
+  assert.equal(mate.primary.taskId, offered.taskId, 'the partner is still offered the same hazard task, first');
+  assert.equal(mate.primary.partnerId, 'ana');
+  assert.ok(mate.primary.needsPair && mate.primary.urgent && !mate.keep);
+  assert.ok(mate.primary.danger.warnings.includes('do_not_enter_water'));
+  assert.ok(near(mate.primary.posGain, holder.primary.posGain, 1e-9), 'one look: both are shown the same gain');
+  assert.ok(mate.primary.travelMin >= 0 && mate.primary.searchMin > 0 && mate.primary.route.points.length > 1);
+  assert.ok(!needsPartner(second), 'a partner is on the way: nothing to report');
+  // The same whatever order the searchers arrive in.
+  assert.deepEqual(JSON.parse(JSON.stringify(planReal(0, [ben, ana], [anaEvent], NOON + 2000))), JSON.parse(JSON.stringify(second)));
+  // A third searcher is not given the task that is waiting for ben.
+  const cal = { id: 'cal', mode: 'foot', at: NOON, lat: CASES[0].lastSeen.lat - 0.001, lng: CASES[0].lastSeen.lng + 0.001 };
+  const three = planReal(0, [ana, ben, cal], [anaEvent], NOON + 2000);
+  assert.equal(who(three, 'ben').primary.taskId, offered.taskId);
+  assert.notEqual(who(three, 'cal').primary.taskId, offered.taskId);
+
+  // Ben accepts what he is shown: a normal pair.
+  const benEvent = { id: 'e2', ...assignedEvent(mate.primary, 'ben', NOON + 3000) };
+  assert.equal(benEvent.partnerId, 'ana');
+  const third = planReal(0, [ana, ben], [anaEvent, benEvent], NOON + 4000);
+  for (const [id, other] of [['ana', 'ben'], ['ben', 'ana']]) {
+    assert.ok(who(third, id).keep);
+    assert.equal(who(third, id).primary.taskId, offered.taskId);
+    assert.equal(who(third, id).primary.partnerId, other);
+  }
+  assert.ok(!needsPartner(third));
+
+  // Nobody is coming: the partner left the search, or took a different task instead (or none
+  // was ever named). Unless a new pair is sent, the stretch is listed as needing a partner,
+  // whether the holder stays on it (STAY: never advised to switch) or is advised to leave.
+  const other = mate.options.find((o) => o.type !== 'hazard_check');
+  const benElsewhere = { id: 'e3', ...assignedEvent(other, 'ben', NOON + 3000) };
+  const STAY = { SWITCH_FACTOR: 1e9 };
+  let stayed = 0; let left = 0;
+  for (const params of [undefined, STAY]) {
+    const plans = [
+      planReal(0, [ana], [anaEvent], NOON + 2000, params),
+      planReal(0, [ana, ben], [anaEvent, benElsewhere], NOON + 4000, params),
+      planReal(0, [ana, ben], [{ ...anaEvent, partnerId: undefined }, benElsewhere], NOON + 4000, params),
+    ];
+    for (const plan of plans) {
+      const s = who(plan, 'ana');
+      const holds = s.keep && s.primary.taskId === offered.taskId;
+      if (holds) { stayed += 1; assert.equal(s.primary.partnerId, null); } else { left += 1; assert.notEqual(s.primary.type, 'hazard_check', 'a lone searcher is not given a hazard task'); }
+      assert.ok(needsPartner(plan), 'a hazard task with one holder and nobody coming is reported as needing a partner');
+      assert.equal(plan.unfilled.filter((u) => u.taskId === offered.taskId).length, 1, 'listed once');
+      assert.ok(plan.measures.expand.reasons.includes('hazard_unchecked'));
+      if (who(plan, 'ben')) assert.equal(who(plan, 'ben').primary.taskId, other.taskId);
+    }
+  }
+  assert.ok(stayed >= 3 && left >= 1, `both ways were checked: ${stayed} lone holders stayed, ${left} were advised to leave`);
+});
+
+// The screen draws a held task from the latest plan, so its warnings must not vanish on accepting.
+test('a held task keeps the danger warnings it was offered with (water, rail, night)', (t) => {
+  let held = 0; let hazards = 0; let withCodes = 0; let rail = 0; let water = 0;
+  for (const [k, count, seed, nowMs] of [[0, 10, 1, NOON], [1, 10, 5, NOON], [0, 6, 2, LATE], [1, 8, 9, NOON]]) {
+    const { world } = planner.plannerWorld(area, CASES[k]);
+    const searchers = people(CASES[k], count, seed * 13 + k, 2);
+    const first = planReal(k, searchers, [], nowMs);
+    const second = planReal(k, searchers, acceptAll(first, nowMs), nowMs + 60000);
+    for (const s of second.searchers) {
+      const was = first.searchers.find((o) => o.searcherId === s.searcherId).primary;
+      if (!was || !s.keep) continue;
+      held += 1;
+      const now = s.primary.danger;
+      assert.equal(s.primary.taskId, was.taskId);
+      assert.deepEqual(now.warnings, [...now.warnings].sort(), 'codes are sorted, as for an offered option');
+      assert.ok(now.level >= 0 && now.level <= 3);
+      assert.equal(now.warnings.includes('night'), second.night);
+      if (second.night) assert.ok(now.level >= 1);
+      if (was.type === 'hazard_check') {
+        hazards += 1;
+        assert.equal(now.level, 3);
+        for (const code of ['do_not_enter_water', 'stay_on_path']) assert.ok(now.warnings.includes(code), `held hazard task keeps ${code}`);
+      }
+      // What the searched part of the route itself crosses or runs beside (the walk there is over).
+      const crossesRail = was.route.track.some((c) => world.special[c] === SPECIAL.RAIL);
+      const besideWater = was.route.track.reduce((sum, c) => sum + world.nearWater[c], 0) * world.cellM;
+      if (crossesRail) { rail += 1; assert.ok(now.warnings.includes('rail_crossing') && now.level >= 2, `${was.taskId}: rail crossing kept`); }
+      if (s.mode === 'foot' && besideWater >= DEFAULTS.WATER_NEAR_MIN_M) { water += 1; assert.ok(now.warnings.includes('water_nearby'), `${was.taskId}: water warning kept`); }
+      if (now.warnings.some((code) => code !== 'night')) withCodes += 1;
+    }
+  }
+  t.diagnostic(`${held} held tasks checked: ${hazards} hazard checks, ${water} routes beside water, ${rail} crossing rail; ${withCodes} carry a warning besides 'night'`);
+  assert.ok(held > 20 && hazards >= 2 && water > 0 && withCodes > 0);
 });
 
 test('no pile-up on the real map: nobody knocks on the same doors or stands on the same post; sharing is rare', (t) => {

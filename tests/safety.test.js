@@ -94,6 +94,52 @@ test('readSignals: water, vehicle, emergency, someone else, joke, guess in all 5
   assert.ok(!has('たぶん彼女だと思う', 'guess'), '"maybe it was her" is a hedge, not a guess about where');
 });
 
+test('"someone else SAW him" is a second-hand sighting in 5 languages, not "it was someone else"', () => {
+  const PLACES5 = [...PLACES, { name: 'Fremont Central Park', lat: 37.5488, lng: -121.9655 }];
+  const sighting = { kind: pick('sighting', 0.95), place: pick('none'), direction: pick('unknown'), minutes: pick('unknown'), sure: { type: 'score', score: 0, confidence: 0.9 } };
+  // [report, place, minutes, direction]: the other person is the one who saw.
+  const seen = [
+    ['Someone else saw him by the lake 10 minutes ago', 'Lake Elizabeth', 10, null],
+    ['Somebody else said they saw her on Walnut Avenue heading north', 'Walnut Avenue', null, 'N'],
+    ['Otra persona lo vio en Walnut Avenue hace 10 minutos', 'Walnut Avenue', 10, null],
+    ["Quelqu'un d'autre l'a vu près du lac il y a 10 minutes", 'Lake Elizabeth', 10, null],
+    ["Une autre personne l'a vue sur Walnut Avenue", 'Walnut Avenue', null, null],
+    ['别人看到他在湖边往北走了', 'Lake Elizabeth', null, 'N'],
+    ['另一个人说十分钟前在Walnut Avenue看到他', 'Walnut Avenue', 10, null],
+    ['別の人が10分前に湖のそばで見ました', 'Lake Elizabeth', 10, null],
+    ['別の人がWalnut Avenueで彼を見たと言っています', 'Walnut Avenue', null, null],
+    ['Saw her on Walnut Avenue, not her usual route, heading north', 'Walnut Avenue', null, 'N'],
+  ];
+  for (const [text, place, minutes, direction] of seen) {
+    const d = readLocally(text, { places: PLACES5 });
+    assert.equal(d.kind, 'sighting', text);
+    assert.ok(!(d.flags || []).includes('other_person'), text);
+    assert.deepEqual([d.placeText, d.minutesSince, d.direction], [place, minutes, direction], text);
+    // The same through the Jev safety layer: a (correct) "sighting" answer is no longer overruled.
+    const j = safeJevDraft(sighting, text, PLACES5);
+    assert.equal(j.kind, 'sighting', `Jev path: ${text}`);
+    assert.ok(!(j.flags || []).includes('other_person'), `Jev path: ${text}`);
+  }
+  // Second-hand is "maybe" (all of the above except the last one, which the reporter saw).
+  for (const [text] of seen.slice(0, -1)) assert.equal(readLocally(text, { places: PLACES5 }).reliability, 0.3, text);
+
+  // It really was someone else: still flagged, still not a sighting, on both readers.
+  const other = [
+    'Saw a man on Walnut Avenue but it was someone else', 'I saw a woman by the lake, it was not her', "Saw a lady on Walnut Avenue, wasn't her, too young",
+    'It was someone else who looked like him, I saw him up close', 'Saw a man by the lake but it turned out to be a different person',
+    'Vi a un señor en Walnut Avenue pero era otra persona', 'Lo vi de cerca en el lago y no era él',
+    "J'ai vu un monsieur près du lac mais c'était quelqu'un d'autre", "J'ai vu une dame sur Walnut Avenue, ce n'était pas elle",
+    '我在湖边看到一个老人，但不是他', '在Walnut Avenue看到的是别人', '我看到一个人，认错了，是另一个人',
+    '湖のそばで見かけたけど、別の人でした', 'Walnut Avenueで見たのは別人でした', '見かけたけど人違いでした',
+  ];
+  for (const text of other) {
+    const d = readLocally(text, { places: PLACES5 });
+    assert.ok((d.flags || []).includes('other_person'), text);
+    assert.notEqual(d.kind, 'sighting', text);
+    assert.equal(safeJevDraft(sighting, text, PLACES5).kind, 'message', `Jev path: ${text}`);
+  }
+});
+
 test('readSignals: two places, two directions, two times, "sure" + "not sure" are conflicts; "not sure" alone is not', () => {
   const c = (text) => readSignals(text, PLACES).conflicts;
   assert.deepEqual(c('Saw him by Lake Elizabeth heading north, someone else says Walnut Avenue going south'), ['place', 'direction']);

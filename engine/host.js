@@ -57,7 +57,11 @@ export function createHost() {
       const hazards = hazardSpots(area, prediction, hazardsMax);
       // The planner reads this later. Its two big arrays are copied, because worker.js hands
       // the originals over to the page (after which they are empty on this side).
-      lastPrediction = { ...prediction, grid: { ...prediction.grid, p: prediction.grid.p.slice(), hazard: prediction.grid.hazard.slice() } };
+      // The planner counts finished tasks itself, so it must get the map WITHOUT them (the
+      // screen's map above has them in, as searched ground): otherwise they'd count twice.
+      const done = (events || []).some((e) => e && e.type === 'completed');
+      const forPlanner = done ? replay(area, caseInput, events, { completed: false }) : prediction;
+      lastPrediction = { ...forPlanner, grid: { ...forPlanner.grid, p: forPlanner.grid.p.slice(), hazard: forPlanner.grid.hazard.slice() } };
       const slim = { ...prediction, sim: { ...prediction.sim, endpoints: [] } };
       return { prediction: slim, spots, hazards, ms: Date.now() - t0 };
     },

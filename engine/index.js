@@ -10,6 +10,8 @@
 //   nextSectors(prediction, minutes, n)    → grid.js    where the next searchers should go
 //   topSpots(area, prediction, n)          → grid.js    "Check these first"
 //   hazardSpots(area, prediction, n)       → grid.js    water and channels near the likely area (new)
+//   completedSearches(events)              → grid.js    finished planner tasks as 'searched' events
+//                                            (replay does this itself; exported for the tests)
 //   woodsSpots(area, prediction, n)        → grid.js    woods and brush near the likely area: check
 //                                            from the path (new)
 //   routeFor(area, prediction, sectorId)   → routes.js  a walking route through one area
@@ -21,10 +23,10 @@
 //                                            different engine can warn that maps may differ (new)
 
 export { prepareArea, withLayers } from './graph.js';
-export { replay, cellToLatLng, nextSectors, topSpots, hazardSpots, woodsSpots } from './grid.js';
+export { replay, cellToLatLng, nextSectors, topSpots, hazardSpots, woodsSpots, completedSearches } from './grid.js';
 export { routeFor } from './routes.js';
 export { planSearch, assignedEvent, trackFromLatLngs } from './planner/index.js';
 
 // Bump this whenever the engine gives a different map or plan for the same inputs.
 // Format: date, a dot, a counter (sync.js checks it).
-export const ENGINE_VERSION = '2026-11-22.2';
+export const ENGINE_VERSION = '2026-11-22.3';

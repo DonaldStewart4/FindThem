@@ -81,6 +81,32 @@ Current decisions. Updated 2026-11-21 night (proxy deployed, searcher positions,
 
 ## Log
 
+### Audit fixes, push 1: the five criticals, the map fades when a task is done, 911 by location, download time limit
+- **Date:** 2026-11-22
+- **Stage:** Release fixes (branch `audit`, Nathan with Claude Code; merged into `main`). The findings are in `docs/AUDIT.md`.
+- **What changed:**
+  - **A tap while a share link loads no longer leaves the shared search** (`app.js` `start`). The app's state starts in "tap where they were last seen" mode; with a link in the address that mode is now switched off before the join starts. A second share link opened in the same tab reloads the page (`hashchange`).
+  - **Words from other phones are never treated as HTML** (`app.js` `asText`). Leaflet shows a tooltip string as HTML; every tooltip (searcher names, sighting notes, place names, spot titles) is now given a text element instead.
+  - **Queued updates are retried** (`sync.js`, `app.js`). While anything is waiting, `sync.js` tries again every 15 s; every send gives up after 15 s rather than hanging; the app sends what is waiting when it starts (so an update left from before goes out when the app is reopened from the home screen) and whenever the browser says it is back online. The share link's database read gives up after 8 s.
+  - **A two-person hazard check survives one partner accepting first** (`engine/planner/plan.js`). The partner is offered the same task first, the holder is not told to switch, and a hazard check held by one person with no partner is always listed as "needs two people". A held task keeps its danger warnings (`heldDanger`); the screen also keeps the warnings a task was offered with while it is held, and no longer forgets the held route the moment it is taken (`app.js` `stillHolding`).
+  - **"Someone else saw him" is a sighting in all five languages** (`quickread.js` `OTHER_SEER`, `readOtherPerson`), on the backup reader and on the Jev path. "It was someone else" is still flagged.
+  - **A finished task fades the map on every phone** (`engine/grid.js` `completedSearches`, used inside `replay`; `engine/host.js`; `app.js` `ENGINE_EVENT_TYPES`). The task's planned search time is shared over the 200 m sectors its route passes through, as `searched` events. The planner is given the map without them, because it counts finished tasks itself. `ENGINE_VERSION` is now `2026-11-22.3`. README section 7 and its limits list say what happens.
+  - **The emergency number follows where the phone is** (`i18n.js` `detectRegion`): the time zone first (any US zone gives 911 and miles), the language tag only when the zone doesn't settle it.
+  - **The street download has a time limit** (`data.js` `fetchOverpass`): a try is given up after 75 s (150 s for the buildings request) and the next server is tried; after two such tries the screen says the map servers took too long and to tap the button again (`dataTimeout`, five languages).
+  - `tests/audit-fixes.test.js` (new, 7 tests), new tests in `tests/planner.test.js` and `tests/safety.test.js`; `sw.js` cache `v35`; `docs/AUDIT.md` has a status line.
+- **Why:** Nathan asked for the audit's criticals and four more fixes before filming.
+- **Decisions:**
+  - A finished task is credited with its **planned** search time, not the minutes on the clock, the same way the planner credits it. Sector level (200 m), because that is what the engine's search update works on.
+  - Reopening from the home screen sends the waiting updates but does not rejoin the old search by itself; opening the link does.
+  - The planner fix also stops counting a holder who was told to switch as "covering" a hazard, so an abandoned creek is re-paired or listed.
+- **How it was verified:**
+  - `node --test`: 241 tests, 239 pass, 1 skipped, and 1 timing check ("fast enough for a phone") failed in the full run on a loaded machine (load average 16, other sessions and Chrome running); `tests/engine.test.js` alone passes 41 of 41, with and without these changes.
+  - Headless Chrome, two tabs on one shared search against `tools/mock-firebase.py` (18 of 18 checks): the Demo; 25 map taps while the link loads leave the phone in the shared search; a name and a sighting note holding `<img onerror>` are shown as text; Take keeps the warnings; Done puts `completed` in the database and changes the map picture and "Check these first" on both tabs, identically; a blocked send goes out by itself 14 s after the block is lifted; an update left over is sent 0.5 s after reopening with no link; "Someone else saw him by the lake 10 minutes ago" opens the sighting form with 10 minutes; Found shows on the other tab; a `zh-CN` browser on Pacific time dials 911.
+  - `tools/browser/release-check.mjs` (one tab: routes, take, done, report, found, hand-off sheet) ran clean before the last two screen edits.
+  - Pair fix: in 80 random partial-accept re-plans, broken pairs went from 25 to 0 and lone holders from 5 to 0. Report fix: the report-box test files pass 92 of 92 and every benchmark score is unchanged.
+- **Known issues / not done:** not run on a real phone; the live Firebase rules still need publishing (see `UPDATESBYNATE.md`); a stale partner can still be awaited by the planner (the screen filters searchers not seen for 15 minutes); the rest of `docs/AUDIT.md` is open.
+- **Next:** push 2: the remaining important findings, then the safe minor ones.
+
 ### Release: all four branches merged; planner routes, Found, corrections and report flags on the screen; woods hazard
 - **Date:** 2026-11-22
 - **Stage:** Release (branch `release`, Nathan with Claude Code; merged into `main`)

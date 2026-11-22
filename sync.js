@@ -387,6 +387,24 @@ export async function addEvent(searchId, event) {
 let flushing = null;
 let flushAgain = false;
 
+// A send that gets no answer is given up after this long (weak signal can leave a request
+// hanging for minutes, and everything queued behind it waited too).
+const SEND_TIMEOUT_MS = 15000;
+// While anything is still waiting, try again this often. (Before, a failed send was only
+// retried when the person posted something else or the live stream reconnected.)
+const RETRY_MS = 15000;
+// fetch options that stop the request after `ms` (left out where the browser can't do it).
+function timeLimit(ms) {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? { signal: AbortSignal.timeout(ms) } : {};
+}
+let retryTimer = null;
+function armRetry() {
+  if (retryTimer || !isConfigured() || pendingCount() === 0) return;
+  retryTimer = setTimeout(() => { retryTimer = null; flushQueue(); }, RETRY_MS);
+  if (retryTimer && typeof retryTimer.unref === 'function') retryTimer.unref(); // Node (tests): don't keep the process alive
+}
+
 export function flushQueue() {
   if (!isConfigured()) return Promise.resolve({ queued: pendingCount() > 0, error: 'no-db-url' });
   if (flushing) {
@@ -400,7 +418,7 @@ export function flushQueue() {
       result = await flushOnce();
     } while (flushAgain && result.ok);
     return result;
-  })().finally(() => { flushing = null; });
+  })().finally(() => { flushing = null; armRetry(); });
   return flushing;
 }
 
@@ -420,6 +438,7 @@ async function flushOnce() {
         method: 'PUT', // at our own id: a retry can never make a second copy
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(event),
+        ...timeLimit(SEND_TIMEOUT_MS),
       });
     } catch {
       return { queued: true, error: 'offline' };
@@ -429,7 +448,7 @@ async function flushOnce() {
       // Refused. Maybe an earlier try did arrive and only the answer was lost: then the
       // event is already there (and can't be written twice). Look before giving up.
       try {
-        const there = await fetch(where);
+        const there = await fetch(where, timeLimit(SEND_TIMEOUT_MS));
         ok = there.ok && canonical(await there.json()) === canonical(event);
       } catch {
         return { queued: true, error: 'offline' };
@@ -627,7 +646,8 @@ export function readMirror(mirror) {
 // Returns { caseDoc, events, info } (see readMirror). caseDoc is null if missing or broken.
 export async function loadSearch(searchId) {
   if (!SEARCH_ID_RE.test(String(searchId))) throw new Error('Could not load search (bad id)');
-  const res = await fetch(url(`searches/${searchId}`));
+  // A time limit: on weak signal this could hang, and the share link then showed nothing.
+  const res = await fetch(url(`searches/${searchId}`), timeLimit(8000));
   if (!res.ok) throw new Error(`Could not load search (${res.status})`);
   let doc;
   try { doc = await res.json(); } catch { doc = null; }

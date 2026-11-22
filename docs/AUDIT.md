@@ -14,6 +14,10 @@ A bug hunt over the code being released: branches `prior-v2`, `planner`, `integr
 
 The repro scripts are not in the repo (the audit was allowed to add only this file).
 
+## Status: fixed in the first round (same day)
+
+Fixed on `main` right after this audit, with a test or a browser check for each (see `CommitHistory.md`, "Audit fixes, push 1"): the five criticals (1–5), 12 (emergency number), 13 (a finished task fades the map), 17 (a held task keeps its warnings), 21 (time limit on the street download) and 36 (a second share link in the same tab). Part of 15 (the share link's database read now gives up after 8 s) and of 23 (the queue is retried every 15 s). Everything else below is still open.
+
 ## Fix these first
 
 | # | What goes wrong | Where |

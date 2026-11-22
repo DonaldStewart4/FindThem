@@ -76,6 +76,7 @@ const STRINGS = {
     areaHazard: 'Water or a drainage channel in this area: look from the bank, don\'t go in.',
     spotHazardNear: 'Water or a drainage channel {dist} away: look from the bank, don\'t go in.',
     dataError: 'Couldn\'t load map data: the map servers didn\'t answer. Try again in a minute.',
+    dataTimeout: 'The map servers took too long to answer. Tap the button again to retry. (The Demo and areas you saved still work.)',
     dataOffline: 'No internet, and no streets saved near here. Connect once, or save your home area ahead of time. You can still call 911 and check the house.',
     progressNoConnection: 'Can\'t reach the map server. Check your internet. Trying again in {s} s ({n} of {of})',
     shareOffline: 'No internet, so live sharing can\'t start yet. The link still shows the same map; share again when you have signal to go live.',
@@ -371,6 +372,7 @@ const STRINGS = {
     areaHazard: 'Hay agua o un canal de drenaje en esta zona: mire desde la orilla, no entre.',
     spotHazardNear: 'Agua o un canal de drenaje a {dist}: mire desde la orilla, no entre.',
     dataError: 'No se pudieron cargar los mapas: los servidores no respondieron. Inténtelo en un minuto.',
+    dataTimeout: 'Los servidores de mapas tardaron demasiado en responder. Toque el botón otra vez para reintentar. (La demostración y las zonas guardadas siguen funcionando.)',
     dataOffline: 'Sin internet y sin calles guardadas cerca. Conéctese una vez o guarde su zona de casa con antelación. Aun así puede llamar al 911 y revisar la casa.',
     progressNoConnection: 'No se puede conectar con el servidor de mapas. Revise su internet. Reintentando en {s} s ({n} de {of})',
     shareOffline: 'Sin internet aún no se puede compartir en vivo. El enlace muestra el mismo mapa; vuelva a compartir cuando tenga señal.',
@@ -666,6 +668,7 @@ const STRINGS = {
     areaHazard: 'Eau ou canal de drainage dans cette zone : regardez depuis la berge, n\'y entrez pas.',
     spotHazardNear: 'Eau ou canal de drainage à {dist} : regardez depuis la berge, n\'y entrez pas.',
     dataError: 'Impossible de charger la carte : les serveurs n\'ont pas répondu. Réessayez dans une minute.',
+    dataTimeout: 'Les serveurs de cartes ont mis trop de temps à répondre. Touchez de nouveau le bouton pour réessayer. (La démo et les zones enregistrées fonctionnent toujours.)',
     dataOffline: 'Pas d\'internet et aucune rue enregistrée près d\'ici. Connectez-vous une fois, ou enregistrez votre quartier à l\'avance. Vous pouvez quand même appeler le 911 et fouiller la maison.',
     progressNoConnection: 'Impossible de joindre le serveur de cartes. Vérifiez votre internet. Nouvel essai dans {s} s ({n} sur {of})',
     shareOffline: 'Pas d\'internet : le partage en direct ne peut pas encore démarrer. Le lien montre la même carte ; partagez à nouveau avec du réseau.',
@@ -961,6 +964,7 @@ const STRINGS = {
     areaHazard: '此区域有水域或排水渠：请在岸边查看，不要下水。',
     spotHazardNear: '{dist}外有水域或排水渠：请在岸边查看，不要下水。',
     dataError: '无法加载地图数据：地图服务器没有响应。请一分钟后再试。',
+    dataTimeout: '地图服务器响应太慢。请再点一次按钮重试。（演示和已保存的区域仍可使用。）',
     dataOffline: '没有网络，附近也没有已保存的街道。请先联网一次，或提前保存家附近的地图。您仍然可以拨打 911 并检查房子。',
     progressNoConnection: '无法连接地图服务器，请检查网络。{s} 秒后重试（第 {n}/{of} 次）',
     shareOffline: '没有网络，暂时无法实时共享。链接仍显示同样的地图；有信号时再分享一次即可实时同步。',
@@ -1256,6 +1260,7 @@ const STRINGS = {
     areaHazard: 'この区域には水辺や排水路があります。岸から確認し、中には入らないでください。',
     spotHazardNear: '{dist}先に水辺や排水路があります。岸から確認し、中には入らないでください。',
     dataError: '地図データを読み込めません。地図サーバーが応答しませんでした。1分後にもう一度試してください。',
+    dataTimeout: '地図サーバーの応答に時間がかかりすぎました。もう一度ボタンを押して再試行してください。（デモと保存済みのエリアは使えます。）',
     dataOffline: 'インターネットがなく、この近くの道路も保存されていません。一度接続するか、前もって自宅周辺を保存してください。911への通報と家の中の確認はできます。',
     progressNoConnection: '地図サーバーにつながりません。インターネットを確認してください。{s}秒後に再試行（{n}/{of}）',
     shareOffline: 'インターネットがないため、まだリアルタイム共有できません。リンクは同じ地図を表示します。電波があるときにもう一度共有してください。',
@@ -1553,8 +1558,30 @@ export function applyTranslations(root = document) {
 // ---- Region: emergency number and units ------------------------------------------
 
 // The phone's region, e.g. "US", from settings like "en-US". Null if the phone doesn't say.
-export function detectRegion() {
-  const tags = [...(navigator.languages || []), navigator.language, Intl.DateTimeFormat().resolvedOptions().locale];
+// Where the phone IS comes first: its time zone. The language tag only says how the phone is
+// set up: a phone in Fremont set to Chinese says "zh-CN", and showed China's 110 on the banner.
+// So a phone on US time is in the US whatever its language; a few other zones that belong to
+// one country are listed too. Only when the time zone doesn't settle it is the language tag used.
+// `env` is for the tests: { timeZone, languages }.
+const US_TIME_ZONES = /^(America\/(New_York|Detroit|Chicago|Denver|Boise|Phoenix|Los_Angeles|Anchorage|Juneau|Sitka|Metlakatla|Yakutat|Nome|Adak|Menominee|Indiana\/.+|Kentucky\/.+|North_Dakota\/.+)|Pacific\/Honolulu|US\/.+)$/;
+const TIME_ZONE_REGIONS = {
+  'America/Toronto': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA', 'America/Winnipeg': 'CA', 'America/Halifax': 'CA',
+  'America/Mexico_City': 'MX', 'America/Puerto_Rico': 'PR',
+  'Europe/London': 'GB', 'Europe/Paris': 'FR', 'Europe/Madrid': 'ES', 'Europe/Berlin': 'DE', 'Europe/Rome': 'IT',
+  'Asia/Tokyo': 'JP', 'Asia/Shanghai': 'CN', 'Asia/Taipei': 'TW', 'Asia/Hong_Kong': 'HK', 'Asia/Seoul': 'KR',
+  'Asia/Singapore': 'SG', 'Asia/Kolkata': 'IN', 'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU',
+  'Australia/Brisbane': 'AU', 'Australia/Perth': 'AU', 'Australia/Adelaide': 'AU', 'Pacific/Auckland': 'NZ',
+  'America/Sao_Paulo': 'BR', 'Africa/Johannesburg': 'ZA',
+};
+export function detectRegion(env = {}) {
+  let timeZone = env.timeZone;
+  if (timeZone === undefined) {
+    try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { timeZone = ''; }
+  }
+  if (timeZone && US_TIME_ZONES.test(timeZone)) return 'US';
+  if (timeZone && TIME_ZONE_REGIONS[timeZone]) return TIME_ZONE_REGIONS[timeZone];
+  const nav = typeof navigator !== 'undefined' ? navigator : {};
+  const tags = env.languages || [...(nav.languages || []), nav.language, Intl.DateTimeFormat().resolvedOptions().locale];
   for (const tag of tags) {
     const match = /[-_]([A-Za-z]{2})\b/.exec(tag || '');
     if (match) return match[1].toUpperCase();

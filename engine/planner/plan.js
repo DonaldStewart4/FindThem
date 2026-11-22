@@ -25,7 +25,7 @@
 //
 // Probability and danger are separate numbers and are never combined into one score.
 
-import { withParams, V, HW, G, mobileShare } from './params.js';
+import { withParams, V, HW, G, SPECIAL, mobileShare } from './params.js';
 import {
   FOOT, CAR, RAIL_X, nearestNode, shortestCached, pathTo, trackOfEdges, footprint,
   toLatLng, toXY,
@@ -492,12 +492,31 @@ export function planSearch(world, segs, input, overrides) {
   };
 
   if (tick) tick('scores');
+  // A hazard check is a job for two, and the two accept on their own phones, one after the
+  // other. While only one has accepted, their `assigned` event names the partner:
+  //   awaited     the partner is here, on foot, holds nothing yet and can reach the task: the
+  //               holder waits (no "switch" advice) and the partner's first option is this task
+  //   loneHazards nobody is coming (no partner named, or the partner left, took another task,
+  //               or cannot get there): reported in `unfilled` as 'needs_partner'
+  const awaited = new Map(); // claim → { mate, o }: the partner still to accept, and their route
+  const loneHazards = [];
+  {
+    const spoken = new Set(); // a searcher can be awaited by one holder only
+    for (const claim of claims) {
+      if (claim.type !== 'hazard_check' || claim.team.length > 1) continue;
+      const holder = claim.team[0];
+      const id = claim.ev.partnerId !== undefined && claim.ev.partnerId !== null ? String(claim.ev.partnerId) : null;
+      const mate = id !== null && id !== holder && byId.has(holder) && !claimOf.has(id) && !spoken.has(id) ? byId.get(id) : null;
+      const o = mate && !mate.car && claim.task ? tourOption(mate, claim.task) : null;
+      if (o) { awaited.set(claim, { mate, o }); spoken.add(id); } else loneHazards.push(claim);
+    }
+  }
   // ---- 5a. Searchers who hold a task: keep it unless something is clearly better ---------------------
   for (const s of searchers) {
     const claim = claimOf.get(s.id);
     if (!claim) continue;
     s.claim = claim;
-    if (claim.team.length > 1) { s.cands = []; continue; } // a pair stays together until done
+    if (claim.team.length > 1 || awaited.has(claim)) { s.cands = []; continue; } // a pair stays together until done
     unapply(res, claim.cov, claim.weight);
     s.cands = candidatesFor(s);
     const searchMin = Math.max(1, Number(claim.ev.searchMin) || (claim.task ? claim.task.baseMin : 30));
@@ -543,7 +562,11 @@ export function planSearch(world, segs, input, overrides) {
     const mateTravel = toStart < Infinity ? (toStart + mate.s.offsetM) / mate.s.travelSpeed / 60 : mate.travelMin;
     return [lead, { ...lead, s: mate.s, travelMin: mateTravel, totalMin: mateTravel + lead.searchMin }];
   };
-  const heldHazards = claims.filter((c) => c.type === 'hazard_check').length;
+  // The partner a hazard holder is waiting for: this task first, with the holder. The look is
+  // already on the map as the holder's work in progress, so nothing more is taken off it.
+  for (const [claim, { mate, o }] of awaited) give(mate, o, { forced: true, partner: claim.team[0], join: claim });
+  // (A holder who was just advised to leave their hazard task no longer counts as on it.)
+  const heldHazards = claims.filter((c) => c.type === 'hazard_check' && !c.team.some((id) => byId.get(id) && byId.get(id).switching)).length;
   let forced = 0;
   const hazardOrder = segs.hazards.map((task, k) => ({ task, score: hazardScore[k] }))
     .filter((h) => h.score >= P.HAZARD_MIN_CHANCE && !heldTasks.has(h.task.id) && !recentlyChecked.has(h.task.id))
@@ -598,6 +621,14 @@ export function planSearch(world, segs, input, overrides) {
     give(pick.pair[0].s, pick.pair[0], { partner: pick.pair[1].s.id });
     give(pick.pair[1].s, pick.pair[1], { partner: pick.pair[0].s.id });
     apply(res, pick.pair[0].cov, 1);
+  }
+
+  // A hazard task held by one person with nobody coming is NOT safely covered: say so, unless
+  // a pair was just sent to it above (or it is already on the list).
+  for (const claim of loneHazards) {
+    if (taken.has(claim.taskId) || unfilled.some((u) => u.taskId === claim.taskId)) continue;
+    const k = claim.task ? segs.hazards.indexOf(claim.task) : -1;
+    unfilled.push({ taskId: claim.taskId, type: 'hazard_check', reason: 'needs_partner', hazardScore: k >= 0 ? hazardScore[k] : 0 });
   }
 
   // ---- 5c. Everyone else: greedy by gain per minute, then improve the team score ------------------------
@@ -765,17 +796,42 @@ export function planSearch(world, segs, input, overrides) {
   const credited = new Map(); // coverage → gain
   searchers.filter((s) => s.assigned).sort((a, b) => (a.assigned.o.totalMin - b.assigned.o.totalMin) || compareIds(a.id, b.id)).forEach((s) => {
     const cov = s.assigned.o.cov;
+    if (s.assigned.join) return; // joining a holder: that look is already counted as work in progress
     if (credited.has(cov) && s.assigned.partner) return; // the partner of a pair: the same look
     credited.set(cov, (credited.get(cov) || 0) + gainOn(credit, cov));
     s.assigned.gain = gainOn(credit, cov);
     apply(credit, cov, 1);
   });
-  for (const s of searchers) if (s.assigned && s.assigned.gain === undefined) s.assigned.gain = byId.get(s.assigned.partner).assigned.gain;
+  for (const s of searchers) if (s.assigned && !s.assigned.join && s.assigned.gain === undefined) s.assigned.gain = byId.get(s.assigned.partner).assigned.gain;
+
+  // Danger of a task someone already holds: the same codes it was offered with. Blocks and
+  // hazard stretches are read from their tour's streets; other tasks (a hasty or drive route)
+  // from the squares of the route the `assigned` event carries. The walk there is behind them.
+  const heldDanger = (claim, s) => {
+    const task = claim.task;
+    const tour = task && (claim.type === 'yards' || claim.type === 'hazard_check') ? postmanTour(world, task) : null;
+    const base = dangerOf({ s, task: task || { type: claim.type, cells: [], cell: -1 } }, tour ? tour.edges : [], tour ? tour.nodes : []);
+    const track = claim.ev.track;
+    if (tour || !Array.isArray(track)) return base;
+    const warnings = new Set(base.warnings);
+    let level = base.level;
+    let rail = false; let besideWater = 0;
+    for (const c of track) {
+      if (!(c >= 0 && c < world.special.length)) continue;
+      if (world.special[c] === SPECIAL.RAIL) rail = true;
+      besideWater += world.nearWater[c];
+    }
+    if (rail) { warnings.add('rail_crossing'); level = Math.max(level, 2); }
+    if (!s.car && besideWater * world.cellM >= P.WATER_NEAR_MIN_M) { warnings.add('water_nearby'); level = Math.max(level, 1); }
+    return { level, warnings: [...warnings].sort() };
+  };
 
   let bestRate = 0;
   const out = searchers.map((s) => {
     const kept = s.claim && !s.switching ? s.claim : null;
-    const mine = kept ? { cov: kept.cov, w: kept.weight } : s.assigned ? { cov: s.assigned.o.cov, w: 1 } : null;
+    const join = !kept && s.assigned ? s.assigned.join || null : null; // the holder's claim this searcher is asked to join
+    const mine = kept ? { cov: kept.cov, w: kept.weight } : join ? { cov: join.cov, w: join.weight }
+      : s.assigned ? { cov: s.assigned.o.cov, w: 1 } : null;
     // A pair's look is shared, so it is only lifted off the map once, for both.
     if (mine) unapply(res, mine.cov, mine.w);
     let primary = null;
@@ -786,16 +842,18 @@ export function planSearch(world, segs, input, overrides) {
         taskId: kept.taskId, type: kept.type, kind: kept.task ? kept.task.kind || null : null,
         posGain: gain, posGainAlone: gainOn(post, kept.cov), travelMin: 0, searchMin,
         ratePerMin: gain / searchMin / kept.team.length,
-        danger: { level: kept.type === 'hazard_check' ? 3 : night ? 1 : 0, warnings: night ? ['night'] : [] },
+        danger: heldDanger(kept, s),
         reasons: [{ code: 'kept' }],
         route: { pattern: 'held', points: [], searchFrom: 0, lengthM: 0, track: kept.ev.track || [], area: null, lineSpacingM: null },
         permission: kept.knocks ? 'ask' : 'none', canvass: Boolean(kept.knocks),
-        needsPair: kept.type === 'hazard_check', partnerId: kept.team.find((id) => id !== s.id) || null,
+        needsPair: kept.type === 'hazard_check',
+        partnerId: kept.team.find((id) => id !== s.id) || (awaited.has(kept) ? awaited.get(kept).mate.id : null),
         urgent: false, keep: true,
         expiresInMin: Math.max(0, Math.ceil((Number(kept.ev.expiresAt) - nowMs) / 60000)),
       };
     } else if (s.assigned) {
-      primary = describe(s.assigned.o, s, { forced: s.assigned.forced, partner: s.assigned.partner, gain: s.assigned.gain });
+      // Joining a holder: the same look, so the same gain the holder is shown.
+      primary = describe(s.assigned.o, s, { forced: s.assigned.forced, partner: s.assigned.partner, gain: join ? gainOn(res, join.cov) : s.assigned.gain });
     }
     const others = s.cands
       .filter((o) => (!primary || o.task.id !== primary.taskId) && !postTaken(o, s))

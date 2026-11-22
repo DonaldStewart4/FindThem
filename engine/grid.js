@@ -99,6 +99,55 @@ export function podForMinutes(minutes) {
   return 1 - Math.exp(-coverage);
 }
 
+// Turns finished planner tasks into 'searched' events the map understands.
+// The screen sends { type: 'assigned', searcherId, taskId, track, searchMin } when a task is
+// taken and { type: 'completed', searcherId, taskId, minutes } when it is done with nobody
+// found. `track` is the task's route as 10 m squares of the ground map. The planned search
+// time (searchMin; if missing, the minutes spent) is shared out over the 200 m sectors the
+// route passes through, by how many of its squares fall in each, and each share becomes one
+// 'searched' event at the moment the task was finished.
+//   - A sector that gets less than COMPLETED_MIN_MINUTES is left out (the route only clipped it).
+//   - A "stand and watch" task has no route: it searches no ground and adds nothing.
+//   - A second "Done" for the same take adds nothing.
+// Pure: the same events give the same list on every phone, whatever order they arrive in.
+const COMPLETED_MIN_MINUTES = 1; // ASSUMPTION: under a minute in a 200 m sector is not a search of it
+export function completedSearches(events) {
+  const list = (events || [])
+    .filter((e) => e && (e.type === 'assigned' || e.type === 'completed'))
+    .sort((a, b) => (Number(a.at) - Number(b.at)) || compareIds(a.id, b.id));
+  const perSide = SECTOR_SIZE_M / SURFACE_CELL_M; // 20 ground squares across one sector
+  const taken = new Map(); // "searcher|task" → the 'assigned' event still open
+  const out = [];
+  for (const ev of list) {
+    const key = `${ev.searcherId}|${ev.taskId}`;
+    if (ev.type === 'assigned') { taken.set(key, ev); continue; }
+    const assigned = taken.get(key);
+    taken.delete(key);
+    const track = Array.isArray(ev.track) && ev.track.length ? ev.track
+      : assigned && Array.isArray(assigned.track) ? assigned.track : null;
+    if (!track || track.length < 2) continue;
+    const minutes = assigned && Number(assigned.searchMin) > 0 ? Number(assigned.searchMin) : Number(ev.minutes);
+    if (!(minutes > 0)) continue;
+    const squares = new Map(); // sector id → how many of the route's squares are in it
+    let total = 0;
+    for (const cell of track) {
+      if (!Number.isInteger(cell) || cell < 0 || cell >= SURFACE_N * SURFACE_N) continue;
+      const sr = Math.floor(Math.floor(cell / SURFACE_N) / perSide);
+      const sc = Math.floor((cell % SURFACE_N) / perSide);
+      const id = `r${sr}c${sc}`;
+      squares.set(id, (squares.get(id) || 0) + 1);
+      total += 1;
+    }
+    if (!total) continue;
+    for (const sectorId of [...squares.keys()].sort(compareIds)) {
+      const share = (minutes * squares.get(sectorId)) / total;
+      if (share < COMPLETED_MIN_MINUTES) continue;
+      out.push({ type: 'searched', sectorId, minutes: share, at: ev.at, id: `${ev.id || ev.cid || ''}~${sectorId}` });
+    }
+  }
+  return out;
+}
+
 function parseSector(sectorId) {
   const m = /^r(\d+)c(\d+)$/.exec(String(sectorId));
   if (!m) return null;
@@ -377,7 +426,11 @@ export function replay(area, caseInput, events, options = {}) {
   const searchedMinutes = {};
   const pastSearches = []; // { sector, minute, keep }
 
-  const ordered = [...(events || [])]
+  // A finished planner task ('completed') counts as a search of the ground along its route, so
+  // the map fades there on every phone (completedSearches below). options.completed === false
+  // leaves that out: the planner is given such a map, because it counts finished tasks itself.
+  const derived = options.completed === false ? [] : completedSearches(events);
+  const ordered = [...(events || []), ...derived]
     .filter((e) => e && (e.type === 'searched' || e.type === 'sighting'))
     .sort((a, b) => (Number(a.at) - Number(b.at)) || compareIds(a.id, b.id));
 

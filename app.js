@@ -61,7 +61,9 @@ const PLAN_MIN_GAP_MS = 5000;         // re-plan at most this often when only po
 const MAP_REACH_M = 3000;             // my GPS position counts for routes only this close to the last-seen point
 const FOUND_REACH_M = 20000;          // ...and for "found here" only this close; otherwise tap the map
 const TRACK_MAX = 2000;               // most squares an event's track may hold (sync.js LIMITS.TRACK_MAX)
-const ENGINE_EVENT_TYPES = ['searched', 'sighting']; // the events that change the engine's map
+// The events that change the engine's map. 'completed' (a finished task) is one: the engine
+// counts the ground along the task's route as searched, so the map fades there on every phone.
+const ENGINE_EVENT_TYPES = ['searched', 'sighting', 'completed'];
 
 // ---- What the user has entered ---------------------------------------------------
 
@@ -276,6 +278,15 @@ const layers = {
 };
 
 // A small square or round marker with text in it.
+// Text for a map tooltip. Leaflet treats a tooltip STRING as HTML, and many of ours hold words
+// typed on other phones (a searcher's name, a sighting note, a place name). Handing it an
+// element whose textContent is the words means they are always shown as plain text.
+function asText(text) {
+  const el = document.createElement('span');
+  el.textContent = String(text == null ? '' : text);
+  return el;
+}
+
 function labelIcon(text, className) {
   return L.divIcon({
     className: '',
@@ -290,12 +301,12 @@ function drawPins() {
   layers.pins.clearLayers();
   if (state.lastSeen) {
     L.circleMarker(state.lastSeen, { radius: 11, color: '#fff', weight: 3, fillColor: '#b00020', fillOpacity: 1 })
-      .bindTooltip(t('lastSeenMarker'))
+      .bindTooltip(asText(t('lastSeenMarker')))
       .addTo(layers.pins);
   }
   state.familiarPlaces.forEach((place, i) => {
     L.marker(place, { icon: labelIcon('★' + (i + 1), 'map-num familiar'), keyboard: false })
-      .bindTooltip(place.label || t('familiarDefault', { n: i + 1 }))
+      .bindTooltip(asText(place.label || t('familiarDefault', { n: i + 1 })))
       .addTo(layers.pins);
   });
   if (state.sightingDraft) {
@@ -303,12 +314,12 @@ function drawPins() {
   }
   if (state.searchPin) {
     L.marker(state.searchPin, { icon: labelIcon('⌕', 'map-found'), keyboard: false })
-      .bindTooltip(state.searchPin.label, { permanent: true, direction: 'top', offset: [0, -14] })
+      .bindTooltip(asText(state.searchPin.label), { permanent: true, direction: 'top', offset: [0, -14] })
       .addTo(layers.pins);
   }
   const home = state.homeDraft || state.home;
   if (home) {
-    L.marker(home, { icon: labelIcon('⌂', 'map-home'), keyboard: false }).bindTooltip(t('homeMarker')).addTo(layers.pins);
+    L.marker(home, { icon: labelIcon('⌂', 'map-home'), keyboard: false }).bindTooltip(asText(t('homeMarker'))).addTo(layers.pins);
   }
   renderDirection();
 }
@@ -778,7 +789,7 @@ async function runPrediction({ useDemoData = false, keepClock = false } = {}) {
         console.error(err);
         hideProgress();
         // No internet and nothing saved nearby, or the map servers failed every try.
-        showStatus(err.offline ? t('dataOffline') : t('dataError'), { error: true });
+        showStatus(err.offline ? t('dataOffline') : err.timeout ? t('dataTimeout') : t('dataError'), { error: true, sticky: true });
         return;
       }
       clearInterval(progressTimer);
@@ -1128,7 +1139,7 @@ function drawSightings() {
   for (const ev of currentEvents()) {
     if (ev.type !== 'sighting') continue;
     const text = ev.note ? `${t('sightingMarker')}: ${ev.note}` : t('sightingMarker');
-    L.marker([ev.lat, ev.lng], { icon: labelIcon('!', 'map-sighting') }).bindTooltip(text).addTo(layers.sightings);
+    L.marker([ev.lat, ev.lng], { icon: labelIcon('!', 'map-sighting') }).bindTooltip(asText(text)).addTo(layers.sightings);
   }
 }
 
@@ -1196,7 +1207,7 @@ function renderSpots() {
     els.spots.append(li);
 
     L.marker([spot.lat, spot.lng], { icon: labelIcon(i + 1, 'map-num') })
-      .bindTooltip(spotTitle(spot))
+      .bindTooltip(asText(spotTitle(spot)))
       .addTo(layers.spots);
   });
 
@@ -1267,7 +1278,9 @@ async function requestPlan() {
   // (If the worker only said "not ready", skip: a new plan is asked for after the next map.)
   if (!plan && workerBroken && serial === planSerial && state.prediction) {
     try {
-      plan = engine.planSearch(cache.area, caseInput, state.prediction, { searchers, events, nowMs });
+      // The planner counts finished tasks itself: give it the map without them (see engine/host.js).
+      const map0 = events.some((e) => e.type === 'completed') ? engine.replay(cache.area, caseInput, events, { completed: false }) : state.prediction;
+      plan = engine.planSearch(cache.area, caseInput, map0, { searchers, events, nowMs });
     } catch (err) {
       console.warn('Planner failed:', err);
     }
@@ -1301,6 +1314,14 @@ function taskTypeFromId(taskId) {
   if (id.startsWith('drive')) return { type: 'drive', kind: id.split(':')[1] || null };
   const types = { c: 'containment', y: 'yards', p: 'park', h: 'hazard_check' };
   return { type: types[id[0]] || id, kind: null };
+}
+
+// True while my latest event about a task is "taken" (not yet done or given up).
+function stillHolding(taskId) {
+  const last = currentEvents()
+    .filter((e) => e.searcherId === state.searcherId && e.taskId === taskId && ['assigned', 'completed', 'released'].includes(e.type))
+    .sort((x, y) => y.at - x.at)[0];
+  return Boolean(last && last.type === 'assigned');
 }
 
 // My own 'assigned' event for a task (to know when I took it).
@@ -1368,7 +1389,9 @@ function renderTasks() {
   if (!options.length) note(t(i18n.hasKey('hold_' + mine.hold) ? 'hold_' + mine.hold : 'hold_nothing_useful'));
   // The route I took stays on the map while I hold it (the plan no longer repeats its points).
   const holding = options.find((o) => o.keep);
-  if (!holding) state.heldRoute = null;
+  // Forget the route I took only once I no longer hold it. (Right after "Take this task" the
+  // plan on screen is still the old one, with nothing marked as held: that must not wipe it.)
+  if (!holding && state.heldRoute && !stillHolding(state.heldRoute.taskId)) state.heldRoute = null;
   if (holding) state.selectedTask = holding.taskId;
   else if (!options.some((o) => o.taskId === state.selectedTask)) state.selectedTask = options.length ? options[0].taskId : null;
 
@@ -1407,7 +1430,11 @@ function renderTasks() {
     time.textContent = t('taskTime', { walk: Math.round(option.travelMin), search: Math.round(option.searchMin) });
     text.append(chance, time);
     // Warnings: one line per code, most serious tasks first in the engine's own order.
-    for (const code of (option.danger && option.danger.warnings) || []) {
+    // A task I hold shows the planner's warnings for it AND the ones it was offered with (the
+    // walk there is behind me by then, but "don't go in the water" must never drop off the card).
+    const offered = held && state.heldRoute && state.heldRoute.taskId === option.taskId ? state.heldRoute.warnings || [] : [];
+    const warningCodes = [...new Set([...((option.danger && option.danger.warnings) || []), ...offered])];
+    for (const code of warningCodes) {
       if (!i18n.hasKey('warn_' + code)) continue;
       const warn = document.createElement('span');
       warn.className = 'task-warn';
@@ -1487,7 +1514,8 @@ function takeTask(option) {
   if (ev.track && ev.track.length > TRACK_MAX) ev.track = ev.track.slice(0, TRACK_MAX);
   if (!ev.track || !ev.track.length) delete ev.track; // "stand here" tasks have no trail
   ev.searchMin = Math.min(600, Math.max(0, ev.searchMin));
-  state.heldRoute = { taskId: option.taskId, route: option.route };
+  // The warnings it was offered with are kept too, so they stay on the card while I hold it.
+  state.heldRoute = { taskId: option.taskId, route: option.route, warnings: ((option.danger && option.danger.warnings) || []).slice() };
   state.selectedTask = option.taskId;
   if (recordEvent(ev)) showStatus(t('taskTaken'));
 }
@@ -1548,7 +1576,7 @@ function renderFound() {
   by.textContent = t('foundBy', { name: who, time: i18n.formatTime(found.at) });
   els.foundBanner.replaceChildren(line, by);
   L.marker([found.lat, found.lng], { icon: labelIcon('✓', 'map-found-person'), keyboard: false, zIndexOffset: 1000 })
-    .bindTooltip(t('foundMarker'), { permanent: true, direction: 'top', offset: [0, -16] })
+    .bindTooltip(asText(t('foundMarker')), { permanent: true, direction: 'top', offset: [0, -16] })
     .addTo(layers.found);
   if (state.mode === 'found') setMode(null);
   return found;
@@ -2201,7 +2229,7 @@ function drawMyPosition() {
   layers.me.clearLayers();
   L.circle(here, { radius: state.myPos.accuracy, color: '#0b57d0', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(layers.me);
   L.circleMarker(here, { radius: 9, color: '#fff', weight: 3, fillColor: '#0b57d0', fillOpacity: 1 })
-    .bindTooltip(t('youAreHere'))
+    .bindTooltip(asText(t('youAreHere')))
     .addTo(layers.me);
 }
 
@@ -2232,7 +2260,7 @@ function renderSearchers() {
     const name = p.name || t('searcherNoName');
     const label = minutes < 1 ? t('searcherNow', { name }) : t('searcherAgo', { name, minutes });
     L.circleMarker([p.lat, p.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#00897b', fillOpacity: minutes < 5 ? 1 : 0.55 })
-      .bindTooltip(label, { permanent: true, direction: 'right', offset: [8, 0], className: 'searcher-label' })
+      .bindTooltip(asText(label), { permanent: true, direction: 'right', offset: [8, 0], className: 'searcher-label' })
       .addTo(layers.others);
   }
 }
@@ -2827,6 +2855,12 @@ function start() {
   sync.setDbUrl(databaseUrl());
   // The shared case carries the engine's version, so a phone on another version can warn.
   sync.setEngineVersion(engine.ENGINE_VERSION);
+  // Updates still waiting from an earlier visit (posted with no signal, then the app was closed
+  // and reopened from the home screen, which opens no search): send them now. sync.js keeps
+  // trying every 15 s while anything is left, and again whenever the connection comes back.
+  const sendWaiting = () => sync.flushQueue().then(renderLiveStatus).catch(() => {});
+  sendWaiting();
+  window.addEventListener('online', sendWaiting);
   state.myName = recall('name') || '';
   els.myName.value = state.myName;
   els.myName.addEventListener('change', saveName);
@@ -2846,9 +2880,19 @@ function start() {
   setInterval(renderSearchers, 60 * 1000); // ages the "x min ago" labels and hides old dots
   setInterval(onClockTick, CLOCK_CHECK_MS); // redraws the map every 5 minutes as time passes
 
-  setMode('lastSeen');
   startWorker(); // in the background: warms the engine up before the first map is asked for
-  joinFromLink().then((joined) => { if (joined) setMode(null); });
+  // Opened from a share link: do NOT wait for a tap on the map while the search loads. (A tap
+  // then moved the last-seen point, which starts a new search and silently left the shared one.)
+  // (state.mode starts as 'lastSeen', so with a link it has to be switched off, not just left.)
+  const hasLink = /(^|[#&])(s|c)=/.test(location.hash);
+  setMode(hasLink ? null : 'lastSeen');
+  // A different share link opened in this same tab changes only the part after '#', which
+  // does not reload the page by itself: reload, so the new search is joined. (The app's own
+  // changes to the address use history.replaceState, which does not fire this.)
+  window.addEventListener('hashchange', () => location.reload());
+  joinFromLink()
+    .then((joined) => { if (!joined) setMode('lastSeen'); })
+    .catch((err) => { console.error(err); setMode('lastSeen'); });
 }
 
 // After a demo, re-running with a last-seen point still inside the demo area reuses the

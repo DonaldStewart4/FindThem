@@ -466,7 +466,8 @@ const EMERGENCY = [
 ];
 // It turned out to be someone else: not a sighting of the missing person.
 const OTHER_PERSON = [
-  /\b(wasn'?t (him|her|them)|was not (him|her|them)|not (him|her)|not our (guy|man|lady|woman|person|dad|mom)|someone else|somebody else|different (person|man|woman|guy|lady)|wrong person|false alarm)\b/,
+  // "Not her" only when "her" is the person: "not her usual route", "not her car" say nothing about who it was.
+  /\b(wasn'?t (him|them)|was not (him|them)|not him|(wasn'?t|was not|not) her(?!\s+(usual|normal|regular|own|car|coat|jacket|hat|bag|purse|house|home|route|way|walker|cane|dog|husband|daughter|son|sister|brother|friend|neighbou?r|caregiver|shoes?|clothes|self|street|style|fault|phone|glasses|hair|scarf|sweater|dress|room|door|name)\b)|not our (guy|man|lady|woman|person|dad|mom)|someone else|somebody else|different (person|man|woman|guy|lady)|wrong person|false alarm)\b/,
   /\b(no era el|no era ella|no es el|no es ella|otra persona|era otro|era otra|falsa alarma)\b/,
   /(ce n'etait pas (lui|elle)|c'etait pas (lui|elle)|pas (lui|elle)\b|quelqu'un d'autre|une autre personne|fausse alerte)/,
   /(不是他|不是她|另一个人|别人|认错|虚惊)/,
@@ -478,6 +479,26 @@ const OTHER_PERSON = [
   /(不是(我|我们)?(爸|妈|爸爸|妈妈|父亲|母亲|爷爷|奶奶|外公|外婆|老公|老婆))/,
   /((父|母|祖父|祖母|おじいちゃん|おばあちゃん|お父さん|お母さん|夫|妻)(じゃな|ではな|ではありま))/,
 ];
+// "Someone else SAW him", "otra persona lo vio", "quelqu'un d'autre l'a vu", "别人看到他", "別の人が見た":
+// here the other person is the one who saw (or said so), not the one who was seen. That is a
+// second-hand sighting, not "it was someone else". Each rule is (was/is)? + (the other person) +
+// (a see / say verb soon after, in the same clause). The other-person words are taken out before
+// OTHER_PERSON is checked, unless "was / is / era / c'était" comes right before them ("it was
+// someone else"). No lookbehind here: older iPhones can't read it.
+const OTHER_SEER = [
+  /\b((?:was|is|be|been|it's|that's|wasn't|isn't)\s+)?((?:someone|somebody) else|(?:a |the )?different (?:person|man|woman|guy|lady))\b(?!\s+(?:i|we)\b)([^.!?,;]{0,25}?\b(?:saw|spotted|noticed|(?:has|have|had) seen|says?|said|told|thinks?|thought|reported|posted|texted|messaged|mentioned)\b)/g,
+  /\b((?:era|es|fue)\s+)?(otra persona)\b([^.!?,;]{0,25}?\b(?:vio|ha visto|habia visto|dice|dijo|cree|aviso|reporto|comento|conto)\b)/g,
+  /((?:c'etait|c'est|etait|est)\s+)?(quelqu'un d'autre|une autre personne)([^.!?,;]{0,25}?\b(?:l'a vue?|les a vus|a vu|l'a apercue?|a apercu|l'a croisee?|dit|a dit|pense|croit|a signale)\b)/g,
+  /()(别人|另一个人)([^，。！？,.!?；;]{0,12}?(?:看到|看见|见到|见过|发现|说|告诉))/g,
+  /()(別の人)((?:が|も|は|から)[^。！？!?、,]{0,30}?(?:見|目撃|言))/g,
+];
+// true for "it turned out to be someone else" / "it wasn't him". `p` is plain() text.
+function readOtherPerson(p) {
+  // "是不是他" ("was it him?") contains "不是他" ("not him"): take the question out first.
+  let rest = p.replace(/是不是/g, '');
+  for (const re of OTHER_SEER) rest = rest.replace(re, (all, was, who, after) => (was ? all : ` ${after}`));
+  return any(OTHER_PERSON, rest);
+}
 // Reads like a joke or sarcasm.
 const JOKE = [
   /\b(lol|lmao|rofl|haha\w*|hehe\w*|jk|just kidding|kidding|joking|yeah right)\b/,
@@ -627,8 +648,8 @@ export function readSignals(text, places = [], { intersections = [], lang = 'en'
   // "Bus stop", "parada de autobús", "バス停" are places, not vehicles.
   const noStops = p.replace(/\b(bus stop|bus station|bus shelter|parada de(l)? (autobus|bus)|arret de bus|arret du bus)\b|(公交车站|公交站|巴士站|バス停)/g, ' ');
   if (VEHICLE[guessLanguage(text, lang)].test(noStops)) flags.push('vehicle');
-  // "是不是他" ("was it him?") contains "不是他" ("not him"): take the question out first.
-  if (any(OTHER_PERSON, p.replace(/是不是/g, ''))) flags.push('other_person');
+  // Not "was it him?" (是不是他) and not "someone else saw him": see readOtherPerson.
+  if (readOtherPerson(p)) flags.push('other_person');
   if (any(JOKE, p) || any(JOKE, l)) flags.push('joke');
   if (any(GUESS, p)) flags.push('guess');
 

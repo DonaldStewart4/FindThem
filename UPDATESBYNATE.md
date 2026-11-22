@@ -57,7 +57,7 @@ All of this is in your files. It was checked in headless Chrome (`tools/browser/
 ## Still not built
 
 - **GPS trail while holding a task** (a point every 10 s, attached to the `completed` event). Specified in `docs/PLANNER-MERGE.md` step 6.6; until then a finished task is credited from its planned route.
-- **The map does not fade where planner tasks were done.** The planner counts completed tasks itself; the picture on screen only fades for `searched` events from older links (`docs/PLANNER-MERGE.md` step 8).
+- ~~The map does not fade where planner tasks were done.~~ **Done in the audit fixes (Nov 22):** `engine/grid.js` `completedSearches` turns each finished task into `searched` events for the 200 m sectors along its route, inside `replay`, so the map fades on every phone. The planner is handed the map without them (`replay(..., { completed: false })` in `engine/host.js`), so nothing is counted twice. Finer than sector level is still `docs/PLANNER-MERGE.md` step 8.
 - **Foot / car switch.** Everyone is planned as on foot. (It also needs `mode` allowed on `searchers/<id>` in the rules, `sync.js` and the mock.)
 - **Team view on the map** (everyone's route at once). Only my own routes are drawn; the list under them shows danger spots nobody can cover and how much of the chance is covered.
 - **The spoken intake** in `docs/INTAKE-SPEC.md` (`caseGaps`, `validateCase`, `proposeClue`, `myAssignment`, `explain` in `docs/AGENT-CONTRACT.md`), and the leader line for reading a route aloud.
